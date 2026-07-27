@@ -12,6 +12,21 @@ import { Theme } from "./theme/Theme";
 import { listen } from "@tauri-apps/api/event";
 
 type Page = "home" | "spools" | "jobs" | "settings";
+type DesktopEventName = "open-job" | "watch-import";
+type DesktopEventSubscriber = (
+  name: DesktopEventName,
+  handler: (payload: unknown) => void,
+) => Promise<() => void>;
+type WatchImportEvent = {
+  ok: boolean;
+  job_id: string | null;
+  code: string | null;
+};
+
+const subscribeDesktopEvent: DesktopEventSubscriber = async (name, handler) => {
+  if (!("__TAURI_INTERNALS__" in globalThis)) return () => undefined;
+  return listen(name, (event) => handler(event.payload));
+};
 
 const stableErrorCodes = new Set([
   "archived_spool", "database", "duplicate_job", "file_not_stable",
@@ -33,9 +48,10 @@ function errorCode(error: unknown) {
   return "io";
 }
 
-export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf }: {
+export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscribeEvent = subscribeDesktopEvent }: {
   apiClient?: TauriApi;
   pickFile?: (filterName: string) => Promise<string | null>;
+  subscribeEvent?: DesktopEventSubscriber;
 }) {
   const locale = useLocale();
   const copy = (key: string) => t(key, {}, locale);
@@ -43,12 +59,14 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf }: {
   const [spools, setSpools] = useState<SpoolData[]>(apiClient.mode === "demo" ? demoSpools.map((spool) => ({ ...spool })) : []);
   const [slotAssignments, setSlotAssignments] = useState<SlotAssignment[]>(apiClient.mode === "demo" ? demoSlots.map((slot) => ({ ...slot })) : [1, 2, 3, 4].map((slot_number) => ({ slot_number: slot_number as 1 | 2 | 3 | 4, spool_id: null })));
   const [preview, setPreview] = useState<ImportPreview | null>(apiClient.mode === "demo" ? demoPreview : null);
+  const [queuedPreview, setQueuedPreview] = useState<ImportPreview | null>(null);
   const [settled, setSettled] = useState(false);
   const [result, setResult] = useState<SettlementResult | null>(null);
   const [loading, setLoading] = useState(apiClient.mode === "tauri");
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const busyRef = useRef(false);
+  const hasPendingPreview = useRef(Boolean(preview));
 
   const loadInventory = async () => {
     const [nextSpools, nextSlots] = await Promise.all([apiClient.listSpools(), apiClient.listSlots()]);
@@ -64,14 +82,55 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf }: {
     finally { setLoading(false); }
   };
   useEffect(() => { if (apiClient.mode === "tauri") void refresh(); }, []);
-  useEffect(()=>{
-    if(apiClient.mode!=="tauri"||!apiClient.getJobPreview)return;
-    let disposed=false;let unlisten:(()=>void)|undefined;
-    const openJob=async(jobId:string)=>{try{const next=await apiClient.getJobPreview!(jobId);if(!disposed){setPreview(next);setSettled(false);setResult(null);setPage("jobs");}}catch{if(!disposed)setError(copy("errors.invalid_job"));}};
-    void apiClient.takePendingJob?.().then((jobId)=>{if(jobId)void openJob(jobId)});
-    void listen<string>("open-job",(event)=>void openJob(event.payload)).then((stop)=>{if(disposed)stop();else unlisten=stop});
-    return()=>{disposed=true;unlisten?.();};
-  },[apiClient]);
+  useEffect(() => {
+    hasPendingPreview.current = Boolean(preview && !settled);
+  }, [preview, settled]);
+  useEffect(() => {
+    if (apiClient.mode !== "tauri" || !apiClient.getJobPreview) return;
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    const openJob = async (jobId: string, source: "navigation" | "watch") => {
+      try {
+        const next = await apiClient.getJobPreview!(jobId);
+        if (disposed) return;
+        if (source === "watch" && hasPendingPreview.current) {
+          setQueuedPreview(next);
+          return;
+        }
+        setPreview(next);
+        setSettled(false);
+        setResult(null);
+        if (source === "navigation") setPage("jobs");
+      } catch {
+        if (!disposed) setError(copy("errors.invalid_job"));
+      }
+    };
+    void apiClient.takePendingJob?.().then((jobId) => {
+      if (jobId) void openJob(jobId, "navigation");
+    });
+    void Promise.all([
+      subscribeEvent("open-job", (payload) => {
+        if (typeof payload === "string") {
+          void openJob(payload, "navigation").then(() => apiClient.takePendingJob?.());
+        }
+      }),
+      subscribeEvent("watch-import", (payload) => {
+        const event = payload as Partial<WatchImportEvent>;
+        if (event.ok && typeof event.job_id === "string") {
+          void openJob(event.job_id, "watch");
+        } else {
+          setError(copy(`errors.${errorCode({ code: event.code })}`));
+        }
+      }),
+    ]).then((stops) => {
+      if (disposed) stops.forEach((stop) => stop());
+      else unlisteners.push(...stops);
+    });
+    return () => {
+      disposed = true;
+      unlisteners.forEach((stop) => stop());
+    };
+  }, [apiClient, locale, subscribeEvent]);
 
   const slots = useMemo<SlotView[]>(() => {
     return slotAssignments.map((slot) => ({ ...slot, spool: spools.find((spool) => spool.spool_id === slot.spool_id) ?? null }));
@@ -122,6 +181,14 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf }: {
     setResult(null);
     setPage("jobs");
   });
+  const openQueuedPreview = () => {
+    if (!queuedPreview) return;
+    setPreview(queuedPreview);
+    setQueuedPreview(null);
+    setSettled(false);
+    setResult(null);
+    setPage("jobs");
+  };
   const busy = busyAction !== null;
   const nav = [
     ["home", House, "nav.home"], ["spools", Disc, "nav.spools"], ["jobs", Tray, "nav.jobs"], ["settings", GearSix, "nav.settings"],
@@ -136,8 +203,9 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf }: {
     </aside>
     <main className="content">
       {error ? <div className="app-error" role="alert">{error}<button onClick={refresh}>{copy("common.retry")}</button></div> : null}
+      {queuedPreview ? <div className="app-error watch-ready" role="status"><span>{copy("settings.watchedJobReady")}</span><button onClick={openQueuedPreview}>{copy("settings.openWatchedJob")}</button></div> : null}
       {loading ? <div className="skeleton-page" aria-label={copy("common.loading")}><i /><i /><i /></div> : null}
-      {page === "home" ? <Home slots={slots} spools={spools} pendingJobs={preview && !settled ? 1 : 0} busy={busy} importing={busyAction === "import"} onImport={openImport} /> : null}
+      {page === "home" ? <Home slots={slots} spools={spools} pendingJobs={(preview && !settled ? 1 : 0) + (queuedPreview ? 1 : 0)} busy={busy} importing={busyAction === "import"} onImport={openImport} /> : null}
       {page === "spools" ? <Spools spools={spools} slotBySpool={slotBySpool} busy={busy} onCreate={actions.create} onCalibrate={actions.calibrate} onArchive={actions.archive} onMount={actions.mount} onUnmount={actions.unmount} onMove={actions.move} /> : null}
       {page === "jobs" ? <Job preview={preview} spools={spools} settled={settled} result={result} busy={busy} onConfirmMapping={actions.map} onSettle={actions.settle} onConfirmNewPrint={actions.repeat} onReverse={actions.reverse} /> : null}
       {page === "settings" ? <Settings apiClient={apiClient} onRestored={refresh} /> : null}

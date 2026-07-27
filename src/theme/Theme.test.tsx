@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getSystemTheme,
@@ -187,6 +187,24 @@ describe("Theme", () => {
   it("has document and window safe theme helpers", () => {
     expect(getSystemTheme(null)).toBe("light");
     expect(() => syncThemeDocument("dark", null)).not.toThrow();
+  });
+
+  it("synchronizes a manual theme received from another WebView", async () => {
+    render(
+      <Theme>
+        <ThemeProbe />
+      </Theme>,
+    );
+
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key: THEME_KEY,
+        newValue: "dark",
+      }));
+    });
+
+    expect(screen.getByTestId("probe")).toHaveAttribute("data-mode", "dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
 });

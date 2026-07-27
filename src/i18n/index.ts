@@ -93,6 +93,37 @@ export function syncDocumentLocale(
 
 syncDocumentLocale(currentLocale);
 
+function notifyLocale(locale: SupportedLocale): void {
+  currentLocale = locale;
+  syncDocumentLocale(locale);
+  listeners.forEach((listener) => listener());
+}
+
+export function applyStoredLocale(value: string | null): boolean {
+  if (!supportedLocales.includes(value as SupportedLocale)) return false;
+  const locale = value as SupportedLocale;
+  if (locale !== currentLocale) notifyLocale(locale);
+  return true;
+}
+
+try {
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", (event) => {
+      if (event.key === LOCALE_KEY) applyStoredLocale(event.newValue);
+    });
+  }
+} catch {
+  // Cross-window synchronization is optional in non-browser contexts.
+}
+
+function syncNativeLocale(locale: SupportedLocale): void {
+  if ("__TAURI_INTERNALS__" in globalThis) {
+    void invoke("set_native_locale", { locale }).catch(() => undefined);
+  }
+}
+
+syncNativeLocale(currentLocale);
+
 export function getLocale(): SupportedLocale {
   return currentLocale;
 }
@@ -101,13 +132,9 @@ export async function setLocale(locale: SupportedLocale): Promise<void> {
   if (!supportedLocales.includes(locale)) {
     throw new TypeError(`Unsupported locale: ${String(locale)}`);
   }
-  currentLocale = locale;
   persistLocale(locale);
-  syncDocumentLocale(locale);
-  listeners.forEach((listener) => listener());
-  if ("__TAURI_INTERNALS__" in globalThis) {
-    void invoke("set_native_locale",{locale}).catch(()=>undefined);
-  }
+  notifyLocale(locale);
+  syncNativeLocale(locale);
 }
 
 export function useLocale(): SupportedLocale {

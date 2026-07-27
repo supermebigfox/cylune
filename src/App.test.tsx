@@ -174,4 +174,41 @@ describe("App localization", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("无法识别这个文件");
     expect(screen.getAllByRole("button", { name: "导入切片文件" })[0]).toBeEnabled();
   });
+
+  it("queues a watched print instead of replacing an unsettled preview", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const subscribeEvent = vi.fn(async (
+      name: "open-job" | "watch-import",
+      handler: (payload: unknown) => void,
+    ) => {
+      handlers.set(name, handler);
+      return () => handlers.delete(name);
+    });
+    const getJobPreview = vi.fn(async (jobId: string) => ({
+      ...demoPreview,
+      job_id: jobId,
+      source_file_name: `${jobId}.gcode.3mf`,
+    }));
+    render(<DesktopApp
+      apiClient={fakeTauriApi({ getJobPreview })}
+      pickFile={async () => null}
+      subscribeEvent={subscribeEvent}
+    />);
+    await waitFor(() => expect(handlers.has("watch-import")).toBe(true));
+
+    await act(async () => {
+      handlers.get("watch-import")?.({ ok: true, job_id: "first", code: null });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "打印任务" }));
+    expect(await screen.findByText("first.gcode.3mf")).toBeVisible();
+
+    await act(async () => {
+      handlers.get("watch-import")?.({ ok: true, job_id: "second", code: null });
+    });
+    expect(await screen.findByText("监测文件夹发现了一个待结算任务")).toBeVisible();
+    expect(screen.getByText("first.gcode.3mf")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "查看任务" }));
+    expect(await screen.findByText("second.gcode.3mf")).toBeVisible();
+  });
 });

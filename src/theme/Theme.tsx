@@ -116,6 +116,19 @@ export function Theme({ children }: { children: ReactNode }) {
     return () => media.removeListener(followSystem);
   }, [manual]);
 
+  useEffect(() => {
+    const host = typeof window === "undefined" ? null : window;
+    if (!host) return;
+    const syncStoredTheme = (event: StorageEvent) => {
+      if (event.key !== THEME_KEY) return;
+      if (event.newValue === "light" || event.newValue === "dark") {
+        setState({ manual: true, theme: event.newValue });
+      }
+    };
+    host.addEventListener("storage", syncStoredTheme);
+    return () => host.removeEventListener("storage", syncStoredTheme);
+  }, []);
+
   const setTheme = useCallback((next: ThemeMode) => {
     persistTheme(next);
     setState({ manual: true, theme: next });

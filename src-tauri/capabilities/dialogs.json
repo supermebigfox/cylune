@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-dialog-capability",
+  "description": "Allow only the main window to choose print, watch, and backup paths.",
+  "windows": ["main"],
+  "permissions": ["dialog:allow-open", "dialog:allow-save"]
+}

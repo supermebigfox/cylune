@@ -30,14 +30,40 @@ pub fn run() {
             let inventory_database = AppDatabase::open(&database_path)?;
             let print_database = AppDatabase::open(&database_path)?;
             let saved_watch: Option<String> = print_database.connection.query_row("SELECT setting_value FROM app_settings WHERE setting_key='watch_folder' AND EXISTS(SELECT 1 FROM app_settings WHERE setting_key='watch_enabled' AND setting_value='true')",[],|row|row.get(0)).optional()?;
+            let initial_locale: String = print_database
+                .connection
+                .query_row(
+                    "SELECT setting_value FROM app_settings WHERE setting_key='locale'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .filter(|locale: &String| matches!(locale.as_str(), "zh-CN" | "zh-TW" | "en"))
+                .unwrap_or_else(|| "zh-CN".to_owned());
             app.manage(InventoryState::new(InventoryService::new(
                 inventory_database,
             )));
             app.manage(PrintState::new(PrintService::new(print_database)));
             app.manage(tray::WatchState(std::sync::Mutex::new(None)));
-            app.manage(tray::PendingNavigation(std::sync::Mutex::new(None)));
-            tray::setup(app)?;
-            if let Some(folder)=saved_watch { let _=tray::set_watch_folder(app.handle().clone(),Some(folder),app.state(),app.state()); }
+            tray::setup(app, &initial_locale)?;
+            if let Some(folder) = saved_watch {
+                if tray::set_watch_folder(
+                    app.handle().clone(),
+                    Some(folder),
+                    app.state(),
+                    app.state(),
+                )
+                .is_err()
+                {
+                    let print_state = app.state::<PrintState>();
+                    if let Ok(service) = print_state.lock() {
+                        let _ = service.database.connection.execute(
+                            "DELETE FROM app_settings WHERE setting_key IN ('watch_folder','watch_enabled')",
+                            [],
+                        );
+                    };
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

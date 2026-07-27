@@ -175,8 +175,13 @@
     "localNotifications": "本機通知",
     "export": "匯出備份",
     "restore": "還原備份",
+    "backupFilter": "耗材管家 JSON 備份",
+    "backupFileName": "耗材管家-備份.json",
+    "working": "正在處理本機資料，請稍候",
     "backupDone": "備份已安全匯出",
-    "restoreDone": "資料已還原，還原前備份也已建立"
+    "restoreDone": "資料已還原，還原前備份也已建立",
+    "watchedJobReady": "監測資料夾發現了一個待結算任務",
+    "openWatchedJob": "查看任務"
   },
   "notifications": {
     "imported": "列印檔案已匯入",

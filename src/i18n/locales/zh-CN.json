@@ -175,8 +175,13 @@
     "localNotifications": "本机通知",
     "export": "导出备份",
     "restore": "恢复备份",
+    "backupFilter": "耗材管家 JSON 备份",
+    "backupFileName": "耗材管家-备份.json",
+    "working": "正在处理本地数据，请稍候",
     "backupDone": "备份已安全导出",
-    "restoreDone": "数据已恢复，恢复前备份也已创建"
+    "restoreDone": "数据已恢复，恢复前备份也已创建",
+    "watchedJobReady": "监测文件夹发现了一个待结算任务",
+    "openWatchedJob": "查看任务"
   },
   "notifications": {
     "imported": "打印文件已导入",

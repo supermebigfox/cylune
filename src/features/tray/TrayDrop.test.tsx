@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { setLocale } from "../../i18n";
 import { TrayDrop } from "./TrayDrop";
@@ -29,4 +29,23 @@ it("imports one file at a time and opens the resulting job in the main window", 
   expect(await screen.findByText("文件已读取，可以核对耗材卷")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "查看并绑定耗材卷" }));
   expect(onOpenJob).toHaveBeenCalledWith("job-9");
+});
+
+it("deduplicates only a short drop burst and allows deliberate repeat printing", async()=>{
+  vi.useFakeTimers();
+  const onImport=vi.fn(async()=>({job_id:"job",source_file_name:"repeat.gcode.3mf"}));
+  render(<TrayDrop onImport={onImport} onOpenJob={vi.fn()}/>);const zone=screen.getByTestId("menu-dropzone");
+  await act(async()=>{fireEvent.drop(zone,{dataTransfer:{files:[file("repeat.gcode.3mf")]}});await Promise.resolve();});
+  fireEvent.drop(zone,{dataTransfer:{files:[file("repeat.gcode.3mf")]}});expect(onImport).toHaveBeenCalledTimes(1);
+  await act(async()=>{vi.advanceTimersByTime(2100);fireEvent.drop(zone,{dataTransfer:{files:[file("repeat.gcode.3mf")]}});await Promise.resolve();});
+  expect(onImport).toHaveBeenCalledTimes(2);vi.useRealTimers();
+});
+
+it("replays a transform-only entrance class whenever the native popover opens",async()=>{
+  let show!:()=>void;const subscribe=vi.fn(async(handler:()=>void)=>{show=handler;return()=>undefined});
+  render(<TrayDrop onImport={vi.fn()} onOpenJob={vi.fn()} subscribeVisibility={subscribe}/>);
+  await waitFor(()=>expect(subscribe).toHaveBeenCalled());act(()=>show());
+  expect(screen.getByTestId("tray-popover")).toHaveClass("entering");
+  fireEvent.animationEnd(screen.getByTestId("tray-popover"));expect(screen.getByTestId("tray-popover")).not.toHaveClass("entering");
+  act(()=>show());expect(screen.getByTestId("tray-popover")).toHaveClass("entering");
 });

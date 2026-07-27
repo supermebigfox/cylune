@@ -4,6 +4,7 @@ import zhCN from "./locales/zh-CN.json";
 import zhTW from "./locales/zh-TW.json";
 import {
   LOCALE_KEY,
+  applyStoredLocale,
   syncDocumentLocale,
   detectLocale,
   getLocale,
@@ -143,5 +144,14 @@ describe("localization", () => {
     expect(document.documentElement.lang).toBe("zh-TW");
 
     if (descriptor) Object.defineProperty(navigator, "languages", descriptor);
+  });
+
+  it("applies locale changes received from another WebView", async () => {
+    await setLocale("zh-CN");
+
+    expect(applyStoredLocale("en")).toBe(true);
+    expect(getLocale()).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    expect(applyStoredLocale("unsupported")).toBe(false);
   });
 });

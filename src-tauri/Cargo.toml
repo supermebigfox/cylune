@@ -2,7 +2,7 @@
 name = "bambu-pools"
 version = "0.1.0"
 description = "Local Bambu filament manager"
-authors = ["you"]
+authors = ["Spool Keeper"]
 edition = "2021"
 
 [lib]

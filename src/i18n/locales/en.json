@@ -175,8 +175,13 @@
     "localNotifications": "Local notifications",
     "export": "Export backup",
     "restore": "Restore backup",
+    "backupFilter": "Spool Keeper JSON backup",
+    "backupFileName": "spool-keeper-backup.json",
+    "working": "Working with local data…",
     "backupDone": "Backup exported safely",
-    "restoreDone": "Data restored and a pre-restore backup was created"
+    "restoreDone": "Data restored and a pre-restore backup was created",
+    "watchedJobReady": "The watched folder found a print awaiting settlement",
+    "openWatchedJob": "View job"
   },
   "notifications": {
     "imported": "Print file imported",
