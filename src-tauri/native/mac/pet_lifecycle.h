@@ -1,21 +1,31 @@
 #ifndef BAMBU_POOLS_PET_LIFECYCLE_H
 #define BAMBU_POOLS_PET_LIFECYCLE_H
 
-class PetMonitorLifecycle {
+inline double PetInteractionSide(double diameter) {
+  constexpr double kSquareRootOfTwo = 1.4142135623730950488;
+  constexpr double kInteractionInset = 1.0;
+  const double side =
+      diameter / kSquareRootOfTwo - (2.0 * kInteractionInset);
+  return side > 0.0 ? side : 0.0;
+}
+
+class PetWindowLifecycle {
  public:
   bool show() {
-    if (destroyed_ || monitor_active_) {
+    if (destroyed_ || (visual_visible_ && interaction_visible_)) {
       return false;
     }
-    monitor_active_ = true;
+    visual_visible_ = true;
+    interaction_visible_ = true;
     return true;
   }
 
   bool hide() {
-    if (!monitor_active_) {
+    if (!visual_visible_ && !interaction_visible_) {
       return false;
     }
-    monitor_active_ = false;
+    visual_visible_ = false;
+    interaction_visible_ = false;
     return true;
   }
 
@@ -23,16 +33,19 @@ class PetMonitorLifecycle {
     if (destroyed_) {
       return false;
     }
-    monitor_active_ = false;
+    visual_visible_ = false;
+    interaction_visible_ = false;
     destroyed_ = true;
     return true;
   }
 
-  bool monitor_active() const { return monitor_active_; }
+  bool visual_visible() const { return visual_visible_; }
+  bool interaction_visible() const { return interaction_visible_; }
   bool destroyed() const { return destroyed_; }
 
  private:
-  bool monitor_active_ = false;
+  bool visual_visible_ = false;
+  bool interaction_visible_ = false;
   bool destroyed_ = false;
 };
 

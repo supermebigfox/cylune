@@ -13,8 +13,6 @@ static const uint32_t kPetAbiVersion = 1;
 static const CGFloat kPetMinimumSize = 120.0;
 static const CGFloat kPetMaximumSize = 360.0;
 
-static void RunOnMain(dispatch_block_t block);
-
 static_assert(sizeof(PetConfig) == 32, "PetConfig ABI size changed");
 static_assert(alignof(PetConfig) == 8, "PetConfig ABI alignment changed");
 static_assert(offsetof(PetConfig, abi_version) == 0,
@@ -38,17 +36,20 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 @end
 
 @interface BPPetView : NSView
-@property(nonatomic, weak) BPPetHost *petHost;
 - (void)setReduceMotion:(BOOL)reduceMotion;
 - (void)setAnimating:(BOOL)animating;
 - (void)pulse;
 @end
 
+@interface BPPetInteractionView : NSView
+@property(nonatomic, weak) BPPetHost *petHost;
+@end
+
 @interface BPPetHost : NSObject
 @property(nonatomic, strong) BPPetPanel *panel;
+@property(nonatomic, strong) BPPetPanel *interactionPanel;
 @property(nonatomic, strong) BPPetView *petView;
-@property(nonatomic, strong) id localMouseMonitor;
-@property(nonatomic, strong) id globalMouseMonitor;
+@property(nonatomic, strong) BPPetInteractionView *interactionView;
 @property(nonatomic, assign) BOOL gestureActive;
 @property(nonatomic, assign) NSPoint gestureMouseOrigin;
 @property(nonatomic, assign) NSPoint gesturePanelOrigin;
@@ -61,9 +62,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 - (void)beginGestureAt:(NSPoint)screenPoint;
 - (void)continueGestureAt:(NSPoint)screenPoint;
 - (void)endGesture;
-- (void)startPointerMonitors;
-- (void)stopPointerMonitors;
-- (void)updatePointerInteraction;
+- (void)syncInteractionFrame;
 - (void)shutdown;
 @end
 
@@ -162,28 +161,6 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   [CATransaction commit];
 }
 
-- (NSView *)hitTest:(NSPoint)point {
-  const NSPoint center = NSMakePoint(NSMidX(self.bounds), NSMidY(self.bounds));
-  const CGFloat dx = point.x - center.x;
-  const CGFloat dy = point.y - center.y;
-  const CGFloat radius = MIN(NSWidth(self.bounds), NSHeight(self.bounds)) / 2.0;
-  return ((dx * dx) + (dy * dy) <= radius * radius)
-             ? [super hitTest:point]
-             : nil;
-}
-
-- (void)mouseDown:(NSEvent *)event {
-  [self.petHost beginGestureAt:NSEvent.mouseLocation];
-}
-
-- (void)mouseDragged:(NSEvent *)event {
-  [self.petHost continueGestureAt:NSEvent.mouseLocation];
-}
-
-- (void)mouseUp:(NSEvent *)event {
-  [self.petHost endGesture];
-}
-
 - (void)setReduceMotion:(BOOL)reduceMotion {
   if (_reduceMotion == reduceMotion) {
     return;
@@ -249,9 +226,28 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 
 @end
 
+@implementation BPPetInteractionView
+
+- (void)mouseDown:(NSEvent *)event {
+  (void)event;
+  [self.petHost beginGestureAt:NSEvent.mouseLocation];
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+  (void)event;
+  [self.petHost continueGestureAt:NSEvent.mouseLocation];
+}
+
+- (void)mouseUp:(NSEvent *)event {
+  (void)event;
+  [self.petHost endGesture];
+}
+
+@end
+
 @implementation BPPetHost {
   PetCallback _callback;
-  PetMonitorLifecycle _monitorLifecycle;
+  PetWindowLifecycle _windowLifecycle;
 }
 
 - (instancetype)initWithCallback:(PetCallback)callback {
@@ -272,14 +268,43 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
     _panel.hidesOnDeactivate = NO;
     _panel.releasedWhenClosed = NO;
     _panel.restorable = NO;
+    _panel.ignoresMouseEvents = YES;
     _panel.collectionBehavior =
         NSWindowCollectionBehaviorCanJoinAllSpaces |
         NSWindowCollectionBehaviorFullScreenAuxiliary;
 
     _petView = [[BPPetView alloc] initWithFrame:frame];
     _petView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    _petView.petHost = self;
     _panel.contentView = _petView;
+
+    const CGFloat interactionSide = (CGFloat)PetInteractionSide(220.0);
+    const NSRect interactionFrame =
+        NSMakeRect(0.0, 0.0, interactionSide, interactionSide);
+    _interactionPanel = [[BPPetPanel alloc]
+        initWithContentRect:interactionFrame
+                  styleMask:(NSWindowStyleMaskBorderless |
+                             NSWindowStyleMaskNonactivatingPanel)
+                    backing:NSBackingStoreBuffered
+                      defer:NO];
+    _interactionPanel.opaque = NO;
+    _interactionPanel.backgroundColor = NSColor.clearColor;
+    _interactionPanel.hasShadow = NO;
+    _interactionPanel.level = NSFloatingWindowLevel;
+    _interactionPanel.hidesOnDeactivate = NO;
+    _interactionPanel.releasedWhenClosed = NO;
+    _interactionPanel.restorable = NO;
+    _interactionPanel.ignoresMouseEvents = NO;
+    _interactionPanel.collectionBehavior =
+        NSWindowCollectionBehaviorCanJoinAllSpaces |
+        NSWindowCollectionBehaviorFullScreenAuxiliary;
+
+    _interactionView =
+        [[BPPetInteractionView alloc] initWithFrame:interactionFrame];
+    _interactionView.autoresizingMask =
+        NSViewWidthSizable | NSViewHeightSizable;
+    _interactionView.petHost = self;
+    _interactionPanel.contentView = _interactionView;
+    [_panel addChildWindow:_interactionPanel ordered:NSWindowAbove];
     [self reset];
   }
   return self;
@@ -292,6 +317,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   const NSRect frame =
       NSMakeRect(center.x - size / 2.0, center.y - size / 2.0, size, size);
   [self.panel setFrame:frame display:YES animate:NO];
+  [self syncInteractionFrame];
   [self.petView setReduceMotion:config.reduce_motion != 0];
 
   if (config.visible != 0) {
@@ -302,20 +328,21 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 }
 
 - (void)show {
-  if (_monitorLifecycle.destroyed()) {
+  if (_windowLifecycle.destroyed()) {
     return;
   }
-  [self startPointerMonitors];
-  [self updatePointerInteraction];
+  _windowLifecycle.show();
+  [self syncInteractionFrame];
   [self.petView setAnimating:YES];
   [self.panel orderFrontRegardless];
+  [self.interactionPanel orderFrontRegardless];
 }
 
 - (void)hide {
   self.gestureActive = NO;
-  [self stopPointerMonitors];
+  _windowLifecycle.hide();
   [self.petView setAnimating:NO];
-  self.panel.ignoresMouseEvents = YES;
+  [self.interactionPanel orderOut:nil];
   [self.panel orderOut:nil];
 }
 
@@ -330,6 +357,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
       NSMakePoint(NSMidX(visibleFrame) - NSWidth(frame) / 2.0,
                   NSMidY(visibleFrame) - NSHeight(frame) / 2.0);
   [self.panel setFrame:frame display:NO];
+  [self syncInteractionFrame];
 }
 
 - (void)signal:(uint32_t)signal {
@@ -341,7 +369,6 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   self.gestureActive = YES;
   self.gestureMouseOrigin = screenPoint;
   self.gesturePanelOrigin = self.panel.frame.origin;
-  self.panel.ignoresMouseEvents = NO;
 }
 
 - (void)continueGestureAt:(NSPoint)screenPoint {
@@ -354,87 +381,34 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   [self.panel
       setFrameOrigin:NSMakePoint(self.gesturePanelOrigin.x + delta.x,
                                  self.gesturePanelOrigin.y + delta.y)];
+  [self syncInteractionFrame];
 }
 
 - (void)endGesture {
   self.gestureActive = NO;
-  [self updatePointerInteraction];
 }
 
-- (void)startPointerMonitors {
-  if (!_monitorLifecycle.show()) {
-    return;
-  }
-
-  const NSEventMask pointerMask =
-      NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged |
-      NSEventMaskRightMouseDragged | NSEventMaskOtherMouseDragged;
-  __weak BPPetHost *weakSelf = self;
-  self.localMouseMonitor =
-      [NSEvent addLocalMonitorForEventsMatchingMask:pointerMask
-                                            handler:^NSEvent *(NSEvent *event) {
-                                              [weakSelf
-                                                  updatePointerInteraction];
-                                              return event;
-                                            }];
-  self.globalMouseMonitor =
-      [NSEvent addGlobalMonitorForEventsMatchingMask:pointerMask
-                                              handler:^(NSEvent *event) {
-                                                (void)event;
-                                                BPPetHost *host = weakSelf;
-                                                if (host == nil) {
-                                                  return;
-                                                }
-                                                RunOnMain(^{
-                                                  [host
-                                                      updatePointerInteraction];
-                                                });
-                                              }];
-
-  if (self.localMouseMonitor == nil || self.globalMouseMonitor == nil) {
-    [self stopPointerMonitors];
-  }
-}
-
-- (void)stopPointerMonitors {
-  if (self.localMouseMonitor != nil) {
-    [NSEvent removeMonitor:self.localMouseMonitor];
-    self.localMouseMonitor = nil;
-  }
-  if (self.globalMouseMonitor != nil) {
-    [NSEvent removeMonitor:self.globalMouseMonitor];
-    self.globalMouseMonitor = nil;
-  }
-  _monitorLifecycle.hide();
-}
-
-- (void)updatePointerInteraction {
-  if (!_monitorLifecycle.monitor_active()) {
-    return;
-  }
-  if (self.gestureActive) {
-    self.panel.ignoresMouseEvents = NO;
-    return;
-  }
-
-  const NSPoint mouse = NSEvent.mouseLocation;
-  const NSRect frame = self.panel.frame;
-  const CGFloat dx = mouse.x - NSMidX(frame);
-  const CGFloat dy = mouse.y - NSMidY(frame);
-  const CGFloat radius = MIN(NSWidth(frame), NSHeight(frame)) / 2.0;
-  self.panel.ignoresMouseEvents =
-      ((dx * dx) + (dy * dy) > radius * radius);
+- (void)syncInteractionFrame {
+  const NSRect visualFrame = self.panel.frame;
+  const CGFloat side =
+      (CGFloat)PetInteractionSide(NSWidth(visualFrame));
+  const NSRect interactionFrame =
+      NSMakeRect(NSMidX(visualFrame) - side / 2.0,
+                 NSMidY(visualFrame) - side / 2.0, side, side);
+  [self.interactionPanel setFrame:interactionFrame display:NO];
 }
 
 - (void)shutdown {
-  [self stopPointerMonitors];
-  _monitorLifecycle.destroy();
-  self.gestureActive = NO;
-  self.petView.petHost = nil;
-  [self.petView setAnimating:NO];
-  [self.panel orderOut:nil];
+  [self hide];
+  _windowLifecycle.destroy();
+  self.interactionView.petHost = nil;
+  [self.panel removeChildWindow:self.interactionPanel];
+  [self.interactionPanel close];
+  self.interactionPanel.contentView = nil;
   [self.panel close];
   self.panel.contentView = nil;
+  self.interactionView = nil;
+  self.interactionPanel = nil;
   self.petView = nil;
   self.panel = nil;
   _callback = nullptr;
