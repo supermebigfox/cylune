@@ -1,17 +1,18 @@
 pub mod gcode;
 pub mod three_mf;
 
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub use three_mf::parse_3mf;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParsedPrintFile {
     pub filaments: Vec<FilamentProfile>,
     pub gcode: gcode::GcodeReport,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FilamentProfile {
     pub tool: u8,
     pub preset_id: String,

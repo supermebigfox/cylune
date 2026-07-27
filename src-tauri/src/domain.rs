@@ -5,6 +5,7 @@ use uuid::Uuid;
 pub struct Spool {
     pub spool_id: Uuid,
     pub display_name: String,
+    pub preset_id: Option<String>,
     pub brand: String,
     pub material: String,
     pub series: String,
@@ -87,6 +88,7 @@ mod tests {
         let spool = Spool {
             spool_id,
             display_name: "Left AMS spool".to_owned(),
+            preset_id: Some("Bambu PLA Basic @BBL A1".to_owned()),
             brand: "Bambu Lab".to_owned(),
             material: "PLA".to_owned(),
             series: "Basic".to_owned(),

@@ -11,6 +11,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewSpool {
     pub display_name: String,
+    #[serde(default)]
+    pub preset_id: Option<String>,
     pub brand: String,
     pub material: String,
     pub series: String,
@@ -29,6 +31,10 @@ impl InventoryService {
         Self { database }
     }
 
+    pub fn into_database(self) -> AppDatabase {
+        self.database
+    }
+
     pub fn create_spool(&mut self, spool: NewSpool) -> Result<Uuid> {
         let spool_id = Uuid::new_v4();
         let status = if spool.remaining_grams == 0.0 {
@@ -38,10 +44,11 @@ impl InventoryService {
         };
         let transaction = self.database.connection.transaction()?;
         transaction.execute(
-            "INSERT INTO spools (spool_id, display_name, brand, material, series, color_hex, remaining_grams, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO spools (spool_id, display_name, preset_id, brand, material, series, color_hex, remaining_grams, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 spool_id.to_string(),
                 spool.display_name,
+                spool.preset_id,
                 spool.brand,
                 spool.material,
                 spool.series,
@@ -65,7 +72,7 @@ impl InventoryService {
 
     pub fn get_spool(&self, spool_id: Uuid) -> Result<Spool> {
         self.database.connection.query_row(
-            "SELECT spool_id, display_name, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE spool_id = ?1",
+            "SELECT spool_id, display_name, preset_id, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE spool_id = ?1",
             params![spool_id.to_string()],
             spool_from_row,
         ).map_err(Into::into)
@@ -271,7 +278,7 @@ impl InventoryService {
 
     pub fn list_spools(&self) -> Result<Vec<Spool>> {
         let mut statement = self.database.connection.prepare(
-            "SELECT spool_id, display_name, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE status <> 'archived' ORDER BY created_at, spool_id",
+            "SELECT spool_id, display_name, preset_id, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE status <> 'archived' ORDER BY created_at, spool_id",
         )?;
         let spools = statement
             .query_map([], spool_from_row)?
@@ -295,7 +302,7 @@ fn ensure_slot_exists(transaction: &rusqlite::Transaction<'_>, slot_number: u8) 
 
 fn spool_in_transaction(transaction: &rusqlite::Transaction<'_>, spool_id: Uuid) -> Result<Spool> {
     transaction.query_row(
-        "SELECT spool_id, display_name, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE spool_id = ?1",
+        "SELECT spool_id, display_name, preset_id, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE spool_id = ?1",
         params![spool_id.to_string()],
         spool_from_row,
     ).map_err(Into::into)
@@ -360,7 +367,7 @@ fn status_for(is_archived: bool, is_mounted: bool, remaining_grams: f64) -> &'st
 }
 
 fn spool_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Spool> {
-    let status: String = row.get(7)?;
+    let status: String = row.get(8)?;
     Ok(Spool {
         spool_id: row.get::<_, String>(0)?.parse().map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
@@ -370,11 +377,12 @@ fn spool_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Spool> {
             )
         })?,
         display_name: row.get(1)?,
-        brand: row.get(2)?,
-        material: row.get(3)?,
-        series: row.get(4)?,
-        color_hex: row.get(5)?,
-        remaining_grams: row.get(6)?,
+        preset_id: row.get(2)?,
+        brand: row.get(3)?,
+        material: row.get(4)?,
+        series: row.get(5)?,
+        color_hex: row.get(6)?,
+        remaining_grams: row.get(7)?,
         status: spool_status(&status)?,
     })
 }
@@ -482,6 +490,7 @@ mod tests {
     fn new_bambu_black() -> NewSpool {
         NewSpool {
             display_name: "Bambu PLA Basic Black".to_owned(),
+            preset_id: None,
             brand: "Bambu Lab".to_owned(),
             material: "PLA".to_owned(),
             series: "Basic".to_owned(),

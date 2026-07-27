@@ -3,15 +3,16 @@ use std::io::BufRead;
 
 use crate::domain::Confidence;
 use crate::error::{AppError, Result};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayerUsage {
     pub layer: u32,
     pub cumulative_mm: BTreeMap<u8, f64>,
     pub confidence: Confidence,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GcodeReport {
     pub layers: Vec<LayerUsage>,
     pub totals_mm: BTreeMap<u8, f64>,
@@ -105,8 +106,19 @@ pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
 
 fn layer_marker(line: &str) -> Option<u32> {
     let (_, comment) = line.split_once(';')?;
-    let value = comment.trim().strip_prefix("LAYER:")?;
-    value.split_ascii_whitespace().next()?.parse().ok()
+    let comment = comment.trim();
+    if let Some(value) = comment.strip_prefix("LAYER:") {
+        return value.split_ascii_whitespace().next()?.parse().ok();
+    }
+    let progress = comment.strip_prefix("layer num/total_layer_count:")?;
+    progress
+        .trim()
+        .split('/')
+        .next()?
+        .trim()
+        .parse::<u32>()
+        .ok()?
+        .checked_sub(1)
 }
 
 fn add_layers_through(layers: &mut Vec<LayerUsage>, layer: u32, totals_mm: &BTreeMap<u8, f64>) {
@@ -187,6 +199,18 @@ mod tests {
 
         assert_eq!(report.layers[0].cumulative_mm[&0], 1.25);
         assert_eq!(report.max_layer, 1);
+    }
+
+    #[test]
+    fn recognizes_bambu_one_based_layer_progress_comments() {
+        let src = b"M83\n; layer num/total_layer_count: 1/3\nG1 E2\n; layer num/total_layer_count: 2/3\nG1 E3\n; layer num/total_layer_count: 3/3\nG1 E4\n";
+
+        let report = parse_gcode(&src[..]).unwrap();
+
+        assert_eq!(report.max_layer, 3);
+        assert_eq!(report.layers[0].cumulative_mm[&0], 2.0);
+        assert_eq!(report.layers[1].cumulative_mm[&0], 5.0);
+        assert_eq!(report.layers[2].cumulative_mm[&0], 9.0);
     }
 
     #[test]

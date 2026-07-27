@@ -13,6 +13,10 @@ pub enum AppError {
     InvalidSlot,
     ArchivedSpool,
     DuplicateJob,
+    FileNotStable,
+    InvalidJob,
+    InvalidMapping,
+    InsufficientFilament,
     Database(String),
     Io(String),
 }
@@ -27,6 +31,10 @@ impl AppError {
             Self::InvalidSlot => "invalid_slot",
             Self::ArchivedSpool => "archived_spool",
             Self::DuplicateJob => "duplicate_job",
+            Self::FileNotStable => "file_not_stable",
+            Self::InvalidJob => "invalid_job",
+            Self::InvalidMapping => "invalid_mapping",
+            Self::InsufficientFilament => "insufficient_filament",
             Self::Database(_) => "database",
             Self::Io(_) => "io",
         }

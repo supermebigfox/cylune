@@ -4,6 +4,7 @@ use std::path::Path;
 
 const INITIAL_MIGRATION: &str = include_str!("../migrations/001_init.sql");
 const LEDGER_CREATION_MIGRATION: &str = include_str!("../migrations/002_ledger_creation.sql");
+const PRINT_JOBS_MIGRATION: &str = include_str!("../migrations/003_print_jobs.sql");
 
 pub struct AppDatabase {
     pub(crate) connection: Connection,
@@ -24,6 +25,11 @@ impl AppDatabase {
         if !ledger_supports_creation(&connection)? {
             connection.execute_batch(LEDGER_CREATION_MIGRATION)?;
         }
+        if table_exists(&connection, "job_consumption")?
+            && !table_exists(&connection, "job_imports")?
+        {
+            connection.execute_batch(PRINT_JOBS_MIGRATION)?;
+        }
         Ok(Self { connection })
     }
 
@@ -36,6 +42,15 @@ impl AppDatabase {
 
         Ok(exists != 0)
     }
+}
+
+fn table_exists(connection: &Connection, table: &str) -> Result<bool> {
+    let exists = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+        params![table],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok(exists != 0)
 }
 
 fn ledger_supports_creation(connection: &Connection) -> Result<bool> {

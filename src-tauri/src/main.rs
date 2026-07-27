@@ -1,3 +1,3 @@
 fn main() {
-  bambu_pools_lib::run();
+    bambu_pools_lib::run();
 }
