@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Allow the main local window to use core APIs and select a sliced 3MF file.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}

@@ -1,6 +1,6 @@
 use crate::{
     db::AppDatabase,
-    domain::{Confidence, LedgerEventType, Spool, SpoolStatus},
+    domain::{Confidence, LedgerEventType, SlotAssignment, Spool, SpoolStatus},
     error::{AppError, Result},
 };
 use rusqlite::{params, OptionalExtension};
@@ -285,6 +285,34 @@ impl InventoryService {
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(spools)
     }
+
+    pub fn list_slots(&self) -> Result<Vec<SlotAssignment>> {
+        let mut statement = self
+            .database
+            .connection
+            .prepare("SELECT slot_number, spool_id FROM ams_slots ORDER BY slot_number")?;
+        let slots = statement
+            .query_map([], |row| {
+                let spool_id = row
+                    .get::<_, Option<String>>(1)?
+                    .map(|value| {
+                        value.parse().map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                1,
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })
+                    })
+                    .transpose()?;
+                Ok(SlotAssignment {
+                    slot_number: row.get(0)?,
+                    spool_id,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(slots)
+    }
 }
 
 fn ensure_slot_exists(transaction: &rusqlite::Transaction<'_>, slot_number: u8) -> Result<()> {
@@ -485,6 +513,11 @@ pub fn list_spools(inventory: tauri::State<'_, InventoryState>) -> Result<Vec<Sp
     with_inventory(inventory, |service| service.list_spools())
 }
 
+#[tauri::command]
+pub fn list_slots(inventory: tauri::State<'_, InventoryState>) -> Result<Vec<SlotAssignment>> {
+    with_inventory(inventory, |service| service.list_slots())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{InventoryService, NewSpool};
@@ -515,6 +548,28 @@ mod tests {
         assert_eq!(service.get_spool(a).unwrap().remaining_grams, 620.0);
         assert_eq!(service.get_spool(b).unwrap().remaining_grams, 1000.0);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn list_slots_restores_exact_persisted_assignments_after_reopen() {
+        let path =
+            std::env::temp_dir().join(format!("bambu-pools-slots-{}.sqlite", Uuid::new_v4()));
+        let database = AppDatabase::open(&path).unwrap();
+        let mut service = InventoryService::new(database);
+        let spool = service.create_spool(new_bambu_black()).unwrap();
+        service.mount_spool(3, spool).unwrap();
+        drop(service);
+
+        let reopened = InventoryService::new(AppDatabase::open(&path).unwrap());
+        let slots = reopened.list_slots().unwrap();
+
+        assert_eq!(slots.len(), 4);
+        assert_eq!(slots[0].slot_number, 1);
+        assert_eq!(slots[0].spool_id, None);
+        assert_eq!(slots[2].slot_number, 3);
+        assert_eq!(slots[2].spool_id, Some(spool));
+        drop(reopened);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

@@ -22,7 +22,8 @@
     "all": "All",
     "mainNav": "Main navigation",
     "retry": "Retry",
-    "loading": "Loading local data"
+    "loading": "Loading local data",
+    "saving": "Saving"
   },
   "nav": {
     "home": "Overview",
@@ -50,7 +51,8 @@
     "mount": "Mount a spool",
     "unmount": "Unmount spool",
     "move": "Move to another slot",
-    "replace": "Replace spool"
+    "replace": "Replace spool",
+    "location": "AMS {{number}}"
   },
   "spools": {
     "title": "My spool library",
@@ -75,6 +77,9 @@
     "allColors": "All colors",
     "colorFilter": "Color filter",
     "mount": "Mount in AMS",
+    "unmount": "Remove from AMS",
+    "move": "Move to another slot",
+    "confirmMove": "Confirm move",
     "slot": "AMS slot",
     "confirmMount": "Confirm mount",
     "name": "Spool",
@@ -103,7 +108,10 @@
     "confirmNew": "Confirm this is a new print",
     "tool": "Color {{number}}",
     "multipleCandidates": "{{count}} identical spools found. Choose the one actually used",
-    "noCandidate": "No exact physical spool match was found. Add one in the library first.",
+    "noCandidate": "No usable physical spool was found. Add one in the library first.",
+    "mismatchChoice": "No exact match. Confirm another physical spool consciously.",
+    "spoolChoice": "{{name}}, {{grams}} {{unit}}",
+    "spoolMeta": "{{grams}} {{unit}} · {{id}}",
     "confirmMapping": "Confirm spool mapping",
     "mappingConfirmed": "Spool mapping confirmed",
     "mapBeforeSettle": "Confirm the physical spool for every color first.",
@@ -136,7 +144,8 @@
     "reversed": "This deduction has already been reversed",
     "estimate": "Estimate from print progress",
     "lastLayer": "Last completed layer",
-    "layerHint": "Enter the layer shown in Bambu Studio, from 1 to {{count}}."
+    "layerHint": "Enter the layer shown in Bambu Studio, from 1 to {{count}}.",
+    "percentValue": "{{percent}}%"
   },
   "settings": {
     "title": "Settings",

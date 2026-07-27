@@ -1,15 +1,18 @@
-import { Archive, ArrowDown, Funnel, MagnifyingGlass, Plus, Scales } from "@phosphor-icons/react";
+import { Archive, ArrowDown, ArrowUp, Funnel, MagnifyingGlass, Plus, Scales } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { t, useLocale } from "../../i18n";
 import type { NewSpool, Spool, SpoolStatus } from "../../lib/tauri";
 
-export function Spools({ spools, slotBySpool, onCreate, onCalibrate, onArchive, onMount }: {
+export function Spools({ spools, slotBySpool, busy = false, onCreate, onCalibrate, onArchive, onMount, onUnmount, onMove }: {
   spools: Spool[];
   slotBySpool: Record<string, number>;
-  onCreate(spool: NewSpool): Promise<void>;
-  onCalibrate(spoolId: string, grams: number): void | Promise<void>;
-  onArchive(spoolId: string): void | Promise<void>;
-  onMount(spoolId: string, slot: number): void | Promise<void>;
+  busy?: boolean;
+  onCreate(spool: NewSpool): Promise<boolean | void>;
+  onCalibrate(spoolId: string, grams: number): boolean | void | Promise<boolean | void>;
+  onArchive(spoolId: string): boolean | void | Promise<boolean | void>;
+  onMount(spoolId: string, slot: number): boolean | void | Promise<boolean | void>;
+  onUnmount(slot: number): boolean | void | Promise<boolean | void>;
+  onMove(spoolId: string, slot: number): boolean | void | Promise<boolean | void>;
 }) {
   const locale = useLocale();
   const copy = (key: string, values: Record<string, string | number> = {}) => t(key, values, locale);
@@ -32,13 +35,13 @@ export function Spools({ spools, slotBySpool, onCreate, onCalibrate, onArchive, 
 
   const submitCalibration = async () => {
     if (!calibrating || !Number.isFinite(Number(grams))) return;
-    await onCalibrate(calibrating, Number(grams));
-    setCalibrating(null);
+    const succeeded = await onCalibrate(calibrating, Number(grams));
+    if (succeeded !== false) setCalibrating(null);
   };
 
   return (
     <section className="page" aria-labelledby="spools-title">
-      <div className="page-heading"><div><h1 id="spools-title">{copy("spools.title")}</h1><p>{copy("spools.libraryHint")}</p></div><button className="primary" onClick={() => setCreating(true)}><Plus size={18} weight="bold" />{copy("spools.add")}</button></div>
+      <div className="page-heading"><div><h1 id="spools-title">{copy("spools.title")}</h1><p>{copy("spools.libraryHint")}</p></div><button className="primary" disabled={busy} onClick={() => setCreating(true)}><Plus size={18} weight="bold" />{copy("spools.add")}</button></div>
       <div className="toolbar">
         <label className="search"><MagnifyingGlass size={18} /><span className="sr-only">{copy("spools.search")}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={copy("spools.searchPlaceholder")} /></label>
         <label><Funnel size={17} /><span className="sr-only">{copy("spools.status")}</span><select value={status} onChange={(event) => setStatus(event.target.value as SpoolStatus | "all")}><option value="all">{copy("common.all")}</option><option value="available">{copy("spools.available")}</option><option value="assigned">{copy("spools.assigned")}</option><option value="empty">{copy("spools.depleted")}</option></select></label>
@@ -46,13 +49,13 @@ export function Spools({ spools, slotBySpool, onCreate, onCalibrate, onArchive, 
         <label><span className="sr-only">{copy("spools.colorFilter")}</span><select value={color} onChange={(event) => setColor(event.target.value)}><option value="all">{copy("spools.allColors")}</option>{colors.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       </div>
 
-      {creating ? <form className="inline-form" onSubmit={async (event) => { event.preventDefault(); await onCreate(draft); setCreating(false); }}>
+      {creating ? <form className="inline-form" onSubmit={async (event) => { event.preventDefault(); const succeeded = await onCreate(draft); if (succeeded !== false) setCreating(false); }}>
         <div><h2>{copy("spools.add")}</h2><p>{copy("spools.createHint")}</p></div>
         <label>{copy("spools.name")}<input required value={draft.display_name} onChange={(event) => setDraft({ ...draft, display_name: event.target.value })} /></label>
         <label>{copy("spools.material")}<select value={draft.material} onChange={(event) => setDraft({ ...draft, material: event.target.value })}><option>PLA</option><option>PETG</option><option>TPU</option></select></label>
         <label>{copy("spools.color")}<input type="color" value={draft.color_hex} onChange={(event) => setDraft({ ...draft, color_hex: event.target.value.toUpperCase() })} /></label>
         <label>{copy("spools.remaining")}<input type="number" min="0" step="0.1" value={draft.remaining_grams} onChange={(event) => setDraft({ ...draft, remaining_grams: Number(event.target.value) })} /></label>
-        <div className="form-actions"><button type="button" className="ghost" onClick={() => setCreating(false)}>{copy("common.cancel")}</button><button className="primary" type="submit">{copy("common.save")}</button></div>
+        <div className="form-actions"><button type="button" className="ghost" disabled={busy} onClick={() => setCreating(false)}>{copy("common.cancel")}</button><button className="primary" disabled={busy} type="submit">{busy ? copy("common.saving") : copy("common.save")}</button></div>
       </form> : null}
 
       {filtered.length ? <div className="spool-table" role="table" aria-label={copy("spools.title")}>
@@ -61,11 +64,11 @@ export function Spools({ spools, slotBySpool, onCreate, onCalibrate, onArchive, 
           <div className="spool-name"><i className="swatch" style={{ "--swatch": spool.color_hex } as React.CSSProperties} /><span><strong>{spool.display_name}</strong><small className="data">{spool.spool_id}</small></span></div>
           <span>{spool.brand}<small>{spool.material} {spool.series}</small></span>
           <strong className="data">{spool.remaining_grams.toFixed(1)} {copy("common.grams")}</strong>
-          <span>{slotBySpool[spool.spool_id] ? `AMS ${slotBySpool[spool.spool_id]}` : copy("nav.spools")}</span>
+          <span>{slotBySpool[spool.spool_id] ? copy("slots.location", { number: slotBySpool[spool.spool_id] }) : copy("nav.spools")}</span>
           <span><b className={`status status-${spool.status}`}>{copy(`spools.${spool.status === "empty" ? "depleted" : spool.status}`)}</b></span>
-          <span className="row-actions"><button className="icon-button" title={copy("spools.mount")} aria-label={copy("spools.mount")} disabled={spool.status !== "available"} onClick={() => { setMounting(spool.spool_id); setSlot("1"); }}><ArrowDown size={18} /></button><button className="icon-button" title={copy("spools.calibrate")} aria-label={copy("spools.calibrate")} onClick={() => { setCalibrating(spool.spool_id); setGrams(String(spool.remaining_grams)); }}><Scales size={18} /></button><button className="icon-button" title={copy("spools.archive")} aria-label={copy("spools.archive")} disabled={spool.status === "assigned"} onClick={() => onArchive(spool.spool_id)}><Archive size={18} /></button></span>
-          {calibrating === spool.spool_id ? <div className="calibrate-pop"><label>{copy("spools.newWeight")}<input type="number" min="0" step="0.1" value={grams} onChange={(event) => setGrams(event.target.value)} /></label><button className="primary small" onClick={submitCalibration}>{copy("spools.saveCalibration")}</button></div> : null}
-          {mounting === spool.spool_id ? <div className="calibrate-pop"><label>{copy("spools.slot")}<select value={slot} onChange={(event) => setSlot(event.target.value)}>{[1, 2, 3, 4].map((item) => <option key={item} value={item}>AMS {item}</option>)}</select></label><button className="primary small" onClick={async () => { await onMount(spool.spool_id, Number(slot)); setMounting(null); }}>{copy("spools.confirmMount")}</button></div> : null}
+          <span className="row-actions">{slotBySpool[spool.spool_id] ? <><button className="icon-button" title={copy("spools.unmount")} aria-label={copy("spools.unmount")} disabled={busy} onClick={() => onUnmount(slotBySpool[spool.spool_id])}><ArrowUp size={18} /></button><button className="icon-button" title={copy("spools.move")} aria-label={copy("spools.move")} disabled={busy} onClick={() => { const current = slotBySpool[spool.spool_id]; setMounting(spool.spool_id); setSlot(String(current === 4 ? 1 : current + 1)); }}><ArrowDown size={18} /></button></> : <button className="icon-button" title={copy("spools.mount")} aria-label={copy("spools.mount")} disabled={busy || spool.status !== "available"} onClick={() => { setMounting(spool.spool_id); setSlot("1"); }}><ArrowDown size={18} /></button>}<button className="icon-button" title={copy("spools.calibrate")} aria-label={copy("spools.calibrate")} disabled={busy} onClick={() => { setCalibrating(spool.spool_id); setGrams(String(spool.remaining_grams)); }}><Scales size={18} /></button><button className="icon-button" title={copy("spools.archive")} aria-label={copy("spools.archive")} disabled={busy || spool.status === "assigned"} onClick={() => onArchive(spool.spool_id)}><Archive size={18} /></button></span>
+          {calibrating === spool.spool_id ? <div className="calibrate-pop"><label>{copy("spools.newWeight")}<input disabled={busy} type="number" min="0" step="0.1" value={grams} onChange={(event) => setGrams(event.target.value)} /></label><button className="primary small" disabled={busy} onClick={submitCalibration}>{busy ? copy("common.saving") : copy("spools.saveCalibration")}</button></div> : null}
+          {mounting === spool.spool_id ? <div className="calibrate-pop"><label>{copy("spools.slot")}<select disabled={busy} value={slot} onChange={(event) => setSlot(event.target.value)}>{[1, 2, 3, 4].map((item) => <option key={item} value={item}>{copy("slots.location", { number: item })}</option>)}</select></label><button className="primary small" disabled={busy} onClick={async () => { const succeeded = slotBySpool[spool.spool_id] ? await onMove(spool.spool_id, Number(slot)) : await onMount(spool.spool_id, Number(slot)); if (succeeded !== false) setMounting(null); }}>{busy ? copy("common.saving") : copy(slotBySpool[spool.spool_id] ? "spools.confirmMove" : "spools.confirmMount")}</button></div> : null}
         </div>)}
       </div> : <div className="empty-state"><h2>{copy("spools.empty")}</h2><p>{copy("spools.emptyHint")}</p></div>}
     </section>

@@ -35,6 +35,11 @@ export interface SlotView {
   spool: Spool | null;
 }
 
+export interface SlotAssignment {
+  slot_number: 1 | 2 | 3 | 4;
+  spool_id: string | null;
+}
+
 export interface FilamentProfile {
   tool: number;
   preset_id: string;
@@ -109,6 +114,7 @@ export interface TauriApi {
   calibrateSpool(spoolId: string, grams: number): Promise<void>;
   archiveSpool(spoolId: string): Promise<void>;
   listSpools(): Promise<Spool[]>;
+  listSlots(): Promise<SlotAssignment[]>;
   importPrintFile(path: string): Promise<ImportPreview>;
   confirmJobMapping(jobId: string, mappings: ToolMapping[]): Promise<void>;
   confirmNewPrint(sourceHash: string): Promise<ImportPreview>;
@@ -134,6 +140,13 @@ export const demoSpools: Spool[] = [
   remaining_grams: Number(grams),
   status: status as SpoolStatus,
 }));
+
+export const demoSlots: SlotAssignment[] = [
+  { slot_number: 1, spool_id: "white-01" },
+  { slot_number: 2, spool_id: "red-01" },
+  { slot_number: 3, spool_id: "blue-01" },
+  { slot_number: 4, spool_id: null },
+];
 
 export const demoPreview: ImportPreview = {
   job_id: "demo-mask-job",
@@ -162,6 +175,14 @@ export const demoPreview: ImportPreview = {
 
 function demoApi(): TauriApi {
   let spools = demoSpools.map((spool) => ({ ...spool }));
+  let slots = demoSlots.map((slot) => ({ ...slot }));
+  const refreshDemoStatuses = () => {
+    const mounted = new Set(slots.flatMap((slot) => slot.spool_id ? [slot.spool_id] : []));
+    spools = spools.map((spool) => ({
+      ...spool,
+      status: spool.remaining_grams <= 0 ? "empty" : mounted.has(spool.spool_id) ? "assigned" : "available",
+    }));
+  };
   return {
     mode: "demo",
     async createSpool(input) {
@@ -170,11 +191,26 @@ function demoApi(): TauriApi {
       return id;
     },
     async mountSpool(slotNumber, spoolId) {
-      void slotNumber;
-      spools = spools.map((spool) => spool.spool_id === spoolId ? { ...spool, status: "assigned" } : spool);
+      if (slots.some((slot) => slot.spool_id === spoolId)) throw { code: "slot_conflict" };
+      slots = slots.map((slot) => slot.slot_number === slotNumber ? { ...slot, spool_id: spoolId } : slot);
+      refreshDemoStatuses();
     },
-    async unmountSlot(slotNumber) { void slotNumber; },
-    async moveSpool(spoolId, destinationSlot) { void spoolId; void destinationSlot; },
+    async unmountSlot(slotNumber) {
+      slots = slots.map((slot) => slot.slot_number === slotNumber ? { ...slot, spool_id: null } : slot);
+      refreshDemoStatuses();
+    },
+    async moveSpool(spoolId, destinationSlot) {
+      const source = slots.find((slot) => slot.spool_id === spoolId);
+      const destination = slots.find((slot) => slot.slot_number === destinationSlot);
+      if (!source || !destination) throw { code: "slot_conflict" };
+      const displaced = destination.spool_id;
+      slots = slots.map((slot) => slot.slot_number === source.slot_number
+        ? { ...slot, spool_id: displaced }
+        : slot.slot_number === destinationSlot
+          ? { ...slot, spool_id: spoolId }
+          : slot);
+      refreshDemoStatuses();
+    },
     async calibrateSpool(spoolId, grams) {
       spools = spools.map((spool) => spool.spool_id === spoolId ? { ...spool, remaining_grams: grams, status: grams > 0 ? spool.status : "empty" } : spool);
     },
@@ -182,6 +218,7 @@ function demoApi(): TauriApi {
       spools = spools.filter((spool) => spool.spool_id !== spoolId);
     },
     async listSpools() { return spools.map((spool) => ({ ...spool })); },
+    async listSlots() { return slots.map((slot) => ({ ...slot })); },
     async importPrintFile(path) { return { ...demoPreview, source_file_name: path.split(/[\\/]/).pop() || demoPreview.source_file_name }; },
     async confirmJobMapping() {},
     async confirmNewPrint() { return { ...demoPreview, job_id: "demo-mask-job-2" }; },
@@ -203,6 +240,7 @@ function commandApi(invoke: Invoke): TauriApi {
     calibrateSpool: (spoolId, grams) => call<void>("calibrate_spool", { spoolId, grams }),
     archiveSpool: (spoolId) => call<void>("archive_spool", { spoolId }),
     listSpools: () => call<Spool[]>("list_spools", undefined),
+    listSlots: () => call<SlotAssignment[]>("list_slots", undefined),
     importPrintFile: (path) => call<ImportPreview>("import_print_file", { path }),
     confirmJobMapping: (jobId, mappings) => call<void>("confirm_job_mapping", { jobId, mappings }),
     confirmNewPrint: (sourceHash) => call<ImportPreview>("confirm_new_print", { sourceHash }),

@@ -31,3 +31,18 @@ it("provides deterministic browser data without activating demo mode in Tauri", 
   await tauriApi.listSpools();
   expect(tauriInvoke).toHaveBeenCalledWith("list_spools", undefined);
 });
+
+it("reads persisted AMS slots through the typed command boundary", async () => {
+  const invoke = vi.fn(async () => [
+    { slot_number: 1, spool_id: null },
+    { slot_number: 2, spool_id: "spool-red" },
+    { slot_number: 3, spool_id: null },
+    { slot_number: 4, spool_id: null },
+  ]);
+  const api = createTauriApi(invoke);
+
+  const slots = await api.listSlots();
+
+  expect(slots[1]).toEqual({ slot_number: 2, spool_id: "spool-red" });
+  expect(invoke).toHaveBeenCalledWith("list_slots", undefined);
+});

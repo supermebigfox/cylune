@@ -56,6 +56,8 @@ it("keeps same-color spools as independently actionable entities", async () => {
       onCalibrate={onCalibrate}
       onArchive={async () => undefined}
       onMount={async () => undefined}
+      onUnmount={async () => undefined}
+      onMove={async () => undefined}
     />,
   );
 
@@ -85,6 +87,8 @@ it("filters explicitly by color and mounts an available spool into a chosen slot
       onCalibrate={async () => undefined}
       onArchive={async () => undefined}
       onMount={onMount}
+      onUnmount={async () => undefined}
+      onMove={async () => undefined}
     />,
   );
 
@@ -93,9 +97,34 @@ it("filters explicitly by color and mounts an available spool into a chosen slot
   expect(screen.getByText("黑色 PLA #B")).toBeVisible();
   expect(screen.queryByText("红色 PLA")).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getAllByRole("button", { name: "装入 AMS" })[1]);
+  fireEvent.click(screen.getByRole("button", { name: "装入 AMS" }));
   fireEvent.change(screen.getByLabelText("AMS 槽位"), { target: { value: "4" } });
   fireEvent.click(screen.getByRole("button", { name: "确认装入" }));
 
   await waitFor(() => expect(onMount).toHaveBeenCalledWith("spool-black-b", 4));
+});
+
+it("moves a mounted spool to a chosen slot and can unmount it", async () => {
+  const onMove = vi.fn(async () => undefined);
+  const onUnmount = vi.fn(async () => undefined);
+  render(
+    <Spools
+      spools={identicalBlackSpools}
+      slotBySpool={{ "spool-black-a": 1 }}
+      onCreate={async () => undefined}
+      onCalibrate={async () => undefined}
+      onArchive={async () => undefined}
+      onMount={async () => undefined}
+      onUnmount={onUnmount}
+      onMove={onMove}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "移动到其他槽位" }));
+  fireEvent.change(screen.getByLabelText("AMS 槽位"), { target: { value: "3" } });
+  fireEvent.click(screen.getByRole("button", { name: "确认移动" }));
+  await waitFor(() => expect(onMove).toHaveBeenCalledWith("spool-black-a", 3));
+
+  fireEvent.click(screen.getByRole("button", { name: "从 AMS 拆下" }));
+  expect(onUnmount).toHaveBeenCalledWith(1);
 });

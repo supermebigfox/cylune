@@ -22,7 +22,8 @@
     "all": "全部",
     "mainNav": "主導覽",
     "retry": "重試",
-    "loading": "正在讀取本機資料"
+    "loading": "正在讀取本機資料",
+    "saving": "正在儲存"
   },
   "nav": {
     "home": "總覽",
@@ -50,7 +51,8 @@
     "mount": "裝入耗材",
     "unmount": "拆下耗材",
     "move": "移動到其他槽位",
-    "replace": "更換耗材卷"
+    "replace": "更換耗材卷",
+    "location": "AMS {{number}}"
   },
   "spools": {
     "title": "我的耗材庫",
@@ -75,6 +77,9 @@
     "allColors": "全部顏色",
     "colorFilter": "顏色篩選",
     "mount": "裝入 AMS",
+    "unmount": "從 AMS 拆下",
+    "move": "移動到其他槽位",
+    "confirmMove": "確認移動",
     "slot": "AMS 槽位",
     "confirmMount": "確認裝入",
     "name": "耗材卷",
@@ -103,7 +108,10 @@
     "confirmNew": "確認這是一次新列印",
     "tool": "顏色 {{number}}",
     "multipleCandidates": "發現 {{count}} 卷同款耗材，請選擇實際使用的一卷",
-    "noCandidate": "沒有找到完全匹配的實體卷，請先到耗材庫新增。",
+    "noCandidate": "沒有可用的實體卷，請先到耗材庫新增。",
+    "mismatchChoice": "沒有完全匹配的耗材，請確認使用其他實體卷",
+    "spoolChoice": "{{name}}，{{grams}} {{unit}}",
+    "spoolMeta": "{{grams}} {{unit}} · {{id}}",
     "confirmMapping": "確認耗材對應",
     "mappingConfirmed": "耗材對應已確認",
     "mapBeforeSettle": "請先確認所有顏色對應的實體卷。",
@@ -136,7 +144,8 @@
     "reversed": "這次扣減已經撤銷",
     "estimate": "按列印進度估算",
     "lastLayer": "最後完成的層數",
-    "layerHint": "請輸入 Bambu Studio 中看到的層數，範圍 1 至 {{count}}。"
+    "layerHint": "請輸入 Bambu Studio 中看到的層數，範圍 1 至 {{count}}。",
+    "percentValue": "{{percent}}%"
   },
   "settings": {
     "title": "設定",

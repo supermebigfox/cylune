@@ -22,7 +22,8 @@
     "all": "全部",
     "mainNav": "主导航",
     "retry": "重试",
-    "loading": "正在读取本地数据"
+    "loading": "正在读取本地数据",
+    "saving": "正在保存"
   },
   "nav": {
     "home": "概览",
@@ -50,7 +51,8 @@
     "mount": "装入耗材",
     "unmount": "拆下耗材",
     "move": "移动到其他槽位",
-    "replace": "更换耗材卷"
+    "replace": "更换耗材卷",
+    "location": "AMS {{number}}"
   },
   "spools": {
     "title": "我的耗材库",
@@ -75,6 +77,9 @@
     "allColors": "全部颜色",
     "colorFilter": "颜色筛选",
     "mount": "装入 AMS",
+    "unmount": "从 AMS 拆下",
+    "move": "移动到其他槽位",
+    "confirmMove": "确认移动",
     "slot": "AMS 槽位",
     "confirmMount": "确认装入",
     "name": "耗材卷",
@@ -103,7 +108,10 @@
     "confirmNew": "确认这是一次新打印",
     "tool": "颜色 {{number}}",
     "multipleCandidates": "发现 {{count}} 卷同款耗材，请选择实际使用的一卷",
-    "noCandidate": "没有找到完全匹配的实体卷，请先去耗材库添加。",
+    "noCandidate": "没有可用的实体卷，请先去耗材库添加。",
+    "mismatchChoice": "没有完全匹配的耗材，请确认使用其他实体卷",
+    "spoolChoice": "{{name}}，{{grams}} {{unit}}",
+    "spoolMeta": "{{grams}} {{unit}} · {{id}}",
     "confirmMapping": "确认耗材映射",
     "mappingConfirmed": "耗材映射已确认",
     "mapBeforeSettle": "请先确认所有颜色对应的实体卷。",
@@ -136,7 +144,8 @@
     "reversed": "这次扣减已经撤销"
     ,"estimate": "按打印进度估算",
     "lastLayer": "最后完成的层数",
-    "layerHint": "请输入 Bambu Studio 中看到的层数，范围 1 至 {{count}}。"
+    "layerHint": "请输入 Bambu Studio 中看到的层数，范围 1 至 {{count}}。",
+    "percentValue": "{{percent}}%"
   },
   "settings": {
     "title": "设置",

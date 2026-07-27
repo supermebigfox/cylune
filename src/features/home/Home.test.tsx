@@ -71,4 +71,12 @@ describe("Home", () => {
     fireEvent.click(screen.getByRole("button", { name: "导入切片文件" }));
     expect(onImport).toHaveBeenCalledTimes(1);
   });
+
+  it("shows truthful grams without inventing a percentage from a 1000 gram capacity", () => {
+    render(<Home slots={slots} spools={spools} pendingJobs={0} onImport={() => undefined} />);
+
+    expect(screen.getByText("612.4 克")).toBeVisible();
+    expect(screen.queryByText("61%")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("剩余 612.4 克")).not.toBeInTheDocument();
+  });
 });

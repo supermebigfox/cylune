@@ -74,7 +74,7 @@ describe("Job", () => {
 
     expect(screen.getByText("萨莫面具-布莱克.gcode.3mf")).toBeVisible();
     expect(screen.getByText("Bambu PLA Basic @BBL A1")).toBeVisible();
-    expect(screen.getByText("42.7 克")).toBeVisible();
+    expect(screen.getAllByText("42.7 克")).toHaveLength(2);
     expect(screen.getByText("发现 2 卷同款耗材，请选择实际使用的一卷")).toBeVisible();
     const mappingGroup = screen.getByText("发现 2 卷同款耗材，请选择实际使用的一卷").closest("fieldset");
     expect(within(mappingGroup as HTMLElement).getAllByRole("radio")).toHaveLength(2);
@@ -118,7 +118,7 @@ describe("Job", () => {
     const onReverse = vi.fn();
     render(
       <Job
-        preview={{ ...preview, state: "new_print_confirmation_required" }}
+        preview={preview}
         spools={spools}
         initialMappings={{ 0: "spool-black-a" }}
         settled
@@ -140,9 +140,116 @@ describe("Job", () => {
       progress_percent: 43,
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "确认这是一次新打印" }));
-    expect(onConfirmNewPrint).toHaveBeenCalledWith("hash-mask");
     fireEvent.click(screen.getByRole("button", { name: "撤销本次扣减" }));
     expect(onReverse).toHaveBeenCalledWith("job-mask");
+  });
+
+  it("preselects a unique suggestion but keeps settlement locked until mapping succeeds", async () => {
+    const onConfirmMapping = vi.fn(async () => undefined);
+    render(
+      <Job
+        preview={{
+          ...preview,
+          filaments: [{
+            ...preview.filaments[0],
+            candidate_spool_ids: ["spool-black-a"],
+            suggested_spool_id: "spool-black-a",
+            confidence: "exact",
+          }],
+        }}
+        spools={spools}
+        onConfirmMapping={onConfirmMapping}
+        onSettle={async () => undefined}
+        onConfirmNewPrint={async () => undefined}
+        onReverse={async () => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("radio", { name: "黑色 PLA #A，612.4 克" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "确认扣减耗材" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "确认耗材映射" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "确认扣减耗材" })).toBeEnabled());
+  });
+
+  it("gates mapping and settlement until a duplicate import becomes a fresh job", () => {
+    const onConfirmNewPrint = vi.fn();
+    render(
+      <Job
+        preview={{ ...preview, state: "new_print_confirmation_required" }}
+        spools={spools}
+        onConfirmMapping={async () => undefined}
+        onSettle={async () => undefined}
+        onConfirmNewPrint={onConfirmNewPrint}
+        onReverse={async () => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "确认耗材映射" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "这次打印的结果" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "确认这是一次新打印" }));
+    expect(onConfirmNewPrint).toHaveBeenCalledWith("hash-mask");
+  });
+
+  it("resets mapping and settlement inputs when the job id changes", async () => {
+    const { rerender } = render(
+      <Job
+        preview={preview}
+        spools={spools}
+        initialMappings={{ 0: "spool-black-a" }}
+        onConfirmMapping={async () => undefined}
+        onSettle={async () => undefined}
+        onConfirmNewPrint={async () => undefined}
+        onReverse={async () => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "打印中途失败" }));
+    fireEvent.change(screen.getByLabelText("最后完成的层数"), { target: { value: "37" } });
+
+    rerender(
+      <Job
+        preview={{
+          ...preview,
+          job_id: "job-mask-fresh",
+          filaments: [{
+            ...preview.filaments[0],
+            candidate_spool_ids: ["spool-black-b"],
+            suggested_spool_id: "spool-black-b",
+            confidence: "exact",
+          }],
+        }}
+        spools={spools}
+        onConfirmMapping={async () => undefined}
+        onSettle={async () => undefined}
+        onConfirmNewPrint={async () => undefined}
+        onReverse={async () => undefined}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole("radio", { name: "黑色 PLA #B，488.2 克" })).toBeChecked());
+    expect(screen.getByRole("radio", { name: "完整打印成功" })).toBeChecked();
+    expect(screen.queryByLabelText("最后完成的层数")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认扣减耗材" })).toBeDisabled();
+  });
+
+  it("allows a conscious mismatched spool choice when no exact candidate exists", async () => {
+    const onConfirmMapping = vi.fn(async () => undefined);
+    render(
+      <Job
+        preview={{
+          ...preview,
+          filaments: [{ ...preview.filaments[0], candidate_spool_ids: [], suggested_spool_id: null }],
+        }}
+        spools={spools}
+        onConfirmMapping={onConfirmMapping}
+        onSettle={async () => undefined}
+        onConfirmNewPrint={async () => undefined}
+        onReverse={async () => undefined}
+      />,
+    );
+
+    expect(screen.getByText("没有完全匹配的耗材，请确认使用其他实体卷")).toBeVisible();
+    fireEvent.click(screen.getByRole("radio", { name: "黑色 PLA #B，488.2 克" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认耗材映射" }));
+    await waitFor(() => expect(onConfirmMapping).toHaveBeenCalledWith("job-mask", [{ tool: 0, spool_id: "spool-black-b" }]));
   });
 });

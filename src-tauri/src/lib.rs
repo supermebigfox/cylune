@@ -16,6 +16,7 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
@@ -36,6 +37,7 @@ pub fn run() {
             inventory::calibrate_spool,
             inventory::archive_spool,
             inventory::list_spools,
+            inventory::list_slots,
             imports::import_print_file,
             imports::confirm_job_mapping,
             imports::confirm_new_print,
