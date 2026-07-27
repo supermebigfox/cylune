@@ -20,10 +20,13 @@ pub fn parse_3mf(path: &Path) -> Result<ParsedPrintFile> {
         let mut entry = archive.by_index(index).map_err(|_| AppError::InvalidFile)?;
         let name = entry.name().to_owned();
 
-        if is_config_entry(&name) {
+        if is_filament_config(&name) {
             let mut contents = String::new();
             entry.read_to_string(&mut contents)?;
-            settings.push(parse_config(&contents)?);
+            let config = parse_config(&contents)?;
+            if contains_filament_settings(&config) {
+                settings.push(config);
+            }
         } else if is_gcode_entry(&name) && gcode_name.is_none() {
             gcode_name = Some(name);
         }
@@ -37,14 +40,31 @@ pub fn parse_3mf(path: &Path) -> Result<ParsedPrintFile> {
         .map_err(|_| AppError::InvalidFile)?;
     let gcode = parse_gcode(BufReader::new(gcode_entry))?;
 
-    Ok(ParsedPrintFile {
-        filaments: settings.iter().flat_map(profiles_from_config).collect(),
-        gcode,
-    })
+    let mut filaments = Vec::new();
+    for config in &settings {
+        filaments.extend(profiles_from_config(config)?);
+    }
+    if filaments.is_empty() {
+        return Err(AppError::InvalidFile);
+    }
+
+    Ok(ParsedPrintFile { filaments, gcode })
 }
 
-fn is_config_entry(name: &str) -> bool {
-    name.starts_with("Metadata/") && name.ends_with(".config")
+fn is_filament_config(name: &str) -> bool {
+    let Some(file_name) = name.strip_prefix("Metadata/") else {
+        return false;
+    };
+
+    file_name == "project_settings.config"
+        || file_name == "filament_settings.config"
+        || (file_name.starts_with("filament_settings_") && file_name.ends_with(".config"))
+}
+
+fn contains_filament_settings(config: &Value) -> bool {
+    config
+        .as_object()
+        .is_some_and(|object| object.contains_key("filament_settings_id"))
 }
 
 fn is_gcode_entry(name: &str) -> bool {
@@ -55,51 +75,69 @@ fn parse_config(contents: &str) -> Result<Value> {
     serde_json::from_str(contents).map_err(|_| AppError::InvalidFile)
 }
 
-fn profiles_from_config(config: &Value) -> Vec<FilamentProfile> {
-    let Some(object) = config.as_object() else {
-        return Vec::new();
-    };
-    let count = values(object, "filament_settings_id").len();
+fn profiles_from_config(config: &Value) -> Result<Vec<FilamentProfile>> {
+    let object = config.as_object().ok_or(AppError::InvalidFile)?;
+    let preset_ids = required_values(object, "filament_settings_id")?;
 
-    (0..count)
+    (0..preset_ids.len())
         .map(|index| {
-            let preset_id = value_at(object, "filament_settings_id", index);
-            let material = value_at(object, "filament_type", index);
+            let preset_id = required_string(object, "filament_settings_id", index)?;
+            let material = required_string(object, "filament_type", index)?;
             let (brand, series) = normalize_preset(&preset_id, &material);
 
-            FilamentProfile {
-                tool: index as u8,
+            Ok(FilamentProfile {
+                tool: u8::try_from(index).map_err(|_| AppError::InvalidFile)?,
                 preset_id,
                 brand,
                 material,
                 series,
-                color_hex: value_at(object, "filament_colour", index),
-                diameter_mm: parse_number(object, "filament_diameter", index),
-                density_g_cm3: parse_number(object, "filament_density", index),
+                color_hex: required_string(object, "filament_colour", index)?,
+                diameter_mm: required_number(object, "filament_diameter", index)?,
+                density_g_cm3: required_number(object, "filament_density", index)?,
                 unknown_fields: unknown_fields(object, index),
-            }
+            })
         })
         .collect()
 }
 
-fn values<'a>(object: &'a serde_json::Map<String, Value>, key: &str) -> &'a [Value] {
+fn required_values<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<&'a [Value]> {
     object
         .get(key)
         .and_then(Value::as_array)
         .map(Vec::as_slice)
-        .unwrap_or_default()
+        .filter(|values| !values.is_empty())
+        .ok_or(AppError::InvalidFile)
 }
 
-fn value_at(object: &serde_json::Map<String, Value>, key: &str, index: usize) -> String {
-    values(object, key)
+fn required_string(
+    object: &serde_json::Map<String, Value>,
+    key: &str,
+    index: usize,
+) -> Result<String> {
+    required_values(object, key)?
         .get(index)
         .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .ok_or(AppError::InvalidFile)
 }
 
-fn parse_number(object: &serde_json::Map<String, Value>, key: &str, index: usize) -> f64 {
-    value_at(object, key, index).parse().unwrap_or_default()
+fn required_number(
+    object: &serde_json::Map<String, Value>,
+    key: &str,
+    index: usize,
+) -> Result<f64> {
+    let value = required_string(object, key, index)?
+        .parse::<f64>()
+        .map_err(|_| AppError::InvalidFile)?;
+    if value.is_finite() && value > 0.0 {
+        Ok(value)
+    } else {
+        Err(AppError::InvalidFile)
+    }
 }
 
 fn unknown_fields(
@@ -150,7 +188,11 @@ fn normalize_preset(preset_id: &str, material: &str) -> (String, String) {
 mod tests {
     use super::super::{parse_3mf, FilamentProfile};
     use std::collections::BTreeMap;
+    use std::fs::{self, File};
+    use std::io::Write;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use zip::write::FileOptions;
 
     #[test]
     fn reads_bambu_profiles_and_multicolor_gcode_from_a_sliced_3mf() {
@@ -192,10 +234,99 @@ mod tests {
         assert!((profile.grams_for_length_mm(1000.0) - 2.98).abs() < 0.01);
     }
 
+    #[test]
+    fn rejects_profiles_with_missing_or_malformed_required_fields() {
+        for config in [
+            r##"{"filament_type":["PLA"],"filament_colour":["#FFFFFF"],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
+            r##"{"filament_settings_id":["Bambu PLA Basic"],"filament_type":["PLA"],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
+            r##"{"filament_settings_id":["Bambu PLA Basic"],"filament_type":["PLA"],"filament_colour":[17],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
+            r##"{"filament_settings_id":["Bambu PLA Basic"],"filament_type":["PLA"],"filament_colour":["#FFFFFF"],"filament_diameter":["NaN"],"filament_density":["1.24"]}"##,
+            r##"{"filament_settings_id":["Bambu PLA Basic"],"filament_type":["PLA"],"filament_colour":["#FFFFFF"],"filament_diameter":["1.75"]}"##,
+        ] {
+            assert_invalid_profile(config);
+        }
+    }
+
+    #[test]
+    fn reads_project_settings_json_and_ignores_xml_metadata() {
+        let path = temporary_archive_path();
+        write_realistic_archive(&path);
+
+        let parsed = parse_3mf(&path).unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(parsed.filaments[0].preset_id, "Bambu PLA Basic");
+        assert_eq!(parsed.gcode.totals_mm[&0], 1.0);
+    }
+
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests")
             .join("fixtures")
             .join(name)
+    }
+
+    fn assert_invalid_profile(config: &str) {
+        let path = temporary_archive_path();
+        write_test_archive(&path, config);
+
+        let error = parse_3mf(&path).unwrap_err();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(error.code(), "invalid_file");
+    }
+
+    fn write_test_archive(path: &PathBuf, config: &str) {
+        let mut archive = zip::ZipWriter::new(File::create(path).unwrap());
+        let options = FileOptions::default();
+        archive
+            .start_file("Metadata/filament_settings.config", options)
+            .unwrap();
+        archive.write_all(config.as_bytes()).unwrap();
+        archive
+            .start_file("Metadata/plate_1.gcode", options)
+            .unwrap();
+        archive.write_all(b"M83\nG1 E1\n").unwrap();
+        archive.finish().unwrap();
+    }
+
+    fn write_realistic_archive(path: &PathBuf) {
+        let mut archive = zip::ZipWriter::new(File::create(path).unwrap());
+        let options = FileOptions::default();
+        archive
+            .start_file("Metadata/model_settings.config", options)
+            .unwrap();
+        archive
+            .write_all(b"<?xml version=\"1.0\"?><config />")
+            .unwrap();
+        archive
+            .start_file("Metadata/slice_info.config", options)
+            .unwrap();
+        archive
+            .write_all(b"<?xml version=\"1.0\"?><config />")
+            .unwrap();
+        archive
+            .start_file("Metadata/project_settings.config", options)
+            .unwrap();
+        archive
+            .write_all(
+                br##"{"filament_settings_id":["Bambu PLA Basic"],"filament_type":["PLA"],"filament_colour":["#FFFFFF"],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
+            )
+            .unwrap();
+        archive
+            .start_file("Metadata/plate_1.gcode", options)
+            .unwrap();
+        archive.write_all(b"M83\nG1 E1\n").unwrap();
+        archive.finish().unwrap();
+    }
+
+    fn temporary_archive_path() -> PathBuf {
+        static NEXT_PATH: AtomicUsize = AtomicUsize::new(0);
+
+        std::env::temp_dir().join(format!(
+            "bambu-pools-invalid-profile-{}-{}.3mf",
+            std::process::id(),
+            NEXT_PATH.fetch_add(1, Ordering::Relaxed)
+        ))
     }
 }
