@@ -3,6 +3,7 @@ use rusqlite::{params, Connection};
 use std::path::Path;
 
 const INITIAL_MIGRATION: &str = include_str!("../migrations/001_init.sql");
+const LEDGER_CREATION_MIGRATION: &str = include_str!("../migrations/002_ledger_creation.sql");
 
 pub struct AppDatabase {
     pub(crate) connection: Connection,
@@ -20,6 +21,9 @@ impl AppDatabase {
 
     fn from_connection(connection: Connection) -> Result<Self> {
         connection.execute_batch(INITIAL_MIGRATION)?;
+        if !ledger_supports_creation(&connection)? {
+            connection.execute_batch(LEDGER_CREATION_MIGRATION)?;
+        }
         Ok(Self { connection })
     }
 
@@ -34,9 +38,19 @@ impl AppDatabase {
     }
 }
 
+fn ledger_supports_creation(connection: &Connection) -> Result<bool> {
+    let definition: String = connection.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ledger_events'",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(definition.contains("'creation'"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::AppDatabase;
+    use rusqlite::Connection;
 
     #[test]
     fn migration_creates_inventory_tables() {
@@ -193,6 +207,56 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, event_type, delta_grams, confidence) VALUES ('adjustment-1', 'adjustment-key-1', 'spool-1', 'adjustment', -1.0, 'exact')",
+                [],
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn migration_upgrades_existing_ledger_events_to_support_creation_baselines() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "
+                CREATE TABLE spools (
+                    spool_id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    brand TEXT NOT NULL,
+                    material TEXT NOT NULL,
+                    series TEXT NOT NULL,
+                    color_hex TEXT NOT NULL,
+                    remaining_grams REAL NOT NULL CHECK (remaining_grams >= 0),
+                    status TEXT NOT NULL CHECK (status IN ('available', 'assigned', 'empty', 'archived'))
+                );
+                CREATE TABLE ledger_events (
+                    event_id TEXT PRIMARY KEY,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    spool_id TEXT NOT NULL REFERENCES spools(spool_id) ON DELETE RESTRICT,
+                    job_id TEXT REFERENCES print_jobs(job_id) ON DELETE RESTRICT,
+                    settlement_version INTEGER CHECK (settlement_version IS NULL OR settlement_version >= 0),
+                    event_type TEXT NOT NULL CHECK (event_type IN ('settlement', 'reversal', 'adjustment')),
+                    delta_grams REAL NOT NULL CHECK (delta_grams <> 0),
+                    confidence TEXT NOT NULL CHECK (confidence IN ('exact', 'estimated', 'needs_confirmation')),
+                    reverses_event_id TEXT UNIQUE REFERENCES ledger_events(event_id) ON DELETE RESTRICT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (job_id, spool_id, settlement_version, event_type)
+                );
+                ",
+            )
+            .unwrap();
+        let database = AppDatabase::from_connection(connection).unwrap();
+        database
+            .connection
+            .execute(
+                "INSERT INTO spools (spool_id, display_name, brand, material, series, color_hex, remaining_grams, status) VALUES ('spool-1', 'PLA', 'Bambu Lab', 'PLA', 'Basic', '#ffffff', 1000.0, 'available')",
+                [],
+            )
+            .unwrap();
+
+        assert!(database
+            .connection
+            .execute(
+                "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, event_type, delta_grams, confidence) VALUES ('creation-1', 'creation-key-1', 'spool-1', 'creation', 1000.0, 'exact')",
                 [],
             )
             .is_ok());

@@ -53,6 +53,7 @@ pub struct LedgerEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LedgerEventType {
+    Creation,
     Settlement,
     Reversal,
     Adjustment,
@@ -118,5 +119,25 @@ mod tests {
         let value = serde_json::to_value(event).unwrap();
         assert_eq!(value["event_type"], "reversal");
         assert_eq!(value["reverses_event_id"], reversed_event_id.to_string());
+    }
+
+    #[test]
+    fn ledger_event_serializes_a_creation_baseline() {
+        let event = LedgerEvent {
+            event_id: Uuid::new_v4(),
+            idempotency_key: "spool-baseline-1".to_owned(),
+            spool_id: Uuid::new_v4(),
+            job_id: None,
+            settlement_version: None,
+            event_type: LedgerEventType::Creation,
+            delta_grams: 1000.0,
+            confidence: super::Confidence::Exact,
+            reverses_event_id: None,
+        };
+
+        assert_eq!(
+            serde_json::to_value(event).unwrap()["event_type"],
+            "creation"
+        );
     }
 }
