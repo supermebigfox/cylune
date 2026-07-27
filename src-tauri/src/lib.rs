@@ -38,6 +38,7 @@ pub fn run() {
             inventory::list_spools,
             imports::import_print_file,
             imports::confirm_job_mapping,
+            imports::confirm_new_print,
             settlement::settle_job,
             settlement::reverse_settlement,
         ])

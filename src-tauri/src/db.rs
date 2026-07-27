@@ -5,6 +5,7 @@ use std::path::Path;
 const INITIAL_MIGRATION: &str = include_str!("../migrations/001_init.sql");
 const LEDGER_CREATION_MIGRATION: &str = include_str!("../migrations/002_ledger_creation.sql");
 const PRINT_JOBS_MIGRATION: &str = include_str!("../migrations/003_print_jobs.sql");
+const REPEAT_JOBS_MIGRATION: &str = include_str!("../migrations/004_repeat_jobs.sql");
 
 pub struct AppDatabase {
     pub(crate) connection: Connection,
@@ -27,8 +28,12 @@ impl AppDatabase {
         }
         if table_exists(&connection, "job_consumption")?
             && !table_exists(&connection, "job_imports")?
+            && !table_exists(&connection, "parse_cache")?
         {
             connection.execute_batch(PRINT_JOBS_MIGRATION)?;
+        }
+        if table_exists(&connection, "job_imports")? && !table_exists(&connection, "parse_cache")? {
+            connection.execute_batch(REPEAT_JOBS_MIGRATION)?;
         }
         Ok(Self { connection })
     }
@@ -64,9 +69,9 @@ fn ledger_supports_creation(connection: &Connection) -> Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::AppDatabase;
+    use super::{AppDatabase, INITIAL_MIGRATION, PRINT_JOBS_MIGRATION};
     use crate::{domain::SpoolStatus, inventory::InventoryService};
-    use rusqlite::Connection;
+    use rusqlite::{Connection, OptionalExtension};
 
     #[test]
     fn migration_creates_inventory_tables() {
@@ -98,6 +103,98 @@ mod tests {
             .unwrap();
 
         assert_eq!(slots, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn repeat_job_schema_can_be_reopened_after_migration() {
+        let path = std::env::temp_dir().join(format!(
+            "bambu-pools-reopen-{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        drop(AppDatabase::open(&path).unwrap());
+
+        let reopened = AppDatabase::open(&path).unwrap();
+
+        assert!(reopened.table_exists("parse_cache").unwrap());
+        drop(reopened);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn print_job_upgrade_preserves_existing_inventory_jobs_consumption_and_ledger() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INITIAL_MIGRATION).unwrap();
+        connection.execute_batch(PRINT_JOBS_MIGRATION).unwrap();
+        connection.execute(
+            "INSERT INTO spools (spool_id, display_name, brand, material, series, color_hex, remaining_grams, status) VALUES ('11111111-1111-4111-8111-111111111111', 'PLA', 'Bambu Lab', 'PLA', 'Basic', '#ffffff', 990.0, 'available')",
+            [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO print_jobs (job_id, source_hash, source_file_name, outcome, settlement_version) VALUES ('22222222-2222-4222-8222-222222222222', 'old-hash', 'old.gcode.3mf', '{\"kind\":\"success\"}', 1)",
+            [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO job_imports (job_id, parsed_json, parse_count) VALUES ('22222222-2222-4222-8222-222222222222', '{\"filaments\":[],\"gcode\":{\"layers\":[],\"totals_mm\":{},\"max_layer\":0}}', 1)",
+            [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO job_consumption (job_id, spool_id, settlement_version, consumed_grams, confidence) VALUES ('22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111', 1, 10.0, 'exact')",
+            [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, job_id, settlement_version, event_type, delta_grams, confidence) VALUES ('33333333-3333-4333-8333-333333333333', 'old-settlement', '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', 1, 'settlement', -10.0, 'exact')",
+            [],
+        ).unwrap();
+
+        let database = AppDatabase::from_connection(connection).unwrap();
+
+        assert_eq!(
+            database.connection.query_row(
+                "SELECT COUNT(*) FROM spools WHERE spool_id = '11111111-1111-4111-8111-111111111111'",
+                [], |row| row.get::<_, u32>(0),
+            ).unwrap(),
+            1
+        );
+        assert_eq!(
+            database.connection.query_row(
+                "SELECT COUNT(*) FROM print_jobs WHERE job_id = '22222222-2222-4222-8222-222222222222' AND source_hash = 'old-hash'",
+                [], |row| row.get::<_, u32>(0),
+            ).unwrap(),
+            1
+        );
+        assert_eq!(
+            database.connection.query_row(
+                "SELECT consumed_grams FROM job_consumption WHERE job_id = '22222222-2222-4222-8222-222222222222'",
+                [], |row| row.get::<_, f64>(0),
+            ).unwrap(),
+            10.0
+        );
+        assert_eq!(
+            database.connection.query_row(
+                "SELECT delta_grams FROM ledger_events WHERE event_id = '33333333-3333-4333-8333-333333333333'",
+                [], |row| row.get::<_, f64>(0),
+            ).unwrap(),
+            -10.0
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM parse_cache WHERE source_hash = 'old-hash'",
+                    [],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row("PRAGMA foreign_key_check", [], |_| Ok(1))
+                .optional()
+                .unwrap(),
+            None
+        );
     }
 
     #[test]

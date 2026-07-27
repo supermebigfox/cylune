@@ -354,7 +354,11 @@ fn parse_spool_id(value: String) -> Result<Uuid> {
         .map_err(|_| AppError::Database("invalid spool id".to_owned()))
 }
 
-fn status_for(is_archived: bool, is_mounted: bool, remaining_grams: f64) -> &'static str {
+pub(crate) fn status_for(
+    is_archived: bool,
+    is_mounted: bool,
+    remaining_grams: f64,
+) -> &'static str {
     if is_archived {
         "archived"
     } else if remaining_grams <= 0.0 {

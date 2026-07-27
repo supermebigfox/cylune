@@ -2,6 +2,7 @@ use crate::{
     domain::{Confidence, JobOutcome},
     error::{AppError, Result},
     imports::{with_print, PrintService, PrintState},
+    inventory::status_for,
 };
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
@@ -54,8 +55,22 @@ impl PrintService {
             .collect::<BTreeMap<_, _>>();
         let (selected_mm, selected_layer, confidence) = usage_for_outcome(&parsed.gcode, &outcome)?;
 
-        let mut grouped = BTreeMap::<Uuid, Consumption>::new();
+        let mut profiles_by_tool = BTreeMap::new();
         for profile in &parsed.filaments {
+            if profiles_by_tool.insert(profile.tool, profile).is_some() {
+                return Err(AppError::InvalidMapping);
+            }
+        }
+        for (tool, millimeters) in &selected_mm {
+            if *millimeters > 0.0
+                && (!profiles_by_tool.contains_key(tool) || !mapping_by_tool.contains_key(tool))
+            {
+                return Err(AppError::InvalidMapping);
+            }
+        }
+
+        let mut grouped = BTreeMap::<Uuid, Consumption>::new();
+        for profile in profiles_by_tool.into_values() {
             let mapping = mapping_by_tool
                 .get(&profile.tool)
                 .ok_or(AppError::InvalidMapping)?;
@@ -79,6 +94,16 @@ impl PrintService {
         let transaction = self.database.connection.transaction()?;
 
         for item in &consumption {
+            let status: Option<String> = transaction
+                .query_row(
+                    "SELECT status FROM spools WHERE spool_id = ?1",
+                    params![item.spool_id.to_string()],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if status.as_deref().is_none_or(|status| status == "archived") {
+                return Err(AppError::InvalidMapping);
+            }
             let balance = ledger_balance(&transaction, item.spool_id)?;
             if balance + 1e-9 < item.grams {
                 return Err(AppError::InsufficientFilament);
@@ -308,18 +333,17 @@ fn ledger_balance(transaction: &Transaction<'_>, spool_id: Uuid) -> Result<f64> 
 
 fn refresh_balance(transaction: &Transaction<'_>, spool_id: Uuid) -> Result<()> {
     let balance = ledger_balance(transaction, spool_id)?;
+    let current_status: String = transaction.query_row(
+        "SELECT status FROM spools WHERE spool_id = ?1",
+        params![spool_id.to_string()],
+        |row| row.get(0),
+    )?;
     let mounted: bool = transaction.query_row(
         "SELECT EXISTS(SELECT 1 FROM ams_slots WHERE spool_id = ?1)",
         params![spool_id.to_string()],
         |row| row.get(0),
     )?;
-    let status = if balance <= 0.0 {
-        "empty"
-    } else if mounted {
-        "assigned"
-    } else {
-        "available"
-    };
+    let status = status_for(current_status == "archived", mounted, balance);
     transaction.execute(
         "UPDATE spools SET remaining_grams = ?1, status = ?2 WHERE spool_id = ?3",
         params![balance.max(0.0), status, spool_id.to_string()],
@@ -382,6 +406,10 @@ mod tests {
     use uuid::Uuid;
 
     fn settlement_fixture() -> PathBuf {
+        settlement_fixture_with_gcode(b"M83\n; LAYER:0\nT0\nG1 E10\nT1\nG1 E20\n; LAYER:1\nT0\nG1 E5\nT1\nG1 E10\n; LAYER:2\nT0\nG1 E5\nT1\nG1 E10\n")
+    }
+
+    fn settlement_fixture_with_gcode(gcode: &[u8]) -> PathBuf {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let path = std::env::temp_dir().join(format!(
             "bambu-pools-settlement-{}-{}.3mf",
@@ -401,9 +429,7 @@ mod tests {
         archive
             .start_file("Metadata/plate_1.gcode", options)
             .unwrap();
-        archive
-            .write_all(b"M83\n; LAYER:0\nT0\nG1 E10\nT1\nG1 E20\n; LAYER:1\nT0\nG1 E5\nT1\nG1 E10\n; LAYER:2\nT0\nG1 E5\nT1\nG1 E10\n")
-            .unwrap();
+        archive.write_all(gcode).unwrap();
         archive.finish().unwrap();
         path
     }
@@ -564,6 +590,128 @@ mod tests {
         assert_eq!(error.code(), "insufficient_filament");
         assert_eq!(service.settlement_event_count(job_id).unwrap(), 0);
         assert_eq!(service.spool_balance(spools[1]).unwrap(), 1000.0);
+    }
+
+    #[test]
+    fn unknown_positive_usage_tool_fails_without_any_mutation() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+        let first = inventory
+            .create_spool(NewSpool {
+                display_name: "T0".to_owned(),
+                preset_id: None,
+                brand: "Bambu Lab".to_owned(),
+                material: "PLA".to_owned(),
+                series: "Basic".to_owned(),
+                color_hex: "#FF0000".to_owned(),
+                remaining_grams: 1000.0,
+            })
+            .unwrap();
+        let second = inventory
+            .create_spool(NewSpool {
+                display_name: "T1".to_owned(),
+                preset_id: None,
+                brand: "Bambu Lab".to_owned(),
+                material: "PLA".to_owned(),
+                series: "Matte".to_owned(),
+                color_hex: "#00FF00".to_owned(),
+                remaining_grams: 1000.0,
+            })
+            .unwrap();
+        let database = inventory.into_database();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let fixture =
+            settlement_fixture_with_gcode(b"M83\n; LAYER:0\nT0\nG1 E10\nT1\nG1 E20\nT2\nG1 E30\n");
+        let preview = service.import_print_file(&fixture).unwrap();
+        fs::remove_file(fixture).unwrap();
+        service
+            .confirm_job_mapping(
+                preview.job_id,
+                vec![
+                    ToolMapping {
+                        tool: 0,
+                        spool_id: first,
+                    },
+                    ToolMapping {
+                        tool: 1,
+                        spool_id: second,
+                    },
+                ],
+            )
+            .unwrap();
+
+        let error = service
+            .settle_job(preview.job_id, JobOutcome::Success)
+            .unwrap_err();
+
+        assert_eq!(error.code(), "invalid_mapping");
+        assert_eq!(service.settlement_event_count(preview.job_id).unwrap(), 0);
+        assert_eq!(service.spool_balance(first).unwrap(), 1000.0);
+        assert_eq!(service.spool_balance(second).unwrap(), 1000.0);
+    }
+
+    #[test]
+    fn archive_after_mapping_rejects_settlement_atomically() {
+        let (mut service, job_id, spools) = prepared_service();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE ams_slots SET spool_id = NULL WHERE spool_id = ?1",
+                params![spools[0].to_string()],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE spools SET status = 'archived' WHERE spool_id = ?1",
+                params![spools[0].to_string()],
+            )
+            .unwrap();
+
+        let error = service.settle_job(job_id, JobOutcome::Success).unwrap_err();
+
+        assert_eq!(error.code(), "invalid_mapping");
+        assert_eq!(service.settlement_event_count(job_id).unwrap(), 0);
+        assert_eq!(service.spool_balance(spools[0]).unwrap(), 1000.0);
+        assert_eq!(service.spool_balance(spools[1]).unwrap(), 1000.0);
+    }
+
+    #[test]
+    fn reversal_restores_balance_without_unarchiving_spool() {
+        let (mut service, job_id, spools) = prepared_service();
+        service.settle_job(job_id, JobOutcome::Success).unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE ams_slots SET spool_id = NULL WHERE spool_id = ?1",
+                params![spools[0].to_string()],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE spools SET status = 'archived' WHERE spool_id = ?1",
+                params![spools[0].to_string()],
+            )
+            .unwrap();
+
+        service.reverse_settlement(job_id).unwrap();
+
+        let status: String = service
+            .database
+            .connection
+            .query_row(
+                "SELECT status FROM spools WHERE spool_id = ?1",
+                params![spools[0].to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "archived");
+        assert_eq!(service.spool_balance(spools[0]).unwrap(), 1000.0);
     }
 
     #[test]
