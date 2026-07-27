@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "拓竹耗材管家",
+  "version": "0.1.0",
+  "identifier": "com.local.bambuspools",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "拓竹耗材管家",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 900,
+        "minHeight": 640
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "icon": [],
+    "targets": "all"
+  }
+}
