@@ -121,6 +121,7 @@
   },
   "import": {
     "title": "匯入切片檔案",
+    "filterName": "已切片 3MF 檔案",
     "drop": "把已切片的 .gcode.3mf 拖到這裡",
     "browse": "選擇檔案",
     "reading": "正在讀取顏色與預計用量…",

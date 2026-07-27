@@ -112,6 +112,46 @@ describe("Job", () => {
     });
   });
 
+  it("freezes outcome, layer, and mapping choices while a settlement action is busy", () => {
+    const props = {
+      preview,
+      spools,
+      initialMappings: { 0: "spool-black-a" },
+      onConfirmMapping: async () => undefined,
+      onSettle: async () => undefined,
+      onConfirmNewPrint: async () => undefined,
+      onReverse: async () => undefined,
+    };
+    const { rerender } = render(<Job {...props} />);
+    fireEvent.click(screen.getByRole("radio", { name: "打印中途失败" }));
+
+    rerender(<Job {...props} busy />);
+
+    expect(screen.getAllByRole("radio", { name: /完整打印成功|打印中途失败|打印中途取消|按打印进度估算/ }).every((input) => input.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getByLabelText("最后完成的层数")).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "黑色 PLA #A，612.4 克" })).toBeDisabled();
+  });
+
+  it("freezes the percentage slider while an estimated settlement is busy", () => {
+    const props = {
+      preview,
+      spools,
+      initialMappings: { 0: "spool-black-a" },
+      onConfirmMapping: async () => undefined,
+      onSettle: async () => undefined,
+      onConfirmNewPrint: async () => undefined,
+      onReverse: async () => undefined,
+    };
+    const { rerender } = render(<Job {...props} />);
+    fireEvent.click(screen.getByRole("radio", { name: "按打印进度估算" }));
+    fireEvent.change(screen.getByLabelText("大约完成百分比"), { target: { value: "43" } });
+
+    rerender(<Job {...props} busy />);
+
+    expect(screen.getByLabelText("大约完成百分比")).toBeDisabled();
+    expect(screen.getByText("43%")).toBeVisible();
+  });
+
   it("marks percentage settlement as estimated and exposes all confirmation paths", () => {
     const onSettle = vi.fn();
     const onConfirmNewPrint = vi.fn();

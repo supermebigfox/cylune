@@ -33,7 +33,7 @@ function errorCode(error: unknown) {
 
 export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf }: {
   apiClient?: TauriApi;
-  pickFile?: () => Promise<string | null>;
+  pickFile?: (filterName: string) => Promise<string | null>;
 }) {
   const locale = useLocale();
   const copy = (key: string) => t(key, {}, locale);
@@ -105,7 +105,7 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf }: {
       setPage("jobs");
       return;
     }
-    const path = await pickFile();
+    const path = await pickFile(copy("import.filterName"));
     if (!path) return;
     setPreview(await apiClient.importPrintFile(path));
     setSettled(false);

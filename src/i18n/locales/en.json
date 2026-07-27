@@ -121,6 +121,7 @@
   },
   "import": {
     "title": "Import sliced file",
+    "filterName": "Sliced 3MF file",
     "drop": "Drop a sliced .gcode.3mf here",
     "browse": "Choose file",
     "reading": "Reading colors and expected usage…",

@@ -147,6 +147,17 @@ describe("App localization", () => {
     expect(importPrintFile).toHaveBeenCalledWith("/Users/robin/Desktop/model.gcode.3mf");
   });
 
+  it("supplies the native picker label from the current locale", async () => {
+    await setLocale("zh-TW");
+    const pickFile = vi.fn(async (_filterName: string) => null);
+    render(<DesktopApp apiClient={fakeTauriApi()} pickFile={pickFile} />);
+    await screen.findByText("持久化蓝色 PLA");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "匯入切片檔案" })[0]);
+
+    await waitFor(() => expect(pickFile).toHaveBeenCalledWith("已切片 3MF 檔案"));
+  });
+
   it("prevents duplicate imports while busy and translates a stable rejected error", async () => {
     let rejectImport: (reason: unknown) => void = () => undefined;
     const importPrintFile = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectImport = reject; }));
