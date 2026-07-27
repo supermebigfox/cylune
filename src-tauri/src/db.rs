@@ -50,6 +50,7 @@ fn ledger_supports_creation(connection: &Connection) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::AppDatabase;
+    use crate::{domain::SpoolStatus, inventory::InventoryService};
     use rusqlite::Connection;
 
     #[test]
@@ -213,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn migration_upgrades_existing_ledger_events_to_support_creation_baselines() {
+    fn migration_backfills_creation_baselines_for_existing_spools() {
         let connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch(
@@ -227,6 +228,15 @@ mod tests {
                     color_hex TEXT NOT NULL,
                     remaining_grams REAL NOT NULL CHECK (remaining_grams >= 0),
                     status TEXT NOT NULL CHECK (status IN ('available', 'assigned', 'empty', 'archived'))
+                );
+                CREATE TABLE print_jobs (
+                    job_id TEXT PRIMARY KEY,
+                    source_hash TEXT NOT NULL UNIQUE,
+                    source_file_name TEXT NOT NULL,
+                    outcome TEXT,
+                    settlement_version INTEGER NOT NULL DEFAULT 0 CHECK (settlement_version >= 0),
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (job_id, settlement_version)
                 );
                 CREATE TABLE ledger_events (
                     event_id TEXT PRIMARY KEY,
@@ -244,21 +254,71 @@ mod tests {
                 ",
             )
             .unwrap();
-        let database = AppDatabase::from_connection(connection).unwrap();
-        database
-            .connection
+        connection
             .execute(
-                "INSERT INTO spools (spool_id, display_name, brand, material, series, color_hex, remaining_grams, status) VALUES ('spool-1', 'PLA', 'Bambu Lab', 'PLA', 'Basic', '#ffffff', 1000.0, 'available')",
+                "INSERT INTO spools (spool_id, display_name, brand, material, series, color_hex, remaining_grams, status) VALUES ('11111111-1111-4111-8111-111111111111', 'PLA', 'Bambu Lab', 'PLA', 'Basic', '#ffffff', 800.0, 'available')",
                 [],
             )
             .unwrap();
-
-        assert!(database
-            .connection
+        connection
             .execute(
-                "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, event_type, delta_grams, confidence) VALUES ('creation-1', 'creation-key-1', 'spool-1', 'creation', 1000.0, 'exact')",
+                "INSERT INTO spools (spool_id, display_name, brand, material, series, color_hex, remaining_grams, status) VALUES ('22222222-2222-4222-8222-222222222222', 'PLA', 'Bambu Lab', 'PLA', 'Basic', '#ffffff', 0.0, 'empty')",
                 [],
             )
-            .is_ok());
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, event_type, delta_grams, confidence) VALUES ('prior-adjustment', 'prior-adjustment-key', '11111111-1111-4111-8111-111111111111', 'adjustment', -125.0, 'exact')",
+                [],
+            )
+            .unwrap();
+        let database = AppDatabase::from_connection(connection).unwrap();
+        let available_total: f64 = database
+            .connection
+            .query_row(
+                "SELECT COALESCE(SUM(delta_grams), 0.0) FROM ledger_events WHERE spool_id = '11111111-1111-4111-8111-111111111111'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let empty_total: f64 = database
+            .connection
+            .query_row(
+                "SELECT COALESCE(SUM(delta_grams), 0.0) FROM ledger_events WHERE spool_id = '22222222-2222-4222-8222-222222222222'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let available_creation: f64 = database
+            .connection
+            .query_row(
+                "SELECT delta_grams FROM ledger_events WHERE spool_id = '11111111-1111-4111-8111-111111111111' AND event_type = 'creation'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let empty_creation: f64 = database
+            .connection
+            .query_row(
+                "SELECT delta_grams FROM ledger_events WHERE spool_id = '22222222-2222-4222-8222-222222222222' AND event_type = 'creation'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(available_creation, 925.0);
+        assert_eq!(empty_creation, 0.0);
+        assert_eq!(available_total, 800.0);
+        assert_eq!(empty_total, 0.0);
+
+        let mut service = InventoryService::new(database);
+        let available = "11111111-1111-4111-8111-111111111111".parse().unwrap();
+        let empty = "22222222-2222-4222-8222-222222222222".parse().unwrap();
+        assert_eq!(service.rebuild_spool_balance(available).unwrap(), 800.0);
+        assert_eq!(
+            service.get_spool(available).unwrap().status,
+            SpoolStatus::Available
+        );
+        assert_eq!(service.rebuild_spool_balance(empty).unwrap(), 0.0);
+        assert_eq!(service.get_spool(empty).unwrap().status, SpoolStatus::Empty);
     }
 }

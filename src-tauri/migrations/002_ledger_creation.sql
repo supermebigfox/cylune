@@ -48,6 +48,31 @@ SELECT
     created_at
 FROM ledger_events_legacy;
 
+INSERT INTO ledger_events (
+    event_id,
+    idempotency_key,
+    spool_id,
+    event_type,
+    delta_grams,
+    confidence
+)
+SELECT
+    'legacy-creation-' || spools.spool_id,
+    'legacy-baseline-' || spools.spool_id,
+    spools.spool_id,
+    'creation',
+    spools.remaining_grams - COALESCE(SUM(events.delta_grams), 0.0),
+    'exact'
+FROM spools
+LEFT JOIN ledger_events AS events ON events.spool_id = spools.spool_id
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM ledger_events AS creation_events
+    WHERE creation_events.spool_id = spools.spool_id
+      AND creation_events.event_type = 'creation'
+)
+GROUP BY spools.spool_id;
+
 DROP TABLE ledger_events_legacy;
 
 COMMIT;
