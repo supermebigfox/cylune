@@ -375,6 +375,12 @@ pub struct ImportPreview {
     pub state: ImportState,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PendingSummary {
+    pub count: u32,
+    pub newest_job_id: Option<Uuid>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ImportState {
@@ -477,6 +483,33 @@ impl PrintService {
             &parsed,
             ImportState::New,
         )
+    }
+
+    pub fn pending_summary(&self) -> Result<PendingSummary> {
+        let count = self.database.connection.query_row(
+            "SELECT COUNT(*) FROM print_jobs WHERE outcome IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        let newest_job_id: Option<String> = self
+            .database
+            .connection
+            .query_row(
+                "SELECT job_id FROM print_jobs WHERE outcome IS NULL ORDER BY rowid DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(PendingSummary {
+            count,
+            newest_job_id: newest_job_id
+                .map(|job_id| {
+                    job_id
+                        .parse()
+                        .map_err(|_| AppError::Database("invalid job id".to_owned()))
+                })
+                .transpose()?,
+        })
     }
 
     pub fn parse_result_count(&self, source_hash: &str) -> Result<u32> {
@@ -821,8 +854,22 @@ pub(crate) fn with_print<T>(
 pub fn import_print_file(
     path: String,
     state: tauri::State<'_, PrintState>,
+    runtime: tauri::State<'_, crate::pet::runtime::PetRuntime>,
 ) -> Result<ImportPreview> {
-    with_print(state, |service| service.import_print_file(Path::new(&path)))
+    let mut service = state
+        .lock()
+        .map_err(|_| AppError::Database("print service lock poisoned".to_owned()))?;
+    let preview = service.import_print_file(Path::new(&path))?;
+    let summary = service.pending_summary()?;
+    drop(service);
+    runtime.refresh_pending(
+        summary,
+        Some(crate::pet::runtime::PetSignal::ImportSucceeded {
+            job_id: preview.job_id,
+            pending_count: summary.count,
+        }),
+    );
+    Ok(preview)
 }
 
 #[tauri::command]
@@ -840,8 +887,22 @@ pub fn confirm_job_mapping(
 pub fn confirm_new_print(
     source_hash: String,
     state: tauri::State<'_, PrintState>,
+    runtime: tauri::State<'_, crate::pet::runtime::PetRuntime>,
 ) -> Result<ImportPreview> {
-    with_print(state, |service| service.confirm_new_print(&source_hash))
+    let mut service = state
+        .lock()
+        .map_err(|_| AppError::Database("print service lock poisoned".to_owned()))?;
+    let preview = service.confirm_new_print(&source_hash)?;
+    let summary = service.pending_summary()?;
+    drop(service);
+    runtime.refresh_pending(
+        summary,
+        Some(crate::pet::runtime::PetSignal::ImportSucceeded {
+            job_id: preview.job_id,
+            pending_count: summary.count,
+        }),
+    );
+    Ok(preview)
 }
 
 #[tauri::command]

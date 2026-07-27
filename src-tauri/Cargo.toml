@@ -21,6 +21,7 @@ sha2 = "0.10"
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
 notify = "8"
 uuid = { version = "1", features = ["serde", "v4"] }
 zip = { version = "0.6", default-features = false, features = ["deflate"] }

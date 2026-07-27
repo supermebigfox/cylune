@@ -66,14 +66,20 @@ pub fn import_with_retry(
 pub struct WatchState(pub Mutex<Option<RecommendedWatcher>>);
 pub struct NativeMenuState {
     open: tauri::menu::MenuItem<tauri::Wry>,
+    reset: tauri::menu::MenuItem<tauri::Wry>,
+    visibility: tauri::menu::MenuItem<tauri::Wry>,
     quit: tauri::menu::MenuItem<tauri::Wry>,
     tray: tauri::tray::TrayIcon<tauri::Wry>,
     locale: Mutex<String>,
+    pet_visible: Mutex<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NativeCopy {
     pub open: &'static str,
+    pub reset: &'static str,
+    pub show: &'static str,
+    pub hide: &'static str,
     pub quit: &'static str,
     pub tooltip: &'static str,
     pub notification_title: &'static str,
@@ -84,6 +90,9 @@ pub fn native_copy(locale: &str) -> NativeCopy {
     match locale {
         "en" => NativeCopy {
             open: "Open Spool Keeper",
+            reset: "Reset black hole position",
+            show: "Show black hole",
+            hide: "Hide black hole",
             quit: "Quit",
             tooltip: "Spool Keeper",
             notification_title: "Spool Keeper",
@@ -91,6 +100,9 @@ pub fn native_copy(locale: &str) -> NativeCopy {
         },
         "zh-TW" => NativeCopy {
             open: "開啟耗材管家",
+            reset: "重設黑洞位置",
+            show: "顯示黑洞",
+            hide: "隱藏黑洞",
             quit: "結束",
             tooltip: "耗材管家",
             notification_title: "耗材管家",
@@ -98,11 +110,46 @@ pub fn native_copy(locale: &str) -> NativeCopy {
         },
         _ => NativeCopy {
             open: "打开耗材管家",
+            reset: "重置黑洞位置",
+            show: "显示黑洞",
+            hide: "隐藏黑洞",
             quit: "退出",
             tooltip: "耗材管家",
             notification_title: "耗材管家",
             notification_body: "有一个打印任务等待结算",
         },
+    }
+}
+
+pub fn import_error_copy(locale: &str, code: &str) -> &'static str {
+    match (locale, code) {
+        ("en", "unsliced_project") => "This project has not been sliced",
+        ("en", "standalone_gcode_profiles_required") => "This G-code has no filament profile",
+        ("en", "file_not_stable") => "The file is still being written",
+        ("en", "invalid_file") => "The file could not be recognized",
+        ("en", "duplicate_job") => "This print job already exists",
+        ("en", "invalid_mapping") => "The filament mapping is invalid",
+        ("en", "unknown_gcode") => "No measurable extrusion data was found",
+        ("en", "database") => "The local database is unavailable",
+        ("en", _) => "The file is temporarily unavailable",
+        ("zh-TW", "unsliced_project") => "這個專案尚未切片",
+        ("zh-TW", "standalone_gcode_profiles_required") => "這個 G-code 沒有耗材設定",
+        ("zh-TW", "file_not_stable") => "檔案仍在寫入",
+        ("zh-TW", "invalid_file") => "無法辨識這個檔案",
+        ("zh-TW", "duplicate_job") => "這個列印任務已經存在",
+        ("zh-TW", "invalid_mapping") => "耗材對應無效",
+        ("zh-TW", "unknown_gcode") => "沒有找到可計算的擠出資料",
+        ("zh-TW", "database") => "本機資料暫時無法讀取",
+        ("zh-TW", _) => "檔案暫時無法存取",
+        (_, "unsliced_project") => "这个项目尚未切片",
+        (_, "standalone_gcode_profiles_required") => "这个 G-code 没有耗材配置",
+        (_, "file_not_stable") => "文件仍在写入",
+        (_, "invalid_file") => "无法识别这个文件",
+        (_, "duplicate_job") => "这个打印任务已经存在",
+        (_, "invalid_mapping") => "耗材映射无效",
+        (_, "unknown_gcode") => "没有找到可计算的挤出数据",
+        (_, "database") => "本地数据暂时无法读取",
+        (_, _) => "文件暂时无法访问",
     }
 }
 
@@ -158,11 +205,24 @@ pub fn set_watch_folder(
                     let result = match app_handle.state::<PrintState>().lock() {
                         Ok(mut service) => {
                             import_with_retry(&mut service, &file, 3, Duration::from_millis(250))
+                                .and_then(|preview| {
+                                    let summary = service.pending_summary()?;
+                                    Ok((preview, summary))
+                                })
                         }
                         Err(_) => Err(AppError::Database("print lock poisoned".into())),
                     };
                     match result {
-                        Ok(preview) => {
+                        Ok((preview, summary)) => {
+                            app_handle
+                                .state::<crate::pet::runtime::PetRuntime>()
+                                .refresh_pending(
+                                    summary,
+                                    Some(crate::pet::runtime::PetSignal::ImportSucceeded {
+                                        job_id: preview.job_id,
+                                        pending_count: summary.count,
+                                    }),
+                                );
                             let _ = app_handle.emit(
                                 "watch-import",
                                 WatchImportEvent {
@@ -273,7 +333,7 @@ pub fn take_pending_job_from_database(
         Uuid::parse_str(id).is_ok()
             && transaction
                 .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM print_jobs WHERE job_id=?1)",
+                    "SELECT EXISTS(SELECT 1 FROM print_jobs WHERE job_id=?1 AND outcome IS NULL)",
                     params![id],
                     |row| row.get::<_, bool>(0),
                 )
@@ -300,9 +360,6 @@ pub fn open_job_in_main(
     show_main(&app);
     app.emit_to("main", "open-job", job_id.clone())
         .map_err(|error| AppError::Io(error.to_string()))?;
-    if let Some(window) = app.get_webview_window("menubar") {
-        let _ = window.hide();
-    }
     Ok(())
 }
 
@@ -331,6 +388,18 @@ pub fn set_native_locale(
         .set_text(copy.open)
         .map_err(|e| AppError::Io(e.to_string()))?;
     state
+        .reset
+        .set_text(copy.reset)
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    let visible = *state
+        .pet_visible
+        .lock()
+        .map_err(|_| AppError::Database("pet visibility lock poisoned".into()))?;
+    state
+        .visibility
+        .set_text(if visible { copy.hide } else { copy.show })
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    state
         .quit
         .set_text(copy.quit)
         .map_err(|e| AppError::Io(e.to_string()))?;
@@ -353,7 +422,7 @@ pub fn set_native_locale(
     Ok(())
 }
 
-fn show_main(app: &tauri::AppHandle) {
+pub fn show_main(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -361,16 +430,54 @@ fn show_main(app: &tauri::AppHandle) {
     }
 }
 
-pub fn setup(app: &tauri::App, initial_locale: &str) -> tauri::Result<()> {
+pub fn sync_pet_visibility(app: &tauri::AppHandle, visible: bool) {
+    let state = app.state::<NativeMenuState>();
+    if let Ok(mut saved) = state.pet_visible.lock() {
+        *saved = visible;
+    }
+    let locale = state
+        .locale
+        .lock()
+        .map(|locale| locale.clone())
+        .unwrap_or_else(|_| "zh-CN".to_owned());
+    let copy = native_copy(&locale);
+    let _ = state
+        .visibility
+        .set_text(if visible { copy.hide } else { copy.show });
+}
+
+pub fn notify_import_error(app: &tauri::AppHandle, code: &str) {
+    let locale = app
+        .state::<NativeMenuState>()
+        .locale
+        .lock()
+        .map(|locale| locale.clone())
+        .unwrap_or_else(|_| "zh-CN".to_owned());
+    let copy = native_copy(&locale);
+    let _ = app
+        .notification()
+        .builder()
+        .title(copy.notification_title)
+        .body(import_error_copy(&locale, code))
+        .show();
+}
+
+pub fn setup(app: &tauri::App, initial_locale: &str, pet_visible: bool) -> tauri::Result<()> {
     use tauri::{
         menu::{Menu, MenuItemBuilder},
         tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-        PhysicalPosition, WindowEvent,
+        WindowEvent,
     };
     let copy = native_copy(initial_locale);
     let open = MenuItemBuilder::with_id("open", copy.open).build(app)?;
+    let reset = MenuItemBuilder::with_id("reset", copy.reset).build(app)?;
+    let visibility = MenuItemBuilder::with_id(
+        "pet-visibility",
+        if pet_visible { copy.hide } else { copy.show },
+    )
+    .build(app)?;
     let quit = MenuItemBuilder::with_id("quit", copy.quit).build(app)?;
-    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &reset, &visibility, &quit])?;
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/trayTemplate.png"))?;
     let tray = TrayIconBuilder::with_id("spool-keeper")
         .icon(icon)
@@ -380,6 +487,8 @@ pub fn setup(app: &tauri::App, initial_locale: &str) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => show_main(app),
+            "reset" => app.state::<crate::pet::runtime::PetRuntime>().reset(),
+            "pet-visibility" => app.state::<crate::pet::runtime::PetRuntime>().toggle(),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -392,30 +501,19 @@ pub fn setup(app: &tauri::App, initial_locale: &str) -> tauri::Result<()> {
             } = event
             {
                 let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("menubar") {
-                    if window.is_visible().unwrap_or(false) {
-                        let _ = window.hide();
-                    } else {
-                        let scale = window.scale_factor().unwrap_or(1.0);
-                        let size = window.outer_size().unwrap_or_default();
-                        let anchor = rect.position.to_physical::<f64>(scale);
-                        let x = anchor.x - (size.width as f64 / 2.0)
-                            + (rect.size.to_physical::<f64>(scale).width / 2.0);
-                        let y = anchor.y + rect.size.to_physical::<f64>(scale).height;
-                        let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                        let _ = app.emit_to("menubar", "tray-opened", ());
-                    }
-                }
+                let _ = rect;
+                app.state::<crate::pet::runtime::PetRuntime>().toggle();
             }
         })
         .build(app)?;
     app.manage(NativeMenuState {
         open,
+        reset,
+        visibility,
         quit,
         tray,
         locale: Mutex::new(initial_locale.to_owned()),
+        pet_visible: Mutex::new(pet_visible),
     });
     if let Some(main) = app.get_webview_window("main") {
         let close = main.clone();
@@ -426,22 +524,14 @@ pub fn setup(app: &tauri::App, initial_locale: &str) -> tauri::Result<()> {
             }
         });
     }
-    if let Some(menu) = app.get_webview_window("menubar") {
-        let blur = menu.clone();
-        menu.on_window_event(move |event| {
-            if matches!(event, WindowEvent::Focused(false)) {
-                let _ = blur.hide();
-            }
-        });
-    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        import_with_retry, is_supported_print_path, native_copy, persist_pending_job,
-        take_pending_job_from_database, Debouncer,
+        import_error_copy, import_with_retry, is_supported_print_path, native_copy,
+        persist_pending_job, take_pending_job_from_database, Debouncer,
     };
     use crate::{db::AppDatabase, imports::PrintService};
     use std::{
@@ -514,7 +604,18 @@ mod tests {
             "A print is awaiting settlement"
         );
         assert_eq!(native_copy("zh-TW").open, "開啟耗材管家");
+        assert_eq!(native_copy("zh-TW").reset, "重設黑洞位置");
+        assert_eq!(native_copy("zh-TW").show, "顯示黑洞");
+        assert_eq!(native_copy("zh-TW").hide, "隱藏黑洞");
         assert_eq!(native_copy("zh-CN").quit, "退出");
+        assert_eq!(
+            import_error_copy("en", "unsliced_project"),
+            "This project has not been sliced"
+        );
+        assert_eq!(
+            import_error_copy("zh-CN", "invalid_file"),
+            "无法识别这个文件"
+        );
     }
 
     #[test]
@@ -541,5 +642,32 @@ mod tests {
 
         drop(reopened);
         fs::remove_file(database_path).unwrap();
+    }
+
+    #[test]
+    fn pending_navigation_does_not_reopen_a_settled_job() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bambu_multicolor.3mf");
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let job_id = service
+            .import_print_file(&fixture)
+            .unwrap()
+            .job_id
+            .to_string();
+        persist_pending_job(&service.database, &job_id).unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_jobs SET outcome='{\"kind\":\"success\"}' WHERE job_id=?1",
+                [&job_id],
+            )
+            .unwrap();
+
+        assert_eq!(
+            take_pending_job_from_database(&mut service.database).unwrap(),
+            None
+        );
     }
 }

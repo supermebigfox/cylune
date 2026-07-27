@@ -19,20 +19,6 @@
         "minWidth": 900,
         "minHeight": 640,
         "center": true
-      },
-      {
-        "label": "menubar",
-        "title": "Spool Keeper",
-        "url": "index.html?window=menubar",
-        "width": 380,
-        "height": 460,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "shadow": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visible": false
       }
     ]
   },

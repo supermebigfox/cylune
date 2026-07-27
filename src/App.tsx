@@ -12,7 +12,11 @@ import { Theme } from "./theme/Theme";
 import { listen } from "@tauri-apps/api/event";
 
 type Page = "home" | "spools" | "jobs" | "settings";
-type DesktopEventName = "open-job" | "watch-import";
+type DesktopEventName =
+  | "open-job"
+  | "watch-import"
+  | "open-overview"
+  | "pet-import-error";
 type DesktopEventSubscriber = (
   name: DesktopEventName,
   handler: (payload: unknown) => void,
@@ -105,9 +109,6 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscrib
         if (!disposed) setError(copy("errors.invalid_job"));
       }
     };
-    void apiClient.takePendingJob?.().then((jobId) => {
-      if (jobId) void openJob(jobId, "navigation");
-    });
     void Promise.all([
       subscribeEvent("open-job", (payload) => {
         if (typeof payload === "string") {
@@ -122,9 +123,20 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscrib
           setError(copy(`errors.${errorCode({ code: event.code })}`));
         }
       }),
+      subscribeEvent("open-overview", () => {
+        setPage("home");
+      }),
+      subscribeEvent("pet-import-error", (payload) => {
+        setError(copy(`errors.${errorCode({ code: payload })}`));
+      }),
     ]).then((stops) => {
       if (disposed) stops.forEach((stop) => stop());
-      else unlisteners.push(...stops);
+      else {
+        unlisteners.push(...stops);
+        void apiClient.takePendingJob?.().then((jobId) => {
+          if (!disposed && jobId) void openJob(jobId, "navigation");
+        });
+      }
     });
     return () => {
       disposed = true;

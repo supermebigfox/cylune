@@ -1,3 +1,4 @@
+import React from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App, DesktopApp } from "./App";
@@ -178,7 +179,7 @@ describe("App localization", () => {
   it("queues a watched print instead of replacing an unsettled preview", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const subscribeEvent = vi.fn(async (
-      name: "open-job" | "watch-import",
+      name: "open-job" | "watch-import" | "open-overview" | "pet-import-error",
       handler: (payload: unknown) => void,
     ) => {
       handlers.set(name, handler);
@@ -210,5 +211,54 @@ describe("App localization", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "查看任务" }));
     expect(await screen.findByText("second.gcode.3mf")).toBeVisible();
+  });
+
+  it("handles pet overview navigation and stable import errors", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const subscribeEvent = vi.fn(async (
+      name: "open-job" | "watch-import" | "open-overview" | "pet-import-error",
+      handler: (payload: unknown) => void,
+    ) => {
+      handlers.set(name, handler);
+      return () => handlers.delete(name);
+    });
+    render(<DesktopApp
+      apiClient={fakeTauriApi({ getJobPreview: async () => demoPreview })}
+      pickFile={async () => null}
+      subscribeEvent={subscribeEvent}
+    />);
+    await waitFor(() => expect(handlers.has("open-overview")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "耗材库" }));
+    expect(screen.getByRole("heading", { name: "我的耗材库" })).toBeVisible();
+
+    await act(async () => {
+      handlers.get("open-overview")?.(null);
+      handlers.get("pet-import-error")?.("unsliced_project");
+    });
+
+    expect(screen.getByRole("heading", { name: "今天想打印点什么？" })).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("这个项目尚未切片");
+  });
+
+  it("does not consume persisted pet navigation during StrictMode cleanup", async () => {
+    const takePendingJob = vi.fn()
+      .mockResolvedValueOnce("persisted-job")
+      .mockResolvedValue(null);
+    const getJobPreview = vi.fn(async () => ({
+      ...demoPreview,
+      job_id: "persisted-job",
+      source_file_name: "persisted.gcode.3mf",
+    }));
+    render(
+      <React.StrictMode>
+        <DesktopApp
+          apiClient={fakeTauriApi({ getJobPreview, takePendingJob })}
+          pickFile={async () => null}
+        />
+      </React.StrictMode>,
+    );
+
+    expect(await screen.findByText("persisted.gcode.3mf")).toBeVisible();
+    expect(getJobPreview).toHaveBeenCalledWith("persisted-job");
   });
 });

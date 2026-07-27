@@ -17,9 +17,33 @@ use crate::{
 use rusqlite::OptionalExtension;
 use tauri::Manager;
 
+fn service_instance_recall(app: &tauri::AppHandle) {
+    let recall = app.state::<pet::runtime::InstanceRecall>();
+    let Some(request) = recall.pending_request() else {
+        return;
+    };
+    let Some(runtime) = app.try_state::<pet::runtime::PetRuntime>() else {
+        return;
+    };
+    for action in pet::runtime::second_launch_actions() {
+        match action {
+            pet::runtime::InstanceAction::ShowMain => tray::show_main(app),
+            pet::runtime::InstanceAction::ShowPet => runtime.show(),
+        }
+    }
+    recall.mark_completed(request);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(pet::runtime::InstanceRecall::default())
+        .plugin(tauri_plugin_single_instance::init(
+            |app, _args, _cwd| {
+                app.state::<pet::runtime::InstanceRecall>().request();
+                service_instance_recall(app);
+            },
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
@@ -31,9 +55,12 @@ pub fn run() {
             let inventory_database = AppDatabase::open(&database_path)?;
             let print_database = AppDatabase::open(&database_path)?;
             let initial_pet_settings = pet::PetStore::load(&print_database)?;
-            let native_pet = pet::PetNativeState::new(&initial_pet_settings)?;
-            let saved_watch: Option<String> = print_database.connection.query_row("SELECT setting_value FROM app_settings WHERE setting_key='watch_folder' AND EXISTS(SELECT 1 FROM app_settings WHERE setting_key='watch_enabled' AND setting_value='true')",[],|row|row.get(0)).optional()?;
-            let initial_locale: String = print_database
+            let print_service = PrintService::new(print_database);
+            let initial_pending = print_service.pending_summary()?;
+            let pet_visible = initial_pet_settings.visible;
+            let saved_watch: Option<String> = print_service.database.connection.query_row("SELECT setting_value FROM app_settings WHERE setting_key='watch_folder' AND EXISTS(SELECT 1 FROM app_settings WHERE setting_key='watch_enabled' AND setting_value='true')",[],|row|row.get(0)).optional()?;
+            let initial_locale: String = print_service
+                .database
                 .connection
                 .query_row(
                     "SELECT setting_value FROM app_settings WHERE setting_key='locale'",
@@ -46,10 +73,16 @@ pub fn run() {
             app.manage(InventoryState::new(InventoryService::new(
                 inventory_database,
             )));
-            app.manage(PrintState::new(PrintService::new(print_database)));
-            app.manage(native_pet);
+            app.manage(PrintState::new(print_service));
             app.manage(tray::WatchState(std::sync::Mutex::new(None)));
-            tray::setup(app, &initial_locale)?;
+            tray::setup(app, &initial_locale, pet_visible)?;
+            let pet_runtime = pet::runtime::PetRuntime::start(
+                app.handle().clone(),
+                initial_pet_settings,
+                initial_pending,
+            )?;
+            app.manage(pet_runtime);
+            service_instance_recall(app.handle());
             if let Some(folder) = saved_watch {
                 if tray::set_watch_folder(
                     app.handle().clone(),
@@ -96,6 +129,13 @@ pub fn run() {
             tray::take_pending_job,
             tray::set_native_locale,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building Tauri application")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(runtime) = app.try_state::<pet::runtime::PetRuntime>() {
+                    runtime.shutdown();
+                }
+            }
+        });
 }

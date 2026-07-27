@@ -36,6 +36,18 @@ pub struct ReversalResult {
 }
 
 impl PrintService {
+    fn current_settlement_version(&self, job_id: Uuid) -> Result<u32> {
+        self.database
+            .connection
+            .query_row(
+                "SELECT settlement_version FROM print_jobs WHERE job_id = ?1",
+                params![job_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(AppError::InvalidJob)
+    }
+
     pub fn settle_job(&mut self, job_id: Uuid, outcome: JobOutcome) -> Result<SettlementResult> {
         if let Some(saved) = self.saved_settlement(job_id)? {
             if saved.outcome == outcome {
@@ -377,8 +389,23 @@ pub fn settle_job(
     job_id: Uuid,
     outcome: JobOutcome,
     state: tauri::State<'_, PrintState>,
+    runtime: tauri::State<'_, crate::pet::runtime::PetRuntime>,
 ) -> Result<SettlementResult> {
-    with_print(state, |service| service.settle_job(job_id, outcome))
+    let mut service = state
+        .lock()
+        .map_err(|_| AppError::Database("print service lock poisoned".to_owned()))?;
+    let before = service.pending_summary()?;
+    let before_version = service.current_settlement_version(job_id)?;
+    let result = service.settle_job(job_id, outcome)?;
+    let after = service.pending_summary()?;
+    drop(service);
+    let signal = crate::pet::runtime::pending_transition(
+        before.count,
+        after.count,
+        before_version != result.settlement_version,
+    );
+    runtime.refresh_pending(after, signal);
+    Ok(result)
 }
 
 #[tauri::command]

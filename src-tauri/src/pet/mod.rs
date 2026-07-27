@@ -1,6 +1,7 @@
 pub mod geom;
 pub mod input;
 pub mod native;
+pub mod runtime;
 mod store;
 
 use crate::{
@@ -8,9 +9,8 @@ use crate::{
     imports::PrintState,
 };
 use serde::{Deserialize, Serialize};
-use std::{ffi::c_char, sync::Mutex};
 
-use native::{NativePet, NativePetError, PetNativeConfig};
+use runtime::PetRuntime;
 pub use store::PetStore;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,56 +98,17 @@ fn pet_view(settings: PetSettings) -> PetView {
     PetView { settings, status }
 }
 
-extern "C" fn native_callback(
-    _kind: u32,
-    _payload: *const c_char,
-    _x: f64,
-    _y: f64,
-    _display_id: u64,
-) {
-}
-
-pub struct PetNativeState {
-    pet: Mutex<NativePet>,
-}
-
-impl PetNativeState {
-    pub fn new(settings: &PetSettings) -> std::result::Result<Self, NativePetError> {
-        let state = Self {
-            pet: Mutex::new(NativePet::new(native_callback)?),
-        };
-        state.apply(settings);
-        Ok(state)
-    }
-
-    fn with_pet<T>(&self, operation: impl FnOnce(&NativePet) -> T) -> T {
-        let pet = self
-            .pet
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        operation(&pet)
-    }
-
-    pub fn apply(&self, settings: &PetSettings) -> bool {
-        self.with_pet(|pet| pet.apply(PetNativeConfig::from_settings(settings)))
-    }
-
-    pub fn reset(&self) {
-        self.with_pet(NativePet::reset);
-    }
-}
-
 #[tauri::command]
 pub fn get_pet_settings(
     state: tauri::State<'_, PrintState>,
-    native: tauri::State<'_, PetNativeState>,
+    runtime: tauri::State<'_, PetRuntime>,
 ) -> Result<PetView> {
     let service = state
         .lock()
         .map_err(|_| AppError::Database("print lock poisoned".to_owned()))?;
     let settings = PetStore::load(&service.database)?;
     drop(service);
-    native.apply(&settings);
+    runtime.apply(settings.clone());
     Ok(pet_view(settings))
 }
 
@@ -155,7 +116,7 @@ pub fn get_pet_settings(
 pub fn set_pet_settings(
     patch: PetSettingsPatch,
     state: tauri::State<'_, PrintState>,
-    native: tauri::State<'_, PetNativeState>,
+    runtime: tauri::State<'_, PetRuntime>,
 ) -> Result<PetView> {
     let reset_position = patch.reset_position == Some(true);
     let service = state
@@ -164,8 +125,8 @@ pub fn set_pet_settings(
     let settings = PetStore::apply(&service.database, patch)?;
     drop(service);
     if reset_position {
-        native.reset();
+        runtime.reset();
     }
-    native.apply(&settings);
+    runtime.apply(settings.clone());
     Ok(pet_view(settings))
 }
