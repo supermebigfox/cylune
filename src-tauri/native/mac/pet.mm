@@ -1,5 +1,6 @@
 #import "bridge.h"
 #import "pet_lifecycle.h"
+#import "pet_visual_state.h"
 
 #import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
@@ -46,6 +47,8 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 @interface BPPetView : NSView
 - (void)setReduceMotion:(BOOL)reduceMotion;
 - (void)setAnimating:(BOOL)animating;
+- (void)setPendingCount:(uint32_t)pendingCount;
+- (void)signal:(uint32_t)signal;
 - (void)pulse;
 @end
 
@@ -108,6 +111,10 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   CALayer *_diskLayer;
   CAGradientLayer *_ringLayer;
   CAShapeLayer *_ringMask;
+  CALayer *_pendingDotsLayer;
+  NSMutableArray<CALayer *> *_pendingDotLayers;
+  CAShapeLayer *_signalLayer;
+  PetVisualState _visualState;
   BOOL _reduceMotion;
   BOOL _animating;
 }
@@ -137,6 +144,16 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
     _ringLayer.mask = _ringMask;
     [self.layer addSublayer:_ringLayer];
 
+    _pendingDotsLayer = [CALayer layer];
+    _pendingDotLayers = [NSMutableArray array];
+    [self.layer addSublayer:_pendingDotsLayer];
+
+    _signalLayer = [CAShapeLayer layer];
+    _signalLayer.fillColor = NSColor.clearColor.CGColor;
+    _signalLayer.strokeColor = NSColor.clearColor.CGColor;
+    _signalLayer.lineCap = kCALineCapRound;
+    _signalLayer.opacity = 0.0;
+    [self.layer addSublayer:_signalLayer];
   }
   return self;
 }
@@ -195,7 +212,74 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
           CGRectInset(effectFrame, ringWidth / 2.0, ringWidth / 2.0), nullptr);
   _ringMask.path = ringPath;
   CGPathRelease(ringPath);
+
+  _pendingDotsLayer.frame = bounds;
+  const CGFloat dotDiameter =
+      MIN(8.0, MAX(4.0, effectDiameter * 0.032));
+  const uint32_t pendingCount = _visualState.pending_dot_count();
+  for (uint32_t index = 0; index < pendingCount; ++index) {
+    const PetPendingDotPlacement placement =
+        PetPendingDotPlacementForIndex(index, pendingCount);
+    const CGFloat orbitRadius =
+        effectDiameter * 0.5 * placement.normalized_radius;
+    const CGFloat centerX =
+        CGRectGetMidX(bounds) + cos(placement.angle_radians) * orbitRadius;
+    const CGFloat centerY =
+        CGRectGetMidY(bounds) + sin(placement.angle_radians) * orbitRadius;
+    CALayer *dot = _pendingDotLayers[index];
+    dot.frame =
+        CGRectMake(centerX - dotDiameter / 2.0,
+                   centerY - dotDiameter / 2.0, dotDiameter, dotDiameter);
+    dot.cornerRadius = dotDiameter / 2.0;
+  }
+
+  _signalLayer.frame = bounds;
+  _signalLayer.lineWidth = MAX(4.0, ringWidth * 1.25);
+  CGPathRef signalPath =
+      CGPathCreateWithEllipseInRect(
+          CGRectInset(effectFrame, ringWidth * 1.5, ringWidth * 1.5),
+          nullptr);
+  _signalLayer.path = signalPath;
+  CGPathRelease(signalPath);
   [CATransaction commit];
+}
+
+- (void)setPendingCount:(uint32_t)pendingCount {
+  if (_visualState.pending_count() == pendingCount) {
+    return;
+  }
+  _visualState.apply_pending_count(pendingCount);
+
+  while (_pendingDotLayers.count > pendingCount) {
+    CALayer *dot = _pendingDotLayers.lastObject;
+    [dot removeFromSuperlayer];
+    [_pendingDotLayers removeLastObject];
+  }
+  while (_pendingDotLayers.count < pendingCount) {
+    CALayer *dot = [CALayer layer];
+    dot.backgroundColor =
+        [NSColor colorWithSRGBRed:1.0 green:0.66 blue:0.12 alpha:1.0]
+            .CGColor;
+    dot.shadowColor =
+        [NSColor colorWithSRGBRed:1.0 green:0.48 blue:0.05 alpha:1.0]
+            .CGColor;
+    dot.shadowOpacity = 0.8;
+    dot.shadowRadius = 3.0;
+    dot.shadowOffset = CGSizeZero;
+    [_pendingDotsLayer addSublayer:dot];
+    [_pendingDotLayers addObject:dot];
+  }
+  [self setNeedsLayout:YES];
+  [_pendingDotsLayer removeAnimationForKey:@"pet.pending.orbit"];
+  if (_animating && !_reduceMotion && pendingCount > 0) {
+    CABasicAnimation *orbit =
+        [CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
+    orbit.fromValue = @0.0;
+    orbit.toValue = @(2.0 * M_PI);
+    orbit.duration = 9.0;
+    orbit.repeatCount = HUGE_VALF;
+    [_pendingDotsLayer addAnimation:orbit forKey:@"pet.pending.orbit"];
+  }
 }
 
 - (void)setReduceMotion:(BOOL)reduceMotion {
@@ -206,6 +290,8 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   if (reduceMotion || !_animating) {
     [_diskLayer removeAllAnimations];
     [_ringLayer removeAllAnimations];
+    [_pendingDotsLayer removeAllAnimations];
+    [_signalLayer removeAllAnimations];
   } else {
     [self installAnimations];
   }
@@ -221,6 +307,8 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   } else {
     [_diskLayer removeAllAnimations];
     [_ringLayer removeAllAnimations];
+    [_pendingDotsLayer removeAllAnimations];
+    [_signalLayer removeAllAnimations];
   }
 }
 
@@ -246,10 +334,30 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   ringPulse.autoreverses = YES;
   ringPulse.repeatCount = HUGE_VALF;
   [_ringLayer addAnimation:ringPulse forKey:@"pet.ring"];
+
+  if (_visualState.pending_dot_count() > 0) {
+    CABasicAnimation *orbit =
+        [CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
+    orbit.fromValue = @0.0;
+    orbit.toValue = @(2.0 * M_PI);
+    orbit.duration = 9.0;
+    orbit.repeatCount = HUGE_VALF;
+    [_pendingDotsLayer addAnimation:orbit forKey:@"pet.pending.orbit"];
+  }
 }
 
 - (void)pulse {
   if (!_animating) {
+    return;
+  }
+  if (_reduceMotion) {
+    CABasicAnimation *fade =
+        [CABasicAnimation animationWithKeyPath:@"opacity"];
+    fade.fromValue = @0.45;
+    fade.toValue = @1.0;
+    fade.duration = 0.18;
+    fade.autoreverses = YES;
+    [_ringLayer addAnimation:fade forKey:@"pet.signal"];
     return;
   }
   CABasicAnimation *signal =
@@ -259,6 +367,90 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   signal.duration = 0.12;
   signal.autoreverses = YES;
   [_ringLayer addAnimation:signal forKey:@"pet.signal"];
+}
+
+- (void)signal:(uint32_t)signal {
+  if (!_animating) {
+    return;
+  }
+  _visualState.apply_signal(signal);
+  const PetVisualSignalEffect effect = _visualState.signal_effect();
+  if (effect == PetVisualSignalEffect::kNone) {
+    return;
+  }
+
+  NSColor *color = nil;
+  switch (effect) {
+    case PetVisualSignalEffect::kImportSwallow:
+      color =
+          [NSColor colorWithSRGBRed:1.0 green:0.69 blue:0.16 alpha:1.0];
+      break;
+    case PetVisualSignalEffect::kFailureRedRipple:
+      color =
+          [NSColor colorWithSRGBRed:1.0 green:0.18 blue:0.20 alpha:1.0];
+      break;
+    case PetVisualSignalEffect::kSettlementGreenRing:
+      color =
+          [NSColor colorWithSRGBRed:0.20 green:0.92 blue:0.48 alpha:1.0];
+      break;
+    case PetVisualSignalEffect::kNone:
+      return;
+  }
+
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  _signalLayer.strokeColor = color.CGColor;
+  _signalLayer.fillColor =
+      effect == PetVisualSignalEffect::kImportSwallow
+          ? [color colorWithAlphaComponent:0.24].CGColor
+          : NSColor.clearColor.CGColor;
+  _signalLayer.opacity = 0.0;
+  [CATransaction commit];
+  [_signalLayer removeAllAnimations];
+
+  CABasicAnimation *fade =
+      [CABasicAnimation animationWithKeyPath:@"opacity"];
+  fade.fromValue = @1.0;
+  fade.toValue = @0.0;
+  fade.duration = _reduceMotion ? 0.28 : 0.42;
+  [_signalLayer addAnimation:fade forKey:@"pet.signal.fade"];
+  if (_reduceMotion) {
+    return;
+  }
+
+  switch (effect) {
+    case PetVisualSignalEffect::kImportSwallow: {
+      CAKeyframeAnimation *swallow =
+          [CAKeyframeAnimation animationWithKeyPath:@"transform.scale"];
+      swallow.values = @[ @1.0, @1.12, @0.68, @1.0 ];
+      swallow.keyTimes = @[ @0.0, @0.22, @0.62, @1.0 ];
+      swallow.duration = 0.46;
+      [_diskLayer addAnimation:swallow forKey:@"pet.signal.swallow"];
+      break;
+    }
+    case PetVisualSignalEffect::kFailureRedRipple: {
+      CABasicAnimation *ripple =
+          [CABasicAnimation animationWithKeyPath:@"transform.scale"];
+      ripple.fromValue = @0.72;
+      ripple.toValue = @1.24;
+      ripple.duration = 0.28;
+      ripple.repeatCount = 2.0;
+      [_signalLayer addAnimation:ripple forKey:@"pet.signal.red-ripple"];
+      break;
+    }
+    case PetVisualSignalEffect::kSettlementGreenRing: {
+      CABasicAnimation *greenRing =
+          [CABasicAnimation animationWithKeyPath:@"transform.scale"];
+      greenRing.fromValue = @0.74;
+      greenRing.toValue = @1.14;
+      greenRing.duration = 0.48;
+      [_signalLayer addAnimation:greenRing
+                          forKey:@"pet.signal.green-ring"];
+      break;
+    }
+    case PetVisualSignalEffect::kNone:
+      break;
+  }
 }
 
 @end
@@ -438,6 +630,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   [self syncCoreHitTargetFrame];
   [self updateDisplaySelectionAndEmit:NO];
   [self.petView setReduceMotion:config.reduce_motion != 0];
+  [self.petView setPendingCount:config.pending_count];
 
   if (config.visible != 0) {
     [self show];
@@ -481,8 +674,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 }
 
 - (void)signal:(uint32_t)signal {
-  (void)signal;
-  [self.petView pulse];
+  [self.petView signal:signal];
 }
 
 - (void)beginGestureAt:(NSPoint)screenPoint {

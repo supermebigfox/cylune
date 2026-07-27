@@ -1,6 +1,6 @@
 use crate::{
     error::{AppError, Result},
-    imports::{PendingSummary, PrintService, PrintState},
+    imports::{ImportState, PendingSummary, PrintService, PrintState},
     pet::native::{NativePet, NativePetError, PetCallbackKind, PetNativeConfig},
     pet::{PetSettings, PetSettingsPatch, PetStore},
     tray::persist_pending_job,
@@ -448,6 +448,11 @@ extern "C" fn native_callback(kind: u32, payload: *const c_char, x: f64, y: f64,
 
 pub fn handle_file_drop(service: &mut PrintService, path: &Path) -> Result<PetSignal> {
     let preview = service.import_print_file(path)?;
+    let preview = if preview.state == ImportState::NewPrintConfirmationRequired {
+        service.confirm_new_print(&preview.source_hash)?
+    } else {
+        preview
+    };
     persist_pending_job(&service.database, &preview.job_id.to_string())?;
     let pending_count = service.pending_summary()?.count;
     Ok(PetSignal::ImportSucceeded {
@@ -519,7 +524,12 @@ mod tests {
         PetSignal,
     };
     use crate::pet::PetStore;
-    use crate::{db::AppDatabase, imports::PrintService};
+    use crate::{
+        db::AppDatabase,
+        domain::JobOutcome,
+        imports::{PrintService, ToolMapping},
+        inventory::{InventoryService, NewSpool},
+    };
     use std::{
         ffi::CString,
         path::{Path, PathBuf},
@@ -562,6 +572,76 @@ mod tests {
             }
         ));
         assert_eq!(balance_rows(&service.database), before);
+    }
+
+    #[test]
+    fn dropping_a_settled_file_confirms_a_fresh_pending_job_without_deducting_again() {
+        let db = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(db);
+        let basic = inventory
+            .create_spool(NewSpool {
+                display_name: "Basic red".to_owned(),
+                preset_id: Some("Bambu PLA Basic @BBL A1".to_owned()),
+                brand: "Bambu Lab".to_owned(),
+                material: "PLA".to_owned(),
+                series: "Basic".to_owned(),
+                color_hex: "#FF0000".to_owned(),
+                remaining_grams: 1000.0,
+            })
+            .unwrap();
+        let matte = inventory
+            .create_spool(NewSpool {
+                display_name: "Matte green".to_owned(),
+                preset_id: Some("Bambu PLA Matte @BBL A1".to_owned()),
+                brand: "Bambu Lab".to_owned(),
+                material: "PLA".to_owned(),
+                series: "Matte".to_owned(),
+                color_hex: "#00FF00".to_owned(),
+                remaining_grams: 1000.0,
+            })
+            .unwrap();
+        inventory.mount_spool(1, basic).unwrap();
+        inventory.mount_spool(3, matte).unwrap();
+        let mut service =
+            PrintService::with_stability_delay(inventory.into_database(), Duration::ZERO);
+        let path = fixture("bambu_multicolor.3mf");
+        let settled = service.import_print_file(&path).unwrap();
+        service
+            .confirm_job_mapping(
+                settled.job_id,
+                vec![
+                    ToolMapping {
+                        tool: 0,
+                        spool_id: basic,
+                    },
+                    ToolMapping {
+                        tool: 1,
+                        spool_id: matte,
+                    },
+                ],
+            )
+            .unwrap();
+        service
+            .settle_job(settled.job_id, JobOutcome::Success)
+            .unwrap();
+        let balances_after_settlement = balance_rows(&service.database);
+
+        let signal = handle_file_drop(&mut service, &path).unwrap();
+
+        let PetSignal::ImportSucceeded {
+            job_id,
+            pending_count,
+        } = signal
+        else {
+            panic!("drop did not produce an import-success signal");
+        };
+        assert_ne!(job_id, settled.job_id);
+        assert_eq!(pending_count, 1);
+        assert_eq!(
+            service.pending_summary().unwrap().newest_job_id,
+            Some(job_id)
+        );
+        assert_eq!(balance_rows(&service.database), balances_after_settlement);
     }
 
     #[test]
