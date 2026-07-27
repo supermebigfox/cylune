@@ -30,6 +30,8 @@ pub fn run() {
             let database_path = data_dir.join("inventory.sqlite");
             let inventory_database = AppDatabase::open(&database_path)?;
             let print_database = AppDatabase::open(&database_path)?;
+            let initial_pet_settings = pet::PetStore::load(&print_database)?;
+            let native_pet = pet::PetNativeState::new(&initial_pet_settings)?;
             let saved_watch: Option<String> = print_database.connection.query_row("SELECT setting_value FROM app_settings WHERE setting_key='watch_folder' AND EXISTS(SELECT 1 FROM app_settings WHERE setting_key='watch_enabled' AND setting_value='true')",[],|row|row.get(0)).optional()?;
             let initial_locale: String = print_database
                 .connection
@@ -45,6 +47,7 @@ pub fn run() {
                 inventory_database,
             )));
             app.manage(PrintState::new(PrintService::new(print_database)));
+            app.manage(native_pet);
             app.manage(tray::WatchState(std::sync::Mutex::new(None)));
             tray::setup(app, &initial_locale)?;
             if let Some(folder) = saved_watch {

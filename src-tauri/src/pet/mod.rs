@@ -1,3 +1,4 @@
+pub mod native;
 mod store;
 
 use crate::{
@@ -5,7 +6,9 @@ use crate::{
     imports::PrintState,
 };
 use serde::{Deserialize, Serialize};
+use std::{ffi::c_char, sync::Mutex};
 
+use native::{NativePet, NativePetError, PetNativeConfig};
 pub use store::PetStore;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,36 +75,95 @@ pub struct PetSettingsPatch {
     pub reset_position: Option<bool>,
 }
 
-fn unavailable_status() -> PetStatus {
+fn native_status(settings: &PetSettings) -> PetStatus {
+    #[cfg(target_os = "macos")]
+    let fallback_reason = match settings.mode {
+        PetMode::Real => Some("native_not_started".to_owned()),
+        PetMode::Lite => None,
+    };
+    #[cfg(not(target_os = "macos"))]
+    let fallback_reason = Some("platform_unsupported".to_owned());
+
     PetStatus {
         effective_mode: PetMode::Lite,
         permission: CapturePermission::Unavailable,
-        fallback_reason: Some("native_not_started".to_owned()),
+        fallback_reason,
     }
 }
 
 fn pet_view(settings: PetSettings) -> PetView {
-    PetView {
-        settings,
-        status: unavailable_status(),
+    let status = native_status(&settings);
+    PetView { settings, status }
+}
+
+extern "C" fn native_callback(
+    _kind: u32,
+    _payload: *const c_char,
+    _x: f64,
+    _y: f64,
+    _display_id: u64,
+) {
+}
+
+pub struct PetNativeState {
+    pet: Mutex<NativePet>,
+}
+
+impl PetNativeState {
+    pub fn new(settings: &PetSettings) -> std::result::Result<Self, NativePetError> {
+        let state = Self {
+            pet: Mutex::new(NativePet::new(native_callback)?),
+        };
+        state.apply(settings);
+        Ok(state)
+    }
+
+    fn with_pet<T>(&self, operation: impl FnOnce(&NativePet) -> T) -> T {
+        let pet = self
+            .pet
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        operation(&pet)
+    }
+
+    pub fn apply(&self, settings: &PetSettings) -> bool {
+        self.with_pet(|pet| pet.apply(PetNativeConfig::from_settings(settings)))
+    }
+
+    pub fn reset(&self) {
+        self.with_pet(NativePet::reset);
     }
 }
 
 #[tauri::command]
-pub fn get_pet_settings(state: tauri::State<'_, PrintState>) -> Result<PetView> {
+pub fn get_pet_settings(
+    state: tauri::State<'_, PrintState>,
+    native: tauri::State<'_, PetNativeState>,
+) -> Result<PetView> {
     let service = state
         .lock()
         .map_err(|_| AppError::Database("print lock poisoned".to_owned()))?;
-    Ok(pet_view(PetStore::load(&service.database)?))
+    let settings = PetStore::load(&service.database)?;
+    drop(service);
+    native.apply(&settings);
+    Ok(pet_view(settings))
 }
 
 #[tauri::command]
 pub fn set_pet_settings(
     patch: PetSettingsPatch,
     state: tauri::State<'_, PrintState>,
+    native: tauri::State<'_, PetNativeState>,
 ) -> Result<PetView> {
+    let reset_position = patch.reset_position == Some(true);
     let service = state
         .lock()
         .map_err(|_| AppError::Database("print lock poisoned".to_owned()))?;
-    Ok(pet_view(PetStore::apply(&service.database, patch)?))
+    let settings = PetStore::apply(&service.database, patch)?;
+    drop(service);
+    if reset_position {
+        native.reset();
+    }
+    native.apply(&settings);
+    Ok(pet_view(settings))
 }
