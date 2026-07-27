@@ -15,13 +15,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use uuid::Uuid;
 
-pub fn is_supported_print_path(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-        return false;
-    };
-    let lower = name.to_ascii_lowercase();
-    lower.ends_with(".gcode.3mf") || lower.ends_with(".3mf") || lower.ends_with(".gcode")
-}
+pub use crate::pet::input::is_supported_print_path;
 
 pub struct Debouncer {
     window: Duration,

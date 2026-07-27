@@ -10,8 +10,16 @@
 #include <stddef.h>
 
 static const uint32_t kPetAbiVersion = 1;
+static const uint32_t kPetCallbackClicked = 1;
+static const uint32_t kPetCallbackMoved = 2;
+static const uint32_t kPetCallbackDropEntered = 3;
+static const uint32_t kPetCallbackDropExited = 4;
+static const uint32_t kPetCallbackFileDropped = 5;
+static const uint32_t kPetCallbackDisplayChanged = 6;
 static const CGFloat kPetMinimumSize = 120.0;
 static const CGFloat kPetMaximumSize = 360.0;
+static const CGFloat kPetDragThreshold = 4.0;
+static const CGFloat kPetSafeInset = 16.0;
 
 static_assert(sizeof(PetConfig) == 32, "PetConfig ABI size changed");
 static_assert(alignof(PetConfig) == 8, "PetConfig ABI alignment changed");
@@ -43,6 +51,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 
 @interface BPCoreHitTargetView : NSView
 @property(nonatomic, weak) BPPetHost *petHost;
+@property(nonatomic, assign) PetCallback callback;
 @end
 
 @interface BPPetHost : NSObject
@@ -53,6 +62,9 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 @property(nonatomic, assign) BOOL gestureActive;
 @property(nonatomic, assign) NSPoint gestureMouseOrigin;
 @property(nonatomic, assign) NSPoint gesturePanelOrigin;
+@property(nonatomic, assign) BOOL gestureMoved;
+@property(nonatomic, assign) uint64_t displayID;
+@property(nonatomic, assign) BOOL observingScreenChanges;
 - (instancetype)initWithCallback:(PetCallback)callback;
 - (void)applyConfig:(PetConfig)config;
 - (void)show;
@@ -62,7 +74,12 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 - (void)beginGestureAt:(NSPoint)screenPoint;
 - (void)continueGestureAt:(NSPoint)screenPoint;
 - (void)endGesture;
+- (void)dragEntered;
+- (void)dragExited;
 - (void)syncCoreHitTargetFrame;
+- (NSScreen *)screenForPanel;
+- (void)updateDisplaySelectionAndEmit:(BOOL)emit;
+- (void)screenParametersChanged:(NSNotification *)notification;
 - (void)shutdown;
 @end
 
@@ -248,6 +265,14 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 
 @implementation BPCoreHitTargetView
 
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (self) {
+    [self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
+  }
+  return self;
+}
+
 - (void)mouseDown:(NSEvent *)event {
   (void)event;
   [self.petHost beginGestureAt:NSEvent.mouseLocation];
@@ -261,6 +286,55 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 - (void)mouseUp:(NSEvent *)event {
   (void)event;
   [self.petHost endGesture];
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+  (void)sender;
+  [self.petHost dragEntered];
+  return NSDragOperationCopy;
+}
+
+- (void)draggingExited:(nullable id<NSDraggingInfo>)sender {
+  (void)sender;
+  [self.petHost dragExited];
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+  NSPasteboard *pasteboard = sender.draggingPasteboard;
+  NSArray *urls = [pasteboard
+      readObjectsForClasses:@[ NSURL.class ]
+                    options:@{
+                      NSPasteboardURLReadingFileURLsOnlyKey : @YES
+                    }];
+  for (id candidate in urls) {
+    if (![candidate isKindOfClass:NSURL.class]) {
+      continue;
+    }
+    NSURL *url = (NSURL *)candidate;
+    NSString *path = url.path;
+    if (!url.fileURL || path == nil || !path.absolutePath) {
+      continue;
+    }
+    NSNumber *isRegularFile = nil;
+    if (![url getResourceValue:&isRegularFile
+                        forKey:NSURLIsRegularFileKey
+                         error:nil] ||
+        !isRegularFile.boolValue) {
+      continue;
+    }
+    NSString *lowercasePath = path.lowercaseString;
+    if (![lowercasePath hasSuffix:@".gcode.3mf"] &&
+        ![lowercasePath hasSuffix:@".3mf"] &&
+        ![lowercasePath hasSuffix:@".gcode"]) {
+      continue;
+    }
+    if (self.callback != nullptr) {
+      self.callback(kPetCallbackFileDropped, path.fileSystemRepresentation,
+                    0.0, 0.0, 0);
+    }
+    return YES;
+  }
+  return NO;
 }
 
 @end
@@ -326,9 +400,16 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
     _coreHitTargetView.autoresizingMask =
         NSViewWidthSizable | NSViewHeightSizable;
     _coreHitTargetView.petHost = self;
+    _coreHitTargetView.callback = callback;
     _coreHitTargetPanel.contentView = _coreHitTargetView;
     [_panel addChildWindow:_coreHitTargetPanel ordered:NSWindowAbove];
     [self reset];
+    [NSNotificationCenter.defaultCenter
+        addObserver:self
+           selector:@selector(screenParametersChanged:)
+               name:NSApplicationDidChangeScreenParametersNotification
+             object:nil];
+    _observingScreenChanges = YES;
   }
   return self;
 }
@@ -337,10 +418,25 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   const NSRect oldFrame = self.panel.frame;
   const NSPoint center = NSMakePoint(NSMidX(oldFrame), NSMidY(oldFrame));
   const CGFloat size = (CGFloat)config.size;
-  const NSRect frame =
+  NSRect frame =
       NSMakeRect(center.x - size / 2.0, center.y - size / 2.0, size, size);
+  NSScreen *screen = [self screenForPanel];
+  if (screen != nil) {
+    const NSRect safeFrame = screen.visibleFrame;
+    const CGFloat minimumX = NSMinX(safeFrame) + kPetSafeInset;
+    const CGFloat maximumX = NSMaxX(safeFrame) - size - kPetSafeInset;
+    const CGFloat minimumY = NSMinY(safeFrame) + kPetSafeInset;
+    const CGFloat maximumY = NSMaxY(safeFrame) - size - kPetSafeInset;
+    frame.origin.x =
+        minimumX <= maximumX ? MIN(MAX(frame.origin.x, minimumX), maximumX)
+                             : NSMidX(safeFrame) - size / 2.0;
+    frame.origin.y =
+        minimumY <= maximumY ? MIN(MAX(frame.origin.y, minimumY), maximumY)
+                             : NSMidY(safeFrame) - size / 2.0;
+  }
   [self.panel setFrame:frame display:YES animate:NO];
   [self syncCoreHitTargetFrame];
+  [self updateDisplaySelectionAndEmit:NO];
   [self.petView setReduceMotion:config.reduce_motion != 0];
 
   if (config.visible != 0) {
@@ -381,6 +477,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
                   NSMidY(visibleFrame) - NSHeight(frame) / 2.0);
   [self.panel setFrame:frame display:NO];
   [self syncCoreHitTargetFrame];
+  [self updateDisplaySelectionAndEmit:NO];
 }
 
 - (void)signal:(uint32_t)signal {
@@ -390,6 +487,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 
 - (void)beginGestureAt:(NSPoint)screenPoint {
   self.gestureActive = YES;
+  self.gestureMoved = NO;
   self.gestureMouseOrigin = screenPoint;
   self.gesturePanelOrigin = self.panel.frame.origin;
 }
@@ -401,14 +499,69 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   const NSPoint delta =
       NSMakePoint(screenPoint.x - self.gestureMouseOrigin.x,
                   screenPoint.y - self.gestureMouseOrigin.y);
+  if (!self.gestureMoved &&
+      hypot(delta.x, delta.y) < kPetDragThreshold) {
+    return;
+  }
+  self.gestureMoved = YES;
   [self.panel
       setFrameOrigin:NSMakePoint(self.gesturePanelOrigin.x + delta.x,
                                  self.gesturePanelOrigin.y + delta.y)];
   [self syncCoreHitTargetFrame];
+  [self updateDisplaySelectionAndEmit:YES];
 }
 
 - (void)endGesture {
+  if (!self.gestureActive) {
+    return;
+  }
+  const BOOL moved = self.gestureMoved;
   self.gestureActive = NO;
+  self.gestureMoved = NO;
+  if (!moved) {
+    if (_callback != nullptr) {
+      _callback(kPetCallbackClicked, nullptr, 0.0, 0.0, self.displayID);
+    }
+    return;
+  }
+
+  NSScreen *screen = [self screenForPanel];
+  if (screen != nil) {
+    NSRect frame = self.panel.frame;
+    const NSRect safeFrame = screen.visibleFrame;
+    const CGFloat minimumX = NSMinX(safeFrame) + kPetSafeInset;
+    const CGFloat maximumX =
+        NSMaxX(safeFrame) - NSWidth(frame) - kPetSafeInset;
+    const CGFloat minimumY = NSMinY(safeFrame) + kPetSafeInset;
+    const CGFloat maximumY =
+        NSMaxY(safeFrame) - NSHeight(frame) - kPetSafeInset;
+    frame.origin.x =
+        minimumX <= maximumX ? MIN(MAX(frame.origin.x, minimumX), maximumX)
+                             : NSMidX(safeFrame) - NSWidth(frame) / 2.0;
+    frame.origin.y =
+        minimumY <= maximumY ? MIN(MAX(frame.origin.y, minimumY), maximumY)
+                             : NSMidY(safeFrame) - NSHeight(frame) / 2.0;
+    [self.panel setFrameOrigin:frame.origin];
+    [self syncCoreHitTargetFrame];
+  }
+  [self updateDisplaySelectionAndEmit:YES];
+  if (_callback != nullptr) {
+    const NSPoint origin = self.panel.frame.origin;
+    _callback(kPetCallbackMoved, nullptr, origin.x, origin.y, self.displayID);
+  }
+}
+
+- (void)dragEntered {
+  [self.petView pulse];
+  if (_callback != nullptr) {
+    _callback(kPetCallbackDropEntered, nullptr, 0.0, 0.0, self.displayID);
+  }
+}
+
+- (void)dragExited {
+  if (_callback != nullptr) {
+    _callback(kPetCallbackDropExited, nullptr, 0.0, 0.0, self.displayID);
+  }
 }
 
 - (void)syncCoreHitTargetFrame {
@@ -422,10 +575,83 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   [self.coreHitTargetPanel setFrame:coreHitTargetFrame display:NO];
 }
 
+- (NSScreen *)screenForPanel {
+  NSArray<NSScreen *> *screens = NSScreen.screens;
+  NSScreen *selected = screens.firstObject;
+  CGFloat greatestArea = -1.0;
+  const NSRect petFrame = self.panel.frame;
+  for (NSScreen *screen in screens) {
+    const NSRect intersection = NSIntersectionRect(petFrame, screen.frame);
+    const CGFloat area =
+        NSWidth(intersection) * NSHeight(intersection);
+    if (area > greatestArea) {
+      greatestArea = area;
+      selected = screen;
+    }
+  }
+  return selected;
+}
+
+- (void)updateDisplaySelectionAndEmit:(BOOL)emit {
+  NSScreen *screen = [self screenForPanel];
+  if (screen == nil) {
+    return;
+  }
+  NSNumber *screenNumber = screen.deviceDescription[@"NSScreenNumber"];
+  const uint64_t displayID = screenNumber.unsignedLongLongValue;
+  if (displayID == self.displayID) {
+    return;
+  }
+  self.displayID = displayID;
+  if (emit && _callback != nullptr) {
+    const NSPoint origin = self.panel.frame.origin;
+    _callback(kPetCallbackDisplayChanged, nullptr, origin.x, origin.y,
+              displayID);
+  }
+}
+
+- (void)screenParametersChanged:(NSNotification *)notification {
+  (void)notification;
+  if (_windowLifecycle.destroyed()) {
+    return;
+  }
+  NSScreen *screen = [self screenForPanel];
+  if (screen == nil) {
+    return;
+  }
+  NSRect frame = self.panel.frame;
+  const NSRect safeFrame = screen.visibleFrame;
+  const CGFloat minimumX = NSMinX(safeFrame) + kPetSafeInset;
+  const CGFloat maximumX =
+      NSMaxX(safeFrame) - NSWidth(frame) - kPetSafeInset;
+  const CGFloat minimumY = NSMinY(safeFrame) + kPetSafeInset;
+  const CGFloat maximumY =
+      NSMaxY(safeFrame) - NSHeight(frame) - kPetSafeInset;
+  frame.origin.x =
+      minimumX <= maximumX ? MIN(MAX(frame.origin.x, minimumX), maximumX)
+                           : NSMidX(safeFrame) - NSWidth(frame) / 2.0;
+  frame.origin.y =
+      minimumY <= maximumY ? MIN(MAX(frame.origin.y, minimumY), maximumY)
+                           : NSMidY(safeFrame) - NSHeight(frame) / 2.0;
+  [self.panel setFrameOrigin:frame.origin];
+  [self syncCoreHitTargetFrame];
+  [self updateDisplaySelectionAndEmit:NO];
+  if (_callback != nullptr) {
+    _callback(kPetCallbackDisplayChanged, nullptr, frame.origin.x,
+              frame.origin.y, self.displayID);
+  }
+}
+
 - (void)shutdown {
   [self hide];
   _windowLifecycle.destroy();
+  if (self.observingScreenChanges) {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    self.observingScreenChanges = NO;
+  }
+  [self.coreHitTargetView unregisterDraggedTypes];
   self.coreHitTargetView.petHost = nil;
+  self.coreHitTargetView.callback = nullptr;
   [self.panel removeChildWindow:self.coreHitTargetPanel];
   [self.coreHitTargetPanel close];
   self.coreHitTargetPanel.contentView = nil;

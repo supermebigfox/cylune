@@ -7,6 +7,33 @@ use std::{ffi::c_void, ptr::NonNull};
 pub type PetCallback =
     extern "C" fn(kind: u32, payload: *const c_char, x: f64, y: f64, display_id: u64);
 
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PetCallbackKind {
+    Clicked = 1,
+    Moved = 2,
+    DropEntered = 3,
+    DropExited = 4,
+    FileDropped = 5,
+    DisplayChanged = 6,
+}
+
+impl TryFrom<u32> for PetCallbackKind {
+    type Error = ();
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::Clicked),
+            2 => Ok(Self::Moved),
+            3 => Ok(Self::DropEntered),
+            4 => Ok(Self::DropExited),
+            5 => Ok(Self::FileDropped),
+            6 => Ok(Self::DisplayChanged),
+            _ => Err(()),
+        }
+    }
+}
+
 const ABI_VERSION: u32 = 1;
 const MODE_REAL: u32 = 0;
 const MODE_LITE: u32 = 1;
@@ -235,5 +262,31 @@ mod tests {
     fn native_handle_can_be_sent_to_the_runtime_owner() {
         fn assert_send<T: Send>() {}
         assert_send::<NativePet>();
+    }
+
+    #[test]
+    fn callback_kinds_decode_only_the_stable_native_events() {
+        use super::PetCallbackKind;
+
+        assert_eq!(PetCallbackKind::try_from(1), Ok(PetCallbackKind::Clicked));
+        assert_eq!(PetCallbackKind::try_from(2), Ok(PetCallbackKind::Moved));
+        assert_eq!(
+            PetCallbackKind::try_from(3),
+            Ok(PetCallbackKind::DropEntered)
+        );
+        assert_eq!(
+            PetCallbackKind::try_from(4),
+            Ok(PetCallbackKind::DropExited)
+        );
+        assert_eq!(
+            PetCallbackKind::try_from(5),
+            Ok(PetCallbackKind::FileDropped)
+        );
+        assert_eq!(
+            PetCallbackKind::try_from(6),
+            Ok(PetCallbackKind::DisplayChanged)
+        );
+        assert!(PetCallbackKind::try_from(0).is_err());
+        assert!(PetCallbackKind::try_from(7).is_err());
     }
 }
