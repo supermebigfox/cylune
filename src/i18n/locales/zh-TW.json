@@ -2,7 +2,9 @@
   "app": {
     "name": "拓竹耗材管家",
     "localMode": "本機模式",
-    "tagline": "每一卷耗材，都有自己的帳本"
+    "tagline": "每一卷耗材，都有自己的帳本",
+    "demoMode": "介面預覽",
+    "privateNote": "所有檔案與帳本都留在這台電腦"
   },
   "brand": {
     "mark": "拓竹耗材管家圖示"
@@ -16,13 +18,28 @@
     "grams": "克",
     "unknown": "未知",
     "estimated": "估算",
-    "exact": "精確"
+    "exact": "精確",
+    "all": "全部",
+    "mainNav": "主導覽",
+    "retry": "重試",
+    "loading": "正在讀取本機資料"
   },
   "nav": {
     "home": "總覽",
     "spools": "耗材庫",
     "jobs": "列印任務",
     "settings": "設定"
+  },
+  "home": {
+    "greeting": "今天想列印點什麼？",
+    "importHint": "讀取已切片 3MF 的顏色與預計用量",
+    "summary": "庫存摘要",
+    "inventoryCount": "耗材庫 {{count}} 卷",
+    "lowCount": "低庫存 {{count}} 卷",
+    "pendingCount": "待處理 {{count}} 個",
+    "slotsHint": "每個槽位只綁定一卷實體耗材，拆下後餘量仍會保留。",
+    "awaiting": "待裝入",
+    "emptySlotHint": "從耗材庫選擇一卷裝入"
   },
   "slots": {
     "title": "AMS Lite 四槽",
@@ -49,7 +66,24 @@
     "archive": "封存耗材卷",
     "available": "可用",
     "assigned": "使用中",
-    "depleted": "已用完"
+    "depleted": "已用完",
+    "libraryHint": "相同顏色也各自保留獨立編號、餘量和使用記錄。",
+    "search": "搜尋耗材",
+    "searchPlaceholder": "搜尋名稱、材質或顏色",
+    "status": "狀態",
+    "allMaterials": "全部材質",
+    "allColors": "全部顏色",
+    "colorFilter": "顏色篩選",
+    "mount": "裝入 AMS",
+    "slot": "AMS 槽位",
+    "confirmMount": "確認裝入",
+    "name": "耗材卷",
+    "profile": "耗材設定",
+    "location": "位置",
+    "actions": "操作",
+    "newWeight": "新的剩餘重量",
+    "saveCalibration": "儲存校準",
+    "createHint": "先以秤重結果作為這一卷的初始餘量。"
   },
   "jobs": {
     "title": "列印任務",
@@ -60,7 +94,22 @@
     "cancelled": "已取消",
     "pending": "等待確認",
     "consumption": "本次耗材用量",
-    "reverse": "撤銷本次扣減"
+    "reverse": "撤銷本次扣減",
+    "emptyHint": "從總覽匯入一個已切片的 .gcode.3mf 檔案開始。",
+    "jobHint": "核對每種顏色對應的實體卷，再根據實際列印結果結算。",
+    "layerCount": "共 {{count}} 層",
+    "plannedTotal": "預計總用量",
+    "repeatHint": "已有一次已結算記錄，確認後才會建立新的列印任務。",
+    "confirmNew": "確認這是一次新列印",
+    "tool": "顏色 {{number}}",
+    "multipleCandidates": "發現 {{count}} 卷同款耗材，請選擇實際使用的一卷",
+    "noCandidate": "沒有找到完全匹配的實體卷，請先到耗材庫新增。",
+    "confirmMapping": "確認耗材對應",
+    "mappingConfirmed": "耗材對應已確認",
+    "mapBeforeSettle": "請先確認所有顏色對應的實體卷。",
+    "settledTitle": "本次用量已記錄",
+    "settledAmount": "共扣減 {{grams}} 克，可隨時透過反向流水撤銷。",
+    "settledHint": "扣減已寫入本機庫存流水。"
   },
   "import": {
     "title": "匯入切片檔案",
@@ -84,7 +133,10 @@
     "estimatedUsage": "按最近切片層估算",
     "confirmDeduction": "確認扣減耗材",
     "alreadySettled": "這個任務已經結算，無需重複扣減",
-    "reversed": "這次扣減已經撤銷"
+    "reversed": "這次扣減已經撤銷",
+    "estimate": "按列印進度估算",
+    "lastLayer": "最後完成的層數",
+    "layerHint": "請輸入 Bambu Studio 中看到的層數，範圍 1 至 {{count}}。"
   },
   "settings": {
     "title": "設定",
@@ -95,7 +147,16 @@
     "data": "本機資料",
     "backup": "立即備份",
     "watchFolder": "自動匯入資料夾",
-    "notifications": "通知"
+    "notifications": "通知",
+    "hint": "管理介面語言、外觀和本機資料選項。",
+    "watchHint": "選擇資料夾後自動發現新的切片檔案。",
+    "notificationHint": "任務等待結算或庫存偏低時傳送系統提醒。",
+    "backupHint": "匯出不含 3MF 模型檔案的本機庫存備份。",
+    "notActive": "下一階段啟用",
+    "localTitle": "資料只留在你的 Mac",
+    "localPrivacy": "列印檔案始終留在這台 Mac。",
+    "network": "網路要求",
+    "offline": "完全離線"
   },
   "notifications": {
     "imported": "列印檔案已匯入",

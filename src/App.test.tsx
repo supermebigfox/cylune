@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { setLocale } from "./i18n";
@@ -53,5 +53,18 @@ describe("App localization", () => {
       screen.getByRole("heading", { name: "Bambu Spool Keeper" }),
     ).toBeVisible();
     expect(document.documentElement.lang).toBe("en");
+  });
+
+  it("navigates across the four localized desktop sections", async () => {
+    render(<App />);
+
+    expect(screen.getByRole("navigation", { name: "主导航" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "耗材库" }));
+    expect(screen.getByRole("heading", { name: "我的耗材库" })).toBeVisible();
+
+    await act(() => setLocale("en"));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible();
+    expect(screen.getByText("Your print files never leave this Mac.")).toBeVisible();
   });
 });

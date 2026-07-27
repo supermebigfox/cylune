@@ -2,7 +2,9 @@
   "app": {
     "name": "Bambu Spool Keeper",
     "localMode": "Local mode",
-    "tagline": "A separate, reliable balance for every spool"
+    "tagline": "A separate, reliable balance for every spool",
+    "demoMode": "UI preview",
+    "privateNote": "Every file and balance stays on this computer"
   },
   "brand": {
     "mark": "Bambu Spool Keeper icon"
@@ -16,13 +18,28 @@
     "grams": "grams",
     "unknown": "Unknown",
     "estimated": "Estimated",
-    "exact": "Exact"
+    "exact": "Exact",
+    "all": "All",
+    "mainNav": "Main navigation",
+    "retry": "Retry",
+    "loading": "Loading local data"
   },
   "nav": {
     "home": "Overview",
     "spools": "Spool library",
     "jobs": "Print jobs",
     "settings": "Settings"
+  },
+  "home": {
+    "greeting": "What will you print today?",
+    "importHint": "Read colors and planned usage from a sliced 3MF",
+    "summary": "Inventory summary",
+    "inventoryCount": "{{count}} spools in library",
+    "lowCount": "{{count}} low-stock spools",
+    "pendingCount": "{{count}} pending jobs",
+    "slotsHint": "Each slot binds to one physical spool. Its balance stays after removal.",
+    "awaiting": "Ready to load",
+    "emptySlotHint": "Choose a spool from the library"
   },
   "slots": {
     "title": "AMS Lite slots",
@@ -49,7 +66,24 @@
     "archive": "Archive spool",
     "available": "Available",
     "assigned": "In use",
-    "depleted": "Empty"
+    "depleted": "Empty",
+    "libraryHint": "Even identical colors retain separate IDs, balances, and usage histories.",
+    "search": "Search spools",
+    "searchPlaceholder": "Search name, material, or color",
+    "status": "Status",
+    "allMaterials": "All materials",
+    "allColors": "All colors",
+    "colorFilter": "Color filter",
+    "mount": "Mount in AMS",
+    "slot": "AMS slot",
+    "confirmMount": "Confirm mount",
+    "name": "Spool",
+    "profile": "Filament profile",
+    "location": "Location",
+    "actions": "Actions",
+    "newWeight": "New remaining weight",
+    "saveCalibration": "Save calibration",
+    "createHint": "Use a scale reading as this spool's starting balance."
   },
   "jobs": {
     "title": "Print jobs",
@@ -60,7 +94,22 @@
     "cancelled": "Cancelled",
     "pending": "Needs confirmation",
     "consumption": "Filament used by this print",
-    "reverse": "Reverse this deduction"
+    "reverse": "Reverse this deduction",
+    "emptyHint": "Import a sliced .gcode.3mf file from Overview to begin.",
+    "jobHint": "Match every color to its physical spool, then settle the actual print outcome.",
+    "layerCount": "{{count}} layers",
+    "plannedTotal": "Planned total",
+    "repeatHint": "A settled record already exists. Confirm before creating another print job.",
+    "confirmNew": "Confirm this is a new print",
+    "tool": "Color {{number}}",
+    "multipleCandidates": "{{count}} identical spools found. Choose the one actually used",
+    "noCandidate": "No exact physical spool match was found. Add one in the library first.",
+    "confirmMapping": "Confirm spool mapping",
+    "mappingConfirmed": "Spool mapping confirmed",
+    "mapBeforeSettle": "Confirm the physical spool for every color first.",
+    "settledTitle": "Usage recorded",
+    "settledAmount": "Deducted {{grams}} grams. A reversal remains available.",
+    "settledHint": "The deduction is saved to the local inventory ledger."
   },
   "import": {
     "title": "Import sliced file",
@@ -84,7 +133,10 @@
     "estimatedUsage": "Estimated from the nearest sliced layer",
     "confirmDeduction": "Confirm filament deduction",
     "alreadySettled": "This job is already settled and will not be deducted twice",
-    "reversed": "This deduction has already been reversed"
+    "reversed": "This deduction has already been reversed",
+    "estimate": "Estimate from print progress",
+    "lastLayer": "Last completed layer",
+    "layerHint": "Enter the layer shown in Bambu Studio, from 1 to {{count}}."
   },
   "settings": {
     "title": "Settings",
@@ -95,7 +147,16 @@
     "data": "Local data",
     "backup": "Back up now",
     "watchFolder": "Auto-import folder",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "hint": "Manage language, appearance, and local data options.",
+    "watchHint": "Automatically discover new sliced files in a chosen folder.",
+    "notificationHint": "Send a system alert for pending jobs or low inventory.",
+    "backupHint": "Export a local inventory backup without any 3MF model files.",
+    "notActive": "Available next stage",
+    "localTitle": "Your data stays on this Mac",
+    "localPrivacy": "Your print files never leave this Mac.",
+    "network": "Network requirement",
+    "offline": "Fully offline"
   },
   "notifications": {
     "imported": "Print file imported",
