@@ -44,8 +44,18 @@ pub struct LedgerEvent {
     pub spool_id: Uuid,
     pub job_id: Option<Uuid>,
     pub settlement_version: Option<u32>,
+    pub event_type: LedgerEventType,
     pub delta_grams: f64,
     pub confidence: Confidence,
+    pub reverses_event_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LedgerEventType {
+    Settlement,
+    Reversal,
+    Adjustment,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,7 +77,7 @@ pub enum JobOutcome {
 
 #[cfg(test)]
 mod tests {
-    use super::{Spool, SpoolStatus};
+    use super::{LedgerEvent, LedgerEventType, Spool, SpoolStatus};
     use uuid::Uuid;
 
     #[test]
@@ -88,5 +98,25 @@ mod tests {
         assert_eq!(value["spool_id"], spool_id.to_string());
         assert_eq!(value["remaining_grams"], 712.5);
         assert_eq!(value["status"], "available");
+    }
+
+    #[test]
+    fn ledger_event_serializes_its_type_and_reversed_event_id() {
+        let reversed_event_id = Uuid::new_v4();
+        let event = LedgerEvent {
+            event_id: Uuid::new_v4(),
+            idempotency_key: "reverse-settlement-1".to_owned(),
+            spool_id: Uuid::new_v4(),
+            job_id: Some(Uuid::new_v4()),
+            settlement_version: Some(1),
+            event_type: LedgerEventType::Reversal,
+            delta_grams: 18.2,
+            confidence: super::Confidence::Exact,
+            reverses_event_id: Some(reversed_event_id),
+        };
+
+        let value = serde_json::to_value(event).unwrap();
+        assert_eq!(value["event_type"], "reversal");
+        assert_eq!(value["reverses_event_id"], reversed_event_id.to_string());
     }
 }

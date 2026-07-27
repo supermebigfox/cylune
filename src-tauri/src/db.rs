@@ -89,4 +89,112 @@ mod tests {
             )
             .is_err());
     }
+
+    #[test]
+    fn migration_prevents_deleting_ledger_history() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        database
+            .connection
+            .execute(
+                "INSERT INTO spools (spool_id, display_name, brand, material, series, color_hex, remaining_grams, status) VALUES ('spool-1', 'PLA', 'Bambu Lab', 'PLA', 'Basic', '#ffffff', 1000.0, 'available')",
+                [],
+            )
+            .unwrap();
+        database
+            .connection
+            .execute(
+                "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, event_type, delta_grams, confidence) VALUES ('event-1', 'ledger-event-1', 'spool-1', 'adjustment', -10.0, 'exact')",
+                [],
+            )
+            .unwrap();
+
+        assert!(database
+            .connection
+            .execute("DELETE FROM ledger_events WHERE event_id = 'event-1'", [])
+            .is_err());
+        let remaining = database
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM ledger_events WHERE event_id = 'event-1'",
+                [],
+                |row| row.get::<_, u8>(0),
+            )
+            .unwrap();
+        assert_eq!(remaining, 1);
+    }
+
+    #[test]
+    fn migration_prevents_rewriting_ledger_history() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        database
+            .connection
+            .execute(
+                "INSERT INTO spools (spool_id, display_name, brand, material, series, color_hex, remaining_grams, status) VALUES ('spool-1', 'PLA', 'Bambu Lab', 'PLA', 'Basic', '#ffffff', 1000.0, 'available')",
+                [],
+            )
+            .unwrap();
+        database
+            .connection
+            .execute(
+                "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, event_type, delta_grams, confidence) VALUES ('event-1', 'ledger-event-1', 'spool-1', 'adjustment', -10.0, 'exact')",
+                [],
+            )
+            .unwrap();
+
+        assert!(database
+            .connection
+            .execute(
+                "UPDATE ledger_events SET delta_grams = -20.0 WHERE event_id = 'event-1'",
+                []
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn migration_requires_reversals_to_reference_prior_events() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        database
+            .connection
+            .execute(
+                "INSERT INTO spools (spool_id, display_name, brand, material, series, color_hex, remaining_grams, status) VALUES ('spool-1', 'PLA', 'Bambu Lab', 'PLA', 'Basic', '#ffffff', 1000.0, 'available')",
+                [],
+            )
+            .unwrap();
+        database
+            .connection
+            .execute(
+                "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, event_type, delta_grams, confidence) VALUES ('settlement-1', 'settlement-key-1', 'spool-1', 'settlement', -10.0, 'exact')",
+                [],
+            )
+            .unwrap();
+
+        assert!(database
+            .connection
+            .execute(
+                "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, event_type, delta_grams, confidence) VALUES ('invalid-reversal', 'invalid-reversal-key', 'spool-1', 'reversal', 10.0, 'exact')",
+                [],
+            )
+            .is_err());
+        assert!(database
+            .connection
+            .execute(
+                "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, event_type, delta_grams, confidence, reverses_event_id) VALUES ('missing-reversal', 'missing-reversal-key', 'spool-1', 'reversal', 10.0, 'exact', 'missing-event')",
+                [],
+            )
+            .is_err());
+        assert!(database
+            .connection
+            .execute(
+                "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, event_type, delta_grams, confidence, reverses_event_id) VALUES ('reversal-1', 'reversal-key-1', 'spool-1', 'reversal', 10.0, 'exact', 'settlement-1')",
+                [],
+            )
+            .is_ok());
+        assert!(database
+            .connection
+            .execute(
+                "INSERT INTO ledger_events (event_id, idempotency_key, spool_id, event_type, delta_grams, confidence) VALUES ('adjustment-1', 'adjustment-key-1', 'spool-1', 'adjustment', -1.0, 'exact')",
+                [],
+            )
+            .is_ok());
+    }
 }

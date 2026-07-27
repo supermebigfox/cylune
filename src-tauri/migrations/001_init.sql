@@ -53,6 +53,38 @@ CREATE TABLE IF NOT EXISTS ledger_events (
     UNIQUE (job_id, spool_id, settlement_version, event_type)
 );
 
+CREATE TRIGGER IF NOT EXISTS prevent_ledger_event_delete
+BEFORE DELETE ON ledger_events
+BEGIN
+    SELECT RAISE(ABORT, 'ledger events are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_ledger_event_update
+BEFORE UPDATE ON ledger_events
+BEGIN
+    SELECT RAISE(ABORT, 'ledger events are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS require_ledger_reversal_reference
+BEFORE INSERT ON ledger_events
+WHEN NEW.event_type = 'reversal'
+    AND (
+        NEW.reverses_event_id IS NULL
+        OR NOT EXISTS (
+            SELECT 1 FROM ledger_events WHERE event_id = NEW.reverses_event_id
+        )
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'reversal events must reference an existing event');
+END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_non_reversal_reference
+BEFORE INSERT ON ledger_events
+WHEN NEW.event_type <> 'reversal' AND NEW.reverses_event_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'only reversal events may reference another event');
+END;
+
 CREATE TABLE IF NOT EXISTS app_settings (
     setting_key TEXT PRIMARY KEY,
     setting_value TEXT NOT NULL,
