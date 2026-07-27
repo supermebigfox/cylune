@@ -1,0 +1,130 @@
+{
+  "app": {
+    "name": "Bambu Spool Keeper",
+    "localMode": "Local mode",
+    "tagline": "A separate, reliable balance for every spool"
+  },
+  "brand": {
+    "mark": "Bambu Spool Keeper icon"
+  },
+  "common": {
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "back": "Back",
+    "grams": "grams",
+    "unknown": "Unknown",
+    "estimated": "Estimated",
+    "exact": "Exact"
+  },
+  "nav": {
+    "home": "Overview",
+    "spools": "Spool library",
+    "jobs": "Print jobs",
+    "settings": "Settings"
+  },
+  "slots": {
+    "title": "AMS Lite slots",
+    "slot": "Slot {{number}}",
+    "mounted": "Mounted",
+    "empty": "This slot is empty",
+    "remaining": "{{grams}} grams remaining",
+    "mount": "Mount a spool",
+    "unmount": "Unmount spool",
+    "move": "Move to another slot",
+    "replace": "Replace spool"
+  },
+  "spools": {
+    "title": "My spool library",
+    "add": "Add a spool",
+    "empty": "No spools saved yet",
+    "emptyHint": "Once added, each spool keeps its remaining balance even when removed from AMS Lite.",
+    "brand": "Brand",
+    "material": "Material",
+    "series": "Series",
+    "color": "Color",
+    "remaining": "Current balance",
+    "calibrate": "Calibrate weight",
+    "archive": "Archive spool",
+    "available": "Available",
+    "assigned": "In use",
+    "depleted": "Empty"
+  },
+  "jobs": {
+    "title": "Print jobs",
+    "recent": "Recent jobs",
+    "empty": "No print jobs imported yet",
+    "success": "Print completed",
+    "failed": "Print failed",
+    "cancelled": "Cancelled",
+    "pending": "Needs confirmation",
+    "consumption": "Filament used by this print",
+    "reverse": "Reverse this deduction"
+  },
+  "import": {
+    "title": "Import sliced file",
+    "drop": "Drop a sliced .gcode.3mf here",
+    "browse": "Choose file",
+    "reading": "Reading colors and expected usage…",
+    "ready": "File is ready. Check the assigned spools.",
+    "unsliced": "This 3MF has not been sliced. Export G-code from Bambu Studio first.",
+    "mapping": "Choose the spool actually used for each color",
+    "duplicate": "This print job was already imported"
+  },
+  "settlement": {
+    "title": "Settle print usage",
+    "outcome": "Print outcome",
+    "complete": "Completed successfully",
+    "failed": "Failed partway through",
+    "cancelled": "Cancelled partway through",
+    "stopLayer": "Last printed layer",
+    "progress": "Approximate completion percentage",
+    "exactUsage": "Calculated exactly from the stopped layer",
+    "estimatedUsage": "Estimated from the nearest sliced layer",
+    "confirmDeduction": "Confirm filament deduction",
+    "alreadySettled": "This job is already settled and will not be deducted twice",
+    "reversed": "This deduction has already been reversed"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Display language",
+    "appearance": "Appearance",
+    "light": "Light",
+    "dark": "Dark",
+    "data": "Local data",
+    "backup": "Back up now",
+    "watchFolder": "Auto-import folder",
+    "notifications": "Notifications"
+  },
+  "notifications": {
+    "imported": "Print file imported",
+    "settled": "Filament usage deducted",
+    "lowStock": "A spool is running low",
+    "backupDone": "Local data backed up",
+    "watching": "Watching for new sliced files"
+  },
+  "errors": {
+    "invalid_file": "This file could not be recognized",
+    "unsliced_project": "This project has not been sliced",
+    "unknown_gcode": "No measurable extrusion data was found",
+    "slot_conflict": "That slot or spool is already in use",
+    "duplicate_job": "This print job already exists",
+    "database": "Local data is temporarily unavailable",
+    "io": "The file is temporarily unavailable",
+    "needs_confirmation": "Confirm the spools that were actually used",
+    "not_found": "The requested record could not be found"
+  },
+  "tray": {
+    "drop": "Drop .gcode.3mf",
+    "open": "Open Spool Keeper",
+    "recent": "View recent jobs",
+    "quickImport": "Quick import sliced file",
+    "quit": "Quit"
+  },
+  "locale": {
+    "zhCN": "简体中文",
+    "zhTW": "繁體中文",
+    "en": "English"
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "app": {
+    "name": "拓竹耗材管家",
+    "localMode": "本地模式",
+    "tagline": "每一卷耗材，都有自己的账本"
+  },
+  "brand": {
+    "mark": "拓竹耗材管家图标"
+  },
+  "common": {
+    "confirm": "确认",
+    "cancel": "取消",
+    "save": "保存",
+    "close": "关闭",
+    "back": "返回",
+    "grams": "克",
+    "unknown": "未知",
+    "estimated": "估算",
+    "exact": "精确"
+  },
+  "nav": {
+    "home": "概览",
+    "spools": "耗材库",
+    "jobs": "打印任务",
+    "settings": "设置"
+  },
+  "slots": {
+    "title": "AMS Lite 四槽",
+    "slot": "槽位 {{number}}",
+    "mounted": "已装入",
+    "empty": "此槽位为空",
+    "remaining": "剩余 {{grams}} 克",
+    "mount": "装入耗材",
+    "unmount": "拆下耗材",
+    "move": "移动到其他槽位",
+    "replace": "更换耗材卷"
+  },
+  "spools": {
+    "title": "我的耗材库",
+    "add": "添加一卷耗材",
+    "empty": "还没有保存的耗材卷",
+    "emptyHint": "添加第一卷后，即使从 AMS Lite 拆下也会保留剩余量。",
+    "brand": "品牌",
+    "material": "材质",
+    "series": "系列",
+    "color": "颜色",
+    "remaining": "当前剩余量",
+    "calibrate": "校准重量",
+    "archive": "归档耗材卷",
+    "available": "可用",
+    "assigned": "使用中",
+    "depleted": "已用完"
+  },
+  "jobs": {
+    "title": "打印任务",
+    "recent": "最近任务",
+    "empty": "还没有导入打印任务",
+    "success": "打印完成",
+    "failed": "打印失败",
+    "cancelled": "已取消",
+    "pending": "等待确认",
+    "consumption": "本次耗材用量",
+    "reverse": "撤销本次扣减"
+  },
+  "import": {
+    "title": "导入切片文件",
+    "drop": "把已切片的 .gcode.3mf 拖到这里",
+    "browse": "选择文件",
+    "reading": "正在读取颜色与预计用量…",
+    "ready": "文件已读取，可以核对耗材卷",
+    "unsliced": "这个 3MF 还没有切片，请先在 Bambu Studio 中导出 G-code。",
+    "mapping": "为每种颜色选择实际使用的耗材卷",
+    "duplicate": "这个打印任务已经导入过了"
+  },
+  "settlement": {
+    "title": "结算打印用量",
+    "outcome": "这次打印的结果",
+    "complete": "完整打印成功",
+    "failed": "打印中途失败",
+    "cancelled": "打印中途取消",
+    "stopLayer": "停止层数",
+    "progress": "大约完成百分比",
+    "exactUsage": "按实际停止层精确计算",
+    "estimatedUsage": "按最近切片层估算",
+    "confirmDeduction": "确认扣减耗材",
+    "alreadySettled": "这个任务已经结算，无需重复扣减",
+    "reversed": "这次扣减已经撤销"
+  },
+  "settings": {
+    "title": "设置",
+    "language": "显示语言",
+    "appearance": "外观",
+    "light": "浅色",
+    "dark": "深色",
+    "data": "本地数据",
+    "backup": "立即备份",
+    "watchFolder": "自动导入文件夹",
+    "notifications": "通知"
+  },
+  "notifications": {
+    "imported": "打印文件已导入",
+    "settled": "耗材用量已扣减",
+    "lowStock": "有耗材卷即将用完",
+    "backupDone": "本地数据已备份",
+    "watching": "正在监测新的切片文件"
+  },
+  "errors": {
+    "invalid_file": "无法识别这个文件",
+    "unsliced_project": "这个项目尚未切片",
+    "unknown_gcode": "没有找到可计算的挤出数据",
+    "slot_conflict": "这个槽位或耗材卷已被占用",
+    "duplicate_job": "这个打印任务已经存在",
+    "database": "本地数据暂时无法读取",
+    "io": "文件暂时无法访问",
+    "needs_confirmation": "请先确认实际使用的耗材卷",
+    "not_found": "没有找到对应记录"
+  },
+  "tray": {
+    "drop": "拖入 .gcode.3mf",
+    "open": "打开耗材管家",
+    "recent": "查看最近任务",
+    "quickImport": "快速导入切片文件",
+    "quit": "退出"
+  },
+  "locale": {
+    "zhCN": "简体中文",
+    "zhTW": "繁體中文",
+    "en": "English"
+  }
+}
