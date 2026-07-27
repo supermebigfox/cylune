@@ -1,8 +1,10 @@
 use crate::{
     error::{AppError, Result},
     imports::{ImportState, PendingSummary, PrintService, PrintState},
-    pet::native::{NativePet, NativePetError, PetCallbackKind, PetNativeConfig},
-    pet::{PetSettings, PetSettingsPatch, PetStore},
+    pet::native::{
+        NativeCaptureState, NativePet, NativePetError, PetCallbackKind, PetNativeConfig,
+    },
+    pet::{CapturePermission, PetMode, PetSettings, PetSettingsPatch, PetStatus, PetStore},
     tray::persist_pending_job,
 };
 use std::{
@@ -22,6 +24,138 @@ const SIGNAL_IMPORT_FAILED: u32 = 2;
 const SIGNAL_SETTLEMENT_COMPLETED: u32 = 3;
 
 static CALLBACK_SENDER: OnceLock<Mutex<Option<mpsc::Sender<NativeEvent>>>> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureState {
+    Unavailable,
+    NotDetermined,
+    Requested,
+    Denied,
+    RestartRequired,
+    Ready,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureEvent {
+    Unavailable,
+    NotDetermined,
+    Denied,
+    RestartRequired,
+    Ready,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptureSnapshot {
+    pub effective_mode: PetMode,
+    pub permission: CapturePermission,
+    pub fallback_reason: Option<String>,
+    pub pet_visible: bool,
+}
+
+impl CaptureState {
+    pub fn reduce(self, event: CaptureEvent) -> CaptureSnapshot {
+        let state = match event {
+            CaptureEvent::Unavailable => Self::Unavailable,
+            CaptureEvent::NotDetermined => Self::NotDetermined,
+            CaptureEvent::Denied => Self::Denied,
+            CaptureEvent::RestartRequired => Self::RestartRequired,
+            CaptureEvent::Ready => Self::Ready,
+            CaptureEvent::Failed => Self::Failed,
+        };
+        let (effective_mode, permission, fallback_reason) = match state {
+            Self::Unavailable => (
+                PetMode::Lite,
+                CapturePermission::Unavailable,
+                Some("capture_unavailable"),
+            ),
+            Self::NotDetermined | Self::Requested => (
+                PetMode::Lite,
+                CapturePermission::NotDetermined,
+                Some("permission_not_determined"),
+            ),
+            Self::Denied => (
+                PetMode::Lite,
+                CapturePermission::Denied,
+                Some("permission_denied"),
+            ),
+            Self::RestartRequired => (
+                PetMode::Lite,
+                CapturePermission::RestartRequired,
+                Some("permission_restart_required"),
+            ),
+            Self::Ready => (PetMode::Real, CapturePermission::Granted, None),
+            Self::Failed => (
+                PetMode::Lite,
+                CapturePermission::Granted,
+                Some("capture_failed"),
+            ),
+        };
+        CaptureSnapshot {
+            effective_mode,
+            permission,
+            fallback_reason: fallback_reason.map(str::to_owned),
+            pet_visible: true,
+        }
+    }
+}
+
+impl From<NativeCaptureState> for CaptureEvent {
+    fn from(state: NativeCaptureState) -> Self {
+        match state {
+            NativeCaptureState::Unavailable => Self::Unavailable,
+            NativeCaptureState::NotDetermined => Self::NotDetermined,
+            NativeCaptureState::Denied => Self::Denied,
+            NativeCaptureState::RestartRequired => Self::RestartRequired,
+            NativeCaptureState::Ready => Self::Ready,
+            NativeCaptureState::Failed => Self::Failed,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifeAction {
+    StopCapture,
+    PauseRender,
+    EnumerateDisplays,
+    CheckPermission,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifeEvent {
+    Hidden,
+    Sleep,
+    Wake,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LifeState {
+    sleeping: bool,
+}
+
+impl LifeState {
+    pub fn active_real() -> Self {
+        Self { sleeping: false }
+    }
+
+    pub fn sleeping_real() -> Self {
+        Self { sleeping: true }
+    }
+
+    pub fn reduce(&mut self, event: LifeEvent) -> Vec<LifeAction> {
+        match event {
+            LifeEvent::Hidden | LifeEvent::Sleep => {
+                self.sleeping = matches!(event, LifeEvent::Sleep);
+                vec![LifeAction::StopCapture, LifeAction::PauseRender]
+            }
+            LifeEvent::Wake => {
+                self.sleeping = false;
+                vec![LifeAction::EnumerateDisplays, LifeAction::CheckPermission]
+            }
+        }
+    }
+}
 
 struct CallbackRegistration {
     active: AtomicBool,
@@ -64,6 +198,10 @@ pub enum NativeEvent {
     DropExited,
     FileDropped(PathBuf),
     DisplayChanged { x: f64, y: f64, display_id: u64 },
+    PermissionChanged(NativeCaptureState),
+    CaptureFailed,
+    Sleep,
+    Wake,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,17 +262,47 @@ struct RuntimeState {
     pet: NativePet,
     settings: PetSettings,
     pending_count: u32,
+    capture_state: NativeCaptureState,
 }
 
 impl RuntimeState {
-    fn config(&self) -> PetNativeConfig {
-        let mut config = PetNativeConfig::from_settings(&self.settings);
+    fn config(&self, request_permission: bool) -> PetNativeConfig {
+        let mut config = PetNativeConfig::from_settings(&self.settings, request_permission);
         config.pending_count = self.pending_count;
         config
     }
 
-    fn apply(&self) -> bool {
-        self.pet.apply(self.config())
+    fn apply(&mut self, request_permission: bool) -> bool {
+        let applied = self.pet.apply(self.config(request_permission));
+        self.capture_state = self.pet.capture_state();
+        applied
+    }
+
+    fn status(&self) -> PetStatus {
+        if self.settings.mode == PetMode::Lite {
+            return PetStatus {
+                effective_mode: PetMode::Lite,
+                permission: CapturePermission::Unavailable,
+                fallback_reason: None,
+            };
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        return PetStatus {
+            effective_mode: PetMode::Lite,
+            permission: CapturePermission::Unavailable,
+            fallback_reason: Some("platform_unsupported".to_owned()),
+        };
+
+        #[cfg(target_os = "macos")]
+        {
+            let snapshot = CaptureState::Requested.reduce(self.capture_state.into());
+            PetStatus {
+                effective_mode: snapshot.effective_mode,
+                permission: snapshot.permission,
+                fallback_reason: snapshot.fallback_reason,
+            }
+        }
     }
 }
 
@@ -159,11 +327,12 @@ impl PetRuntime {
             pet,
             settings,
             pending_count: pending.count,
+            capture_state: NativeCaptureState::Unavailable,
         }));
         state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .apply();
+            .apply(false);
         let worker_app = app.clone();
         let worker_state = Arc::downgrade(&state);
         let worker = thread::Builder::new()
@@ -186,6 +355,14 @@ impl PetRuntime {
     }
 
     pub fn apply(&self, settings: PetSettings) -> bool {
+        self.apply_with_permission_request(settings, false)
+    }
+
+    pub fn apply_with_permission_request(
+        &self,
+        settings: PetSettings,
+        request_permission: bool,
+    ) -> bool {
         let visible = settings.visible;
         let applied = {
             let mut state = self
@@ -193,10 +370,17 @@ impl PetRuntime {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             state.settings = settings;
-            state.apply()
+            state.apply(request_permission)
         };
         crate::tray::sync_pet_visibility(&self.app, visible);
         applied
+    }
+
+    pub fn status(&self) -> PetStatus {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .status()
     }
 
     pub fn refresh_pending(&self, summary: PendingSummary, signal: Option<PetSignal>) {
@@ -332,6 +516,19 @@ fn handle_native_event(app: &AppHandle, state: &Arc<Mutex<RuntimeState>>, event:
         // Enter/exit animations are applied synchronously by the native hit
         // target; consuming them here keeps business work off AppKit.
         NativeEvent::DropEntered | NativeEvent::DropExited => {}
+        NativeEvent::PermissionChanged(capture_state) => {
+            state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .capture_state = capture_state;
+        }
+        NativeEvent::CaptureFailed => {
+            state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .capture_state = NativeCaptureState::Failed;
+        }
+        NativeEvent::Sleep | NativeEvent::Wake => {}
     }
 }
 
@@ -416,7 +613,7 @@ fn refresh_pending_state(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     state.pending_count = summary.count;
-    state.apply();
+    state.apply(false);
     if let Some(signal) = signal {
         state.pet.signal(match signal {
             PetSignal::ImportSucceeded { .. } => SIGNAL_IMPORT_SUCCEEDED,
@@ -513,6 +710,25 @@ fn copy_native_event(
             Some(NativeEvent::FileDropped(PathBuf::from(owned)))
         }
         PetCallbackKind::DisplayChanged => Some(NativeEvent::DisplayChanged { x, y, display_id }),
+        PetCallbackKind::PermissionChanged => {
+            if payload.is_null() {
+                return None;
+            }
+            let state = unsafe { CStr::from_ptr(payload) }.to_bytes();
+            let state = match state {
+                b"unavailable" => NativeCaptureState::Unavailable,
+                b"not_determined" => NativeCaptureState::NotDetermined,
+                b"denied" => NativeCaptureState::Denied,
+                b"restart_required" => NativeCaptureState::RestartRequired,
+                b"ready" => NativeCaptureState::Ready,
+                b"failed" => NativeCaptureState::Failed,
+                _ => return None,
+            };
+            Some(NativeEvent::PermissionChanged(state))
+        }
+        PetCallbackKind::CaptureFailed => Some(NativeEvent::CaptureFailed),
+        PetCallbackKind::Sleep => Some(NativeEvent::Sleep),
+        PetCallbackKind::Wake => Some(NativeEvent::Wake),
     }
 }
 
@@ -520,10 +736,10 @@ fn copy_native_event(
 mod tests {
     use super::{
         copy_native_event, handle_file_drop, pending_transition, persist_native_position,
-        second_launch_actions, CallbackRegistration, InstanceAction, InstanceRecall, NativeEvent,
-        PetSignal,
+        second_launch_actions, CallbackRegistration, CaptureEvent, CaptureState, InstanceAction,
+        InstanceRecall, LifeAction, LifeEvent, LifeState, NativeEvent, PetSignal,
     };
-    use crate::pet::PetStore;
+    use crate::pet::{PetMode, PetStore};
     use crate::{
         db::AppDatabase,
         domain::JobOutcome,
@@ -694,6 +910,21 @@ mod tests {
     }
 
     #[test]
+    fn callback_copies_stable_permission_state_before_native_storage_expires() {
+        use crate::pet::native::NativeCaptureState;
+
+        let payload = CString::new("restart_required").unwrap();
+
+        let event = copy_native_event(7, payload.as_ptr(), 0.0, 0.0, 0).unwrap();
+        drop(payload);
+
+        assert_eq!(
+            event,
+            NativeEvent::PermissionChanged(NativeCaptureState::RestartRequired)
+        );
+    }
+
+    #[test]
     fn dropping_callback_registration_closes_the_native_event_channel() {
         let (sender, receiver) = mpsc::channel();
         let registration = CallbackRegistration::install(sender);
@@ -738,5 +969,39 @@ mod tests {
         assert_eq!(recall.pending_request(), Some(second));
         recall.mark_completed(second);
         assert_eq!(recall.pending_request(), None);
+    }
+
+    #[test]
+    fn denied_permission_keeps_the_lite_pet_running() {
+        let status = CaptureState::Requested.reduce(CaptureEvent::Denied);
+
+        assert_eq!(status.effective_mode, PetMode::Lite);
+        assert_eq!(status.fallback_reason.as_deref(), Some("permission_denied"));
+        assert!(status.pet_visible);
+    }
+
+    #[test]
+    fn hiding_and_sleeping_stop_capture_and_rendering() {
+        let mut life = LifeState::active_real();
+        assert_eq!(
+            life.reduce(LifeEvent::Hidden),
+            vec![LifeAction::StopCapture, LifeAction::PauseRender]
+        );
+
+        let mut life = LifeState::active_real();
+        assert_eq!(
+            life.reduce(LifeEvent::Sleep),
+            vec![LifeAction::StopCapture, LifeAction::PauseRender]
+        );
+    }
+
+    #[test]
+    fn wake_reenumerates_displays_before_rechecking_permission() {
+        let mut life = LifeState::sleeping_real();
+
+        assert_eq!(
+            life.reduce(LifeEvent::Wake),
+            vec![LifeAction::EnumerateDisplays, LifeAction::CheckPermission]
+        );
     }
 }

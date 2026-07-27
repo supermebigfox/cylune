@@ -200,8 +200,12 @@
     "hide": "隱藏黑洞",
     "reset": "重設到主顯示器",
     "powerHint": "60 FPS 會增加 GPU 與電池耗電",
+    "captureUnavailable": "桌面擷取目前無法使用，已維持輕量模式運作",
+    "platformUnsupported": "此平台不支援真實扭曲，已維持輕量模式運作",
+    "permissionNotDetermined": "選擇「真實扭曲」以要求螢幕錄製權限",
     "permissionDenied": "未開啟螢幕錄製權限，目前使用輕量模式",
     "restartRequired": "權限已變更，請重新啟動應用程式",
+    "captureFailed": "桌面擷取意外停止，輕量模式仍在運作",
     "saveError": "無法儲存桌面黑洞設定"
   },
   "notifications": {

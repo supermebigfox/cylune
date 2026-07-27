@@ -16,6 +16,10 @@ pub enum PetCallbackKind {
     DropExited = 4,
     FileDropped = 5,
     DisplayChanged = 6,
+    PermissionChanged = 7,
+    CaptureFailed = 8,
+    Sleep = 9,
+    Wake = 10,
 }
 
 impl TryFrom<u32> for PetCallbackKind {
@@ -29,6 +33,37 @@ impl TryFrom<u32> for PetCallbackKind {
             4 => Ok(Self::DropExited),
             5 => Ok(Self::FileDropped),
             6 => Ok(Self::DisplayChanged),
+            7 => Ok(Self::PermissionChanged),
+            8 => Ok(Self::CaptureFailed),
+            9 => Ok(Self::Sleep),
+            10 => Ok(Self::Wake),
+            _ => Err(()),
+        }
+    }
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeCaptureState {
+    Unavailable = 0,
+    NotDetermined = 1,
+    Denied = 2,
+    RestartRequired = 3,
+    Ready = 4,
+    Failed = 5,
+}
+
+impl TryFrom<u32> for NativeCaptureState {
+    type Error = ();
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Unavailable),
+            1 => Ok(Self::NotDetermined),
+            2 => Ok(Self::Denied),
+            3 => Ok(Self::RestartRequired),
+            4 => Ok(Self::Ready),
+            5 => Ok(Self::Failed),
             _ => Err(()),
         }
     }
@@ -51,6 +86,7 @@ pub struct PetNativeConfig {
     pub visible: u8,
     pub pending_count: u32,
     pub reduce_motion: u8,
+    pub request_permission: u8,
 }
 
 impl PetNativeConfig {
@@ -63,10 +99,11 @@ impl PetNativeConfig {
             visible: u8::from(visible),
             pending_count: 0,
             reduce_motion: 0,
+            request_permission: 0,
         }
     }
 
-    pub fn from_settings(settings: &PetSettings) -> Self {
+    pub fn from_settings(settings: &PetSettings, request_permission: bool) -> Self {
         Self {
             abi_version: ABI_VERSION,
             mode: match settings.mode {
@@ -78,6 +115,7 @@ impl PetNativeConfig {
             visible: u8::from(settings.visible),
             pending_count: 0,
             reduce_motion: 0,
+            request_permission: u8::from(request_permission),
         }
     }
 }
@@ -103,7 +141,7 @@ impl Error for NativePetError {}
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::{c_char, c_void, NonNull, PetCallback, PetNativeConfig};
+    use super::{c_char, c_void, NativeCaptureState, NonNull, PetCallback, PetNativeConfig};
 
     extern "C" {
         fn pet_create(callback: PetCallback, metal_source: *const c_char) -> *mut c_void;
@@ -113,6 +151,7 @@ mod platform {
         fn pet_hide(handle: *mut c_void);
         fn pet_reset(handle: *mut c_void);
         fn pet_signal(handle: *mut c_void, signal: u32);
+        fn pet_capture_state(handle: *mut c_void) -> u32;
         fn pet_abi_version() -> u32;
     }
 
@@ -146,6 +185,11 @@ mod platform {
         pub fn signal(&self, signal: u32) {
             unsafe { pet_signal(self.0.as_ptr(), signal) }
         }
+
+        pub fn capture_state(&self) -> NativeCaptureState {
+            NativeCaptureState::try_from(unsafe { pet_capture_state(self.0.as_ptr()) })
+                .unwrap_or(NativeCaptureState::Failed)
+        }
     }
 
     unsafe impl Send for Handle {}
@@ -159,7 +203,7 @@ mod platform {
 
 #[cfg(not(target_os = "macos"))]
 mod platform {
-    use super::{PetCallback, PetNativeConfig};
+    use super::{NativeCaptureState, PetCallback, PetNativeConfig};
 
     pub fn abi_version() -> u32 {
         super::ABI_VERSION
@@ -183,6 +227,10 @@ mod platform {
         pub fn reset(&self) {}
 
         pub fn signal(&self, _signal: u32) {}
+
+        pub fn capture_state(&self) -> NativeCaptureState {
+            NativeCaptureState::Unavailable
+        }
     }
 }
 
@@ -220,6 +268,10 @@ impl NativePet {
     pub fn signal(&self, signal: u32) {
         self.handle.signal(signal);
     }
+
+    pub fn capture_state(&self) -> NativeCaptureState {
+        self.handle.capture_state()
+    }
 }
 
 #[cfg(test)]
@@ -252,6 +304,7 @@ mod tests {
         assert_eq!(offset_of!(PetNativeConfig, visible), 20);
         assert_eq!(offset_of!(PetNativeConfig, pending_count), 24);
         assert_eq!(offset_of!(PetNativeConfig, reduce_motion), 28);
+        assert_eq!(offset_of!(PetNativeConfig, request_permission), 29);
 
         let pet = NativePet::new(test_callback).unwrap();
         assert!(pet.apply(PetNativeConfig::lite(220.0, PetFps::Auto, true)));
@@ -286,7 +339,41 @@ mod tests {
             PetCallbackKind::try_from(6),
             Ok(PetCallbackKind::DisplayChanged)
         );
+        assert_eq!(
+            PetCallbackKind::try_from(7),
+            Ok(PetCallbackKind::PermissionChanged)
+        );
+        assert_eq!(
+            PetCallbackKind::try_from(8),
+            Ok(PetCallbackKind::CaptureFailed)
+        );
+        assert_eq!(PetCallbackKind::try_from(9), Ok(PetCallbackKind::Sleep));
+        assert_eq!(PetCallbackKind::try_from(10), Ok(PetCallbackKind::Wake));
         assert!(PetCallbackKind::try_from(0).is_err());
-        assert!(PetCallbackKind::try_from(7).is_err());
+        assert!(PetCallbackKind::try_from(11).is_err());
+    }
+
+    #[test]
+    fn permission_request_bit_is_set_only_for_an_explicit_real_mode_action() {
+        use crate::pet::{PetFps, PetMode, PetSettings};
+
+        let settings = PetSettings {
+            mode: PetMode::Real,
+            size: 220,
+            fps: PetFps::Auto,
+            visible: true,
+            x: None,
+            y: None,
+            display_id: None,
+        };
+
+        assert_eq!(
+            PetNativeConfig::from_settings(&settings, false).request_permission,
+            0
+        );
+        assert_eq!(
+            PetNativeConfig::from_settings(&settings, true).request_permission,
+            1
+        );
     }
 }

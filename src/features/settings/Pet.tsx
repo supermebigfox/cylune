@@ -6,7 +6,7 @@ import { api, type PetFps, type PetMode, type PetSettings, type PetSettingsPatch
 const defaultPet: PetSettings = {
   mode: "lite", size: 220, fps: "auto", visible: true, x: null, y: null,
   display_id: null, effective_mode: "lite", permission: "unavailable",
-  fallback_reason: "native_not_started",
+  fallback_reason: null,
 };
 
 export function Pet({ apiClient = api }: { apiClient?: TauriApi }) {
@@ -59,9 +59,19 @@ export function Pet({ apiClient = api }: { apiClient?: TauriApi }) {
     });
   };
 
-  const permission = settings.permission === "denied"
+  const statusCopy = settings.permission === "denied"
     ? copy("pet.permissionDenied")
-    : settings.permission === "restart_required" ? copy("pet.restartRequired") : null;
+    : settings.permission === "restart_required"
+      ? copy("pet.restartRequired")
+      : settings.permission === "not_determined"
+        ? copy("pet.permissionNotDetermined")
+        : settings.fallback_reason === "platform_unsupported"
+          ? copy("pet.platformUnsupported")
+          : settings.fallback_reason === "capture_failed"
+            ? copy("pet.captureFailed")
+            : settings.fallback_reason
+              ? copy("pet.captureUnavailable")
+              : null;
 
   return <section className="setting-group pet-settings" aria-labelledby="pet-title">
     <div className="pet-heading"><div><h2 id="pet-title">{copy("pet.title")}</h2><p>{copy("pet.powerHint")}</p></div></div>
@@ -81,8 +91,7 @@ export function Pet({ apiClient = api }: { apiClient?: TauriApi }) {
       <button className="secondary small" onClick={() => save({ visible: !settings.visible })}>{settings.visible ? <EyeSlash size={16} /> : <Eye size={16} />}{settings.visible ? copy("pet.hide") : copy("pet.show")}</button>
       <button className="ghost small" onClick={() => save({ reset_position: true })}><ArrowsClockwise size={16} />{copy("pet.reset")}</button>
     </div>
-    {permission ? <p className="pet-notice">{permission}</p> : null}
-    {settings.fallback_reason ? <p className="pet-fallback">{settings.fallback_reason}</p> : null}
+    {statusCopy ? <p className="pet-notice">{statusCopy}</p> : null}
     {error ? <p className="setting-message" role="alert">{error}</p> : null}
   </section>;
 }

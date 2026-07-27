@@ -1,6 +1,150 @@
 #ifndef BAMBU_POOLS_PET_LIFECYCLE_H
 #define BAMBU_POOLS_PET_LIFECYCLE_H
 
+#include "bridge.h"
+
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstdint>
+
+struct PetPanelFrame {
+  double x;
+  double y;
+  double width;
+  double height;
+};
+
+struct PetScreenFrame {
+  double x;
+  double y;
+  double width;
+  double height;
+  double scale;
+  uint32_t display_id;
+};
+
+struct PetCapturePolicy {
+  bool captures_audio;
+  bool captures_microphone;
+  bool shows_cursor;
+  bool excludes_own_process;
+  uint32_t queue_depth;
+  uint32_t maximum_retained_frames;
+};
+
+inline constexpr PetCapturePolicy PetSafeCapturePolicy() {
+  return {false, false, false, true, 1, 1};
+}
+
+class PetFrameRetention {
+ public:
+  void start() {
+    accepting_.store(true, std::memory_order_release);
+  }
+
+  void stop() {
+    accepting_.store(false, std::memory_order_release);
+  }
+
+  bool accepting() const {
+    return accepting_.load(std::memory_order_acquire);
+  }
+
+ private:
+  std::atomic<bool> accepting_{false};
+};
+
+enum class PetPermissionAction {
+  kNone,
+  kRequestSystemPermission,
+  kEnumerateCapture,
+};
+
+struct PetPermissionDecision {
+  uint32_t state;
+  PetPermissionAction action;
+};
+
+class PetPermissionLifecycle {
+ public:
+  PetPermissionDecision preflight(bool granted,
+                                  bool explicit_real_mode_action) {
+    if (granted) {
+      if (request_attempted_ &&
+          (state_ == PET_CAPTURE_NOT_DETERMINED ||
+           state_ == PET_CAPTURE_DENIED ||
+           state_ == PET_CAPTURE_RESTART_REQUIRED)) {
+        state_ = PET_CAPTURE_RESTART_REQUIRED;
+        return {state_, PetPermissionAction::kNone};
+      }
+      state_ = PET_CAPTURE_READY;
+      return {state_, PetPermissionAction::kEnumerateCapture};
+    }
+
+    if (!explicit_real_mode_action) {
+      if (state_ == PET_CAPTURE_READY) {
+        state_ = PET_CAPTURE_DENIED;
+      } else if (state_ != PET_CAPTURE_DENIED &&
+                 state_ != PET_CAPTURE_RESTART_REQUIRED) {
+        state_ = PET_CAPTURE_NOT_DETERMINED;
+      }
+      return {state_, PetPermissionAction::kNone};
+    }
+    if (request_attempted_) {
+      if (state_ != PET_CAPTURE_RESTART_REQUIRED) {
+        state_ = PET_CAPTURE_DENIED;
+      }
+      return {state_, PetPermissionAction::kNone};
+    }
+
+    request_attempted_ = true;
+    state_ = PET_CAPTURE_NOT_DETERMINED;
+    return {state_, PetPermissionAction::kRequestSystemPermission};
+  }
+
+  PetPermissionDecision request_result(bool granted) {
+    state_ =
+        granted ? PET_CAPTURE_RESTART_REQUIRED : PET_CAPTURE_DENIED;
+    return {state_, PetPermissionAction::kNone};
+  }
+
+ private:
+  uint32_t state_ = PET_CAPTURE_UNAVAILABLE;
+  bool request_attempted_ = false;
+};
+
+inline PetCaptureRegion PetCaptureRegionForPanel(PetPanelFrame panel,
+                                                 PetScreenFrame display) {
+  constexpr double kLensExpansionFactor = 1.24;
+  const double requested_side = std::floor(panel.width * kLensExpansionFactor);
+  const double margin = (requested_side - panel.width) / 2.0;
+  const double requested_x = panel.x - margin;
+  const double requested_y = panel.y - margin;
+  const double display_right = display.x + display.width;
+  const double display_top = display.y + display.height;
+  const double capture_x =
+      std::clamp(requested_x, display.x, display_right);
+  const double capture_y =
+      std::clamp(requested_y, display.y, display_top);
+  const double capture_right =
+      std::clamp(requested_x + requested_side, display.x, display_right);
+  const double capture_top =
+      std::clamp(requested_y + requested_side, display.y, display_top);
+  const double width = std::max(0.0, capture_right - capture_x);
+  const double height = std::max(0.0, capture_top - capture_y);
+
+  return {
+      display.display_id,
+      capture_x - display.x,
+      display_top - capture_top,
+      width,
+      height,
+      static_cast<uint32_t>(std::llround(width * display.scale)),
+      static_cast<uint32_t>(std::llround(height * display.scale)),
+  };
+}
+
 struct PetEventHorizonGeometry {
   double decorative_effect_diameter;
   double event_horizon_diameter;

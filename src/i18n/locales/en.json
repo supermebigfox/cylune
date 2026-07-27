@@ -200,8 +200,12 @@
     "hide": "Hide black hole",
     "reset": "Reset to main display",
     "powerHint": "60 FPS increases GPU and battery use",
+    "captureUnavailable": "Desktop capture is not available; lightweight mode is active",
+    "platformUnsupported": "Real distortion is unavailable on this platform; lightweight mode is active",
+    "permissionNotDetermined": "Choose Real distortion to request Screen Recording access",
     "permissionDenied": "Screen recording permission is off; lightweight mode is active",
     "restartRequired": "Permission changed. Restart the app.",
+    "captureFailed": "Desktop capture stopped unexpectedly; lightweight mode is still active",
     "saveError": "Could not save desktop black hole settings"
   },
   "notifications": {

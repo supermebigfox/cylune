@@ -17,6 +17,8 @@ static const uint32_t kPetCallbackDropEntered = 3;
 static const uint32_t kPetCallbackDropExited = 4;
 static const uint32_t kPetCallbackFileDropped = 5;
 static const uint32_t kPetCallbackDisplayChanged = 6;
+static const uint32_t kPetCallbackSleep = 9;
+static const uint32_t kPetCallbackWake = 10;
 static const CGFloat kPetMinimumSize = 120.0;
 static const CGFloat kPetMaximumSize = 360.0;
 static const CGFloat kPetDragThreshold = 4.0;
@@ -38,6 +40,8 @@ static_assert(offsetof(PetConfig, pending_count) == 24,
               "PetConfig pending_count offset changed");
 static_assert(offsetof(PetConfig, reduce_motion) == 28,
               "PetConfig reduce_motion offset changed");
+static_assert(offsetof(PetConfig, request_permission) == 29,
+              "PetConfig request_permission offset changed");
 
 @class BPPetHost;
 
@@ -68,6 +72,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 @property(nonatomic, assign) BOOL gestureMoved;
 @property(nonatomic, assign) uint64_t displayID;
 @property(nonatomic, assign) BOOL observingScreenChanges;
+@property(nonatomic, assign) BOOL observingWorkspace;
 - (instancetype)initWithCallback:(PetCallback)callback;
 - (void)applyConfig:(PetConfig)config;
 - (void)show;
@@ -83,6 +88,10 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 - (NSScreen *)screenForPanel;
 - (void)updateDisplaySelectionAndEmit:(BOOL)emit;
 - (void)screenParametersChanged:(NSNotification *)notification;
+- (void)workspaceWillSleep:(NSNotification *)notification;
+- (void)workspaceDidWake:(NSNotification *)notification;
+- (void)refreshCaptureWithPermissionRequest:(BOOL)requestPermission;
+- (uint32_t)captureState;
 - (void)shutdown;
 @end
 
@@ -534,12 +543,17 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 @implementation BPPetHost {
   PetCallback _callback;
   PetWindowLifecycle _windowLifecycle;
+  void *_captureHandle;
+  PetConfig _config;
+  BOOL _hasConfig;
+  BOOL _sleeping;
 }
 
 - (instancetype)initWithCallback:(PetCallback)callback {
   self = [super init];
   if (self) {
     _callback = callback;
+    _captureHandle = mac_capture_create(callback);
     const NSRect frame = NSMakeRect(0.0, 0.0, 220.0, 220.0);
     _panel = [[BPPetPanel alloc]
         initWithContentRect:frame
@@ -602,11 +616,24 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
                name:NSApplicationDidChangeScreenParametersNotification
              object:nil];
     _observingScreenChanges = YES;
+    NSNotificationCenter *workspaceCenter =
+        NSWorkspace.sharedWorkspace.notificationCenter;
+    [workspaceCenter addObserver:self
+                        selector:@selector(workspaceWillSleep:)
+                            name:NSWorkspaceWillSleepNotification
+                          object:nil];
+    [workspaceCenter addObserver:self
+                        selector:@selector(workspaceDidWake:)
+                            name:NSWorkspaceDidWakeNotification
+                          object:nil];
+    _observingWorkspace = YES;
   }
   return self;
 }
 
 - (void)applyConfig:(PetConfig)config {
+  _config = config;
+  _hasConfig = YES;
   const NSRect oldFrame = self.panel.frame;
   const NSPoint center = NSMakePoint(NSMidX(oldFrame), NSMidY(oldFrame));
   const CGFloat size = (CGFloat)config.size;
@@ -637,6 +664,10 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   } else {
     [self hide];
   }
+  if (config.visible != 0 && config.request_permission != 0) {
+    [self refreshCaptureWithPermissionRequest:config.request_permission != 0];
+  }
+  _config.request_permission = 0;
 }
 
 - (void)show {
@@ -648,12 +679,14 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   [self.petView setAnimating:YES];
   [self.panel orderFrontRegardless];
   [self.coreHitTargetPanel orderFrontRegardless];
+  [self refreshCaptureWithPermissionRequest:NO];
 }
 
 - (void)hide {
   self.gestureActive = NO;
   _windowLifecycle.hide();
   [self.petView setAnimating:NO];
+  mac_capture_stop(_captureHandle);
   [self.coreHitTargetPanel orderOut:nil];
   [self.panel orderOut:nil];
 }
@@ -671,6 +704,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   [self.panel setFrame:frame display:NO];
   [self syncCoreHitTargetFrame];
   [self updateDisplaySelectionAndEmit:NO];
+  [self refreshCaptureWithPermissionRequest:NO];
 }
 
 - (void)signal:(uint32_t)signal {
@@ -737,6 +771,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
     [self syncCoreHitTargetFrame];
   }
   [self updateDisplaySelectionAndEmit:YES];
+  [self refreshCaptureWithPermissionRequest:NO];
   if (_callback != nullptr) {
     const NSPoint origin = self.panel.frame.origin;
     _callback(kPetCallbackMoved, nullptr, origin.x, origin.y, self.displayID);
@@ -809,6 +844,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   }
   NSScreen *screen = [self screenForPanel];
   if (screen == nil) {
+    mac_capture_stop(_captureHandle);
     return;
   }
   NSRect frame = self.panel.frame;
@@ -828,10 +864,84 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   [self.panel setFrameOrigin:frame.origin];
   [self syncCoreHitTargetFrame];
   [self updateDisplaySelectionAndEmit:NO];
+  [self refreshCaptureWithPermissionRequest:NO];
   if (_callback != nullptr) {
     _callback(kPetCallbackDisplayChanged, nullptr, frame.origin.x,
               frame.origin.y, self.displayID);
   }
+}
+
+- (void)workspaceWillSleep:(NSNotification *)notification {
+  (void)notification;
+  if (_windowLifecycle.destroyed() || _sleeping) {
+    return;
+  }
+  _sleeping = YES;
+  mac_capture_stop(_captureHandle);
+  [self.petView setAnimating:NO];
+  if (_callback != nullptr) {
+    _callback(kPetCallbackSleep, nullptr, 0.0, 0.0, self.displayID);
+  }
+}
+
+- (void)workspaceDidWake:(NSNotification *)notification {
+  (void)notification;
+  if (_windowLifecycle.destroyed() || !_sleeping) {
+    return;
+  }
+  _sleeping = NO;
+  // Screen enumeration and clamping precede the permission recheck and any
+  // capture restart performed by refreshCaptureWithPermissionRequest:.
+  [self screenParametersChanged:nil];
+  if (_hasConfig && _windowLifecycle.visual_visible()) {
+    [self.petView setAnimating:YES];
+  }
+  if (_callback != nullptr) {
+    _callback(kPetCallbackWake, nullptr, 0.0, 0.0, self.displayID);
+  }
+}
+
+- (void)refreshCaptureWithPermissionRequest:(BOOL)requestPermission {
+  if (!_hasConfig || _captureHandle == nullptr) {
+    return;
+  }
+  const BOOL visible = _windowLifecycle.visual_visible();
+  if (_sleeping || !visible || _config.mode != 0) {
+    mac_capture_configure(_captureHandle, {}, _config.mode == 0,
+                          visible && !_sleeping, requestPermission,
+                          _config.fps);
+    return;
+  }
+  NSScreen *screen = [self screenForPanel];
+  if (screen == nil) {
+    mac_capture_configure(_captureHandle, {}, true, false, requestPermission,
+                          _config.fps);
+    return;
+  }
+  NSNumber *screenNumber = screen.deviceDescription[@"NSScreenNumber"];
+  const NSRect panelFrame = self.panel.frame;
+  const NSRect screenFrame = screen.frame;
+  const PetPanelFrame panel = {
+      panelFrame.origin.x,
+      panelFrame.origin.y,
+      panelFrame.size.width,
+      panelFrame.size.height,
+  };
+  const PetScreenFrame display = {
+      screenFrame.origin.x,
+      screenFrame.origin.y,
+      screenFrame.size.width,
+      screenFrame.size.height,
+      screen.backingScaleFactor,
+      screenNumber.unsignedIntValue,
+  };
+  const PetCaptureRegion region = PetCaptureRegionForPanel(panel, display);
+  mac_capture_configure(_captureHandle, region, true, true, requestPermission,
+                        _config.fps);
+}
+
+- (uint32_t)captureState {
+  return mac_capture_state(_captureHandle);
 }
 
 - (void)shutdown {
@@ -841,6 +951,12 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
     [NSNotificationCenter.defaultCenter removeObserver:self];
     self.observingScreenChanges = NO;
   }
+  if (self.observingWorkspace) {
+    [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
+    self.observingWorkspace = NO;
+  }
+  mac_capture_destroy(_captureHandle);
+  _captureHandle = nullptr;
   [self.coreHitTargetView unregisterDraggedTypes];
   self.coreHitTargetView.petHost = nil;
   self.coreHitTargetView.callback = nullptr;
@@ -894,13 +1010,26 @@ static void RunOnMain(dispatch_block_t block) {
   }
 }
 
+static void RunOnMainAndWait(dispatch_block_t block) {
+  if (NSThread.isMainThread) {
+    block();
+  } else if (NSApp == nil) {
+    // Cargo's native ABI tests have no NSApplication or serviced main
+    // dispatch queue. Preserve the production synchronous path while keeping
+    // that headless construction/destruction check non-blocking.
+    dispatch_async(dispatch_get_main_queue(), block);
+  } else {
+    dispatch_sync(dispatch_get_main_queue(), block);
+  }
+}
+
 static bool IsValidConfig(PetConfig config) {
   const bool validFps =
       config.fps == 0 || config.fps == 30 || config.fps == 60;
   return config.abi_version == kPetAbiVersion && config.mode <= 1 &&
          isfinite(config.size) && config.size >= kPetMinimumSize &&
          config.size <= kPetMaximumSize && validFps && config.visible <= 1 &&
-         config.reduce_motion <= 1;
+         config.reduce_motion <= 1 && config.request_permission <= 1;
 }
 
 extern "C" void *pet_create(PetCallback callback,
@@ -929,7 +1058,7 @@ extern "C" bool pet_apply(void *handle, PetConfig config) {
     return false;
   }
   BPPetBridge *bridge = (__bridge BPPetBridge *)handle;
-  RunOnMain(^{
+  RunOnMainAndWait(^{
     if (!bridge.destroyed) {
       [bridge ensureHost];
       [bridge.host applyConfig:config];
@@ -987,6 +1116,24 @@ extern "C" void pet_signal(void *handle, uint32_t signal) {
       [bridge.host signal:signal];
     }
   });
+}
+
+extern "C" uint32_t pet_capture_state(void *handle) {
+  if (handle == nullptr) {
+    return PET_CAPTURE_UNAVAILABLE;
+  }
+  if (!NSThread.isMainThread && NSApp == nil) {
+    return PET_CAPTURE_UNAVAILABLE;
+  }
+  BPPetBridge *bridge = (__bridge BPPetBridge *)handle;
+  __block uint32_t state = PET_CAPTURE_UNAVAILABLE;
+  RunOnMainAndWait(^{
+    if (!bridge.destroyed) {
+      [bridge ensureHost];
+      state = [bridge.host captureState];
+    }
+  });
+  return state;
 }
 
 extern "C" uint32_t pet_abi_version(void) {

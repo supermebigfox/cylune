@@ -77,24 +77,7 @@ pub struct PetSettingsPatch {
     pub reset_position: Option<bool>,
 }
 
-fn native_status(settings: &PetSettings) -> PetStatus {
-    #[cfg(target_os = "macos")]
-    let fallback_reason = match settings.mode {
-        PetMode::Real => Some("native_not_started".to_owned()),
-        PetMode::Lite => None,
-    };
-    #[cfg(not(target_os = "macos"))]
-    let fallback_reason = Some("platform_unsupported".to_owned());
-
-    PetStatus {
-        effective_mode: PetMode::Lite,
-        permission: CapturePermission::Unavailable,
-        fallback_reason,
-    }
-}
-
-fn pet_view(settings: PetSettings) -> PetView {
-    let status = native_status(&settings);
+fn pet_view(settings: PetSettings, status: PetStatus) -> PetView {
     PetView { settings, status }
 }
 
@@ -109,7 +92,7 @@ pub fn get_pet_settings(
     let settings = PetStore::load(&service.database)?;
     drop(service);
     runtime.apply(settings.clone());
-    Ok(pet_view(settings))
+    Ok(pet_view(settings, runtime.status()))
 }
 
 #[tauri::command]
@@ -118,6 +101,7 @@ pub fn set_pet_settings(
     state: tauri::State<'_, PrintState>,
     runtime: tauri::State<'_, PetRuntime>,
 ) -> Result<PetView> {
+    let request_permission = patch.mode == Some(PetMode::Real);
     let reset_position = patch.reset_position == Some(true);
     let service = state
         .lock()
@@ -127,6 +111,6 @@ pub fn set_pet_settings(
     if reset_position {
         runtime.reset();
     }
-    runtime.apply(settings.clone());
-    Ok(pet_view(settings))
+    runtime.apply_with_permission_request(settings.clone(), request_permission);
+    Ok(pet_view(settings, runtime.status()))
 }
