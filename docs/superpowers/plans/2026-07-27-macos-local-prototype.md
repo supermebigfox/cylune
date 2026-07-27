@@ -25,6 +25,7 @@
 - 品牌图标使用已确认的“四根耗材汇入一个喷嘴”概念；不得采用圆环、旋转叶片或类似 Chrome 的构图。
 - 视觉参数固定为 `DESIGN_VARIANCE=7`、`MOTION_INTENSITY=5`、`VISUAL_DENSITY=6`；动效必须支持 `prefers-reduced-motion`。
 - 展示字体只用于标题、品牌语和关键空状态；正文、表单、表格和数值使用高可读系统字体。
+- 用户可见文案使用短而准确的名称；代码标识在不损失含义的前提下保持简洁，不堆叠重复上下文，也不使用难懂缩写。
 
 ---
 
@@ -38,13 +39,13 @@
 - `src/assets/brand/filament-mark-template.svg`：macOS 菜单栏单色模板源文件。
 - `src/assets/fonts/SmileySans-Oblique.woff2`：简中和英语标题展示字体。
 - `src/assets/fonts/OFL.txt`：展示字体许可证。
-- `src/brand/FilamentMark.tsx`：可访问的品牌图标组件。
+- `src/brand/Mark.tsx`：可访问的品牌图标组件。
 - `src/i18n/index.ts`：语言检测、切换和类型定义。
 - `src/i18n/locales/zh-CN.json`：简体中文文案。
 - `src/i18n/locales/zh-TW.json`：繁体中文文案。
 - `src/i18n/locales/en.json`：英语文案。
-- `src/theme/ThemeProvider.tsx`：主题检测、切换和持久化。
-- `src/features/menubar/MenuBarDropzone.tsx`：菜单栏拖放与最近任务浮窗。
+- `src/theme/Theme.tsx`：主题检测、切换和持久化。
+- `src/features/tray/TrayDrop.tsx`：菜单栏拖放与最近任务浮窗。
 - `src/lib/tauri.ts`：类型安全的 Tauri command 包装。
 - `src/features/dashboard/Dashboard.tsx`：四槽、待结算任务和提醒。
 - `src/features/spools/SpoolLibrary.tsx`：不限数量耗材库与筛选。
@@ -438,20 +439,20 @@ git commit -m "feat: import and settle print jobs"
 - Create: `src/assets/brand/filament-mark-template.svg`
 - Create: `src/assets/fonts/SmileySans-Oblique.woff2`
 - Create: `src/assets/fonts/OFL.txt`
-- Create: `src/brand/FilamentMark.tsx`
+- Create: `src/brand/Mark.tsx`
 - Create: `src/i18n/index.ts`
 - Create: `src/i18n/locales/zh-CN.json`
 - Create: `src/i18n/locales/zh-TW.json`
 - Create: `src/i18n/locales/en.json`
 - Create: `src/i18n/i18n.test.ts`
-- Create: `src/theme/ThemeProvider.tsx`
-- Create: `src/theme/ThemeProvider.test.tsx`
+- Create: `src/theme/Theme.tsx`
+- Create: `src/theme/Theme.test.tsx`
 - Modify: `src/main.tsx`
 - Modify: `src/styles.css`
 
 **Interfaces:**
 - Consumes: Task 1 的 React 工程。
-- Produces: `SupportedLocale = "zh-CN" | "zh-TW" | "en"`、`setLocale(locale)`、`ThemeMode = "light" | "dark"`、`useTheme()`、`FilamentMark`。
+- Produces: `SupportedLocale = "zh-CN" | "zh-TW" | "en"`、`setLocale(locale)`、`ThemeMode = "light" | "dark"`、`useTheme()`、`Mark`。
 
 - [ ] **Step 1: 写语言完整性与主题切换失败测试**
 
@@ -462,7 +463,7 @@ it("keeps all locale key sets identical", () => {
 });
 
 it("persists a manual dark theme without reloading", async () => {
-  render(<ThemeProvider><ThemeProbe /></ThemeProvider>);
+  render(<Theme><ThemeProbe /></Theme>);
   await userEvent.click(screen.getByRole("button", { name: "深色" }));
   expect(document.documentElement.dataset.theme).toBe("dark");
   expect(localStorage.getItem("bambu-spools.theme")).toBe("dark");
@@ -471,9 +472,9 @@ it("persists a manual dark theme without reloading", async () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `npm test -- --run src/i18n/i18n.test.ts src/theme/ThemeProvider.test.tsx`
+Run: `npm test -- --run src/i18n/i18n.test.ts src/theme/Theme.test.tsx`
 
-Expected: FAIL，因为语言资源和 `ThemeProvider` 不存在。
+Expected: FAIL，因为语言资源和 `Theme` 不存在。
 
 - [ ] **Step 3: 实现三语言资源与运行时切换**
 
@@ -503,7 +504,7 @@ export type ThemeContextValue = { theme: ThemeMode; setTheme(theme: ThemeMode): 
 
 - [ ] **Step 6: 运行基础测试和构建**
 
-Run: `npm test -- --run src/i18n/i18n.test.ts src/theme/ThemeProvider.test.tsx`
+Run: `npm test -- --run src/i18n/i18n.test.ts src/theme/Theme.test.tsx`
 
 Expected: PASS，三套语言键集合完全一致，主题选择可持久化。
 
@@ -586,8 +587,8 @@ git commit -m "feat: add desktop inventory workflows"
 - Create: `src-tauri/src/backup.rs`
 - Modify: `src-tauri/src/lib.rs`
 - Modify: `src-tauri/tauri.conf.json`
-- Create: `src/features/menubar/MenuBarDropzone.tsx`
-- Create: `src/features/menubar/MenuBarDropzone.test.tsx`
+- Create: `src/features/tray/TrayDrop.tsx`
+- Create: `src/features/tray/TrayDrop.test.tsx`
 - Modify: `src/features/settings/Settings.tsx`
 - Create: `docs/user/mac-installation.md`
 - Test: `src-tauri/src/backup.rs`
@@ -615,7 +616,7 @@ Expected: FAIL，因为备份模块不存在。
 
 ```tsx
 it("accepts only supported sliced file types", async () => {
-  render(<MenuBarDropzone onImport={onImport} />);
+  render(<TrayDrop onImport={onImport} />);
   fireEvent.drop(screen.getByTestId("menu-dropzone"), {
     dataTransfer: { files: [file("plate.gcode.3mf"), file("notes.pdf")] },
   });
@@ -624,7 +625,7 @@ it("accepts only supported sliced file types", async () => {
 });
 ```
 
-Run: `npm test -- --run src/features/menubar/MenuBarDropzone.test.tsx`
+Run: `npm test -- --run src/features/tray/TrayDrop.test.tsx`
 
 Expected: FAIL，因为菜单栏拖放组件不存在。
 
