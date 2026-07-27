@@ -1,4 +1,5 @@
 #import "bridge.h"
+#import "pet_lifecycle.h"
 
 #import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
@@ -11,6 +12,8 @@
 static const uint32_t kPetAbiVersion = 1;
 static const CGFloat kPetMinimumSize = 120.0;
 static const CGFloat kPetMaximumSize = 360.0;
+
+static void RunOnMain(dispatch_block_t block);
 
 static_assert(sizeof(PetConfig) == 32, "PetConfig ABI size changed");
 static_assert(alignof(PetConfig) == 8, "PetConfig ABI alignment changed");
@@ -37,13 +40,15 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 @interface BPPetView : NSView
 @property(nonatomic, weak) BPPetHost *petHost;
 - (void)setReduceMotion:(BOOL)reduceMotion;
+- (void)setAnimating:(BOOL)animating;
 - (void)pulse;
 @end
 
 @interface BPPetHost : NSObject
 @property(nonatomic, strong) BPPetPanel *panel;
 @property(nonatomic, strong) BPPetView *petView;
-@property(nonatomic, strong) NSTimer *pointerTimer;
+@property(nonatomic, strong) id localMouseMonitor;
+@property(nonatomic, strong) id globalMouseMonitor;
 @property(nonatomic, assign) BOOL gestureActive;
 @property(nonatomic, assign) NSPoint gestureMouseOrigin;
 @property(nonatomic, assign) NSPoint gesturePanelOrigin;
@@ -56,6 +61,9 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 - (void)beginGestureAt:(NSPoint)screenPoint;
 - (void)continueGestureAt:(NSPoint)screenPoint;
 - (void)endGesture;
+- (void)startPointerMonitors;
+- (void)stopPointerMonitors;
+- (void)updatePointerInteraction;
 - (void)shutdown;
 @end
 
@@ -85,6 +93,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   CAGradientLayer *_ringLayer;
   CAShapeLayer *_ringMask;
   BOOL _reduceMotion;
+  BOOL _animating;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -112,7 +121,6 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
     _ringLayer.mask = _ringMask;
     [self.layer addSublayer:_ringLayer];
 
-    [self installAnimations];
   }
   return self;
 }
@@ -181,7 +189,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
     return;
   }
   _reduceMotion = reduceMotion;
-  if (reduceMotion) {
+  if (reduceMotion || !_animating) {
     [_diskLayer removeAllAnimations];
     [_ringLayer removeAllAnimations];
   } else {
@@ -189,8 +197,21 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   }
 }
 
+- (void)setAnimating:(BOOL)animating {
+  if (_animating == animating) {
+    return;
+  }
+  _animating = animating;
+  if (animating && !_reduceMotion) {
+    [self installAnimations];
+  } else {
+    [_diskLayer removeAllAnimations];
+    [_ringLayer removeAllAnimations];
+  }
+}
+
 - (void)installAnimations {
-  if (_reduceMotion) {
+  if (_reduceMotion || !_animating) {
     return;
   }
 
@@ -214,6 +235,9 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 }
 
 - (void)pulse {
+  if (!_animating) {
+    return;
+  }
   CABasicAnimation *signal =
       [CABasicAnimation animationWithKeyPath:@"transform.scale"];
   signal.fromValue = @1.0;
@@ -227,6 +251,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 
 @implementation BPPetHost {
   PetCallback _callback;
+  PetMonitorLifecycle _monitorLifecycle;
 }
 
 - (instancetype)initWithCallback:(PetCallback)callback {
@@ -256,21 +281,6 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
     _petView.petHost = self;
     _panel.contentView = _petView;
     [self reset];
-
-    __weak BPPetHost *weakSelf = self;
-    _pointerTimer =
-        [NSTimer timerWithTimeInterval:(1.0 / 30.0)
-                               repeats:YES
-                                 block:^(NSTimer *timer) {
-                                   BPPetHost *strongSelf = weakSelf;
-                                   if (strongSelf == nil) {
-                                     [timer invalidate];
-                                     return;
-                                   }
-                                   [strongSelf updatePointerInteraction];
-                                 }];
-    [NSRunLoop.mainRunLoop addTimer:_pointerTimer
-                           forMode:NSRunLoopCommonModes];
   }
   return self;
 }
@@ -292,11 +302,20 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 }
 
 - (void)show {
-  [self.panel orderFrontRegardless];
+  if (_monitorLifecycle.destroyed()) {
+    return;
+  }
+  [self startPointerMonitors];
   [self updatePointerInteraction];
+  [self.petView setAnimating:YES];
+  [self.panel orderFrontRegardless];
 }
 
 - (void)hide {
+  self.gestureActive = NO;
+  [self stopPointerMonitors];
+  [self.petView setAnimating:NO];
+  self.panel.ignoresMouseEvents = YES;
   [self.panel orderOut:nil];
 }
 
@@ -342,8 +361,55 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   [self updatePointerInteraction];
 }
 
+- (void)startPointerMonitors {
+  if (!_monitorLifecycle.show()) {
+    return;
+  }
+
+  const NSEventMask pointerMask =
+      NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged |
+      NSEventMaskRightMouseDragged | NSEventMaskOtherMouseDragged;
+  __weak BPPetHost *weakSelf = self;
+  self.localMouseMonitor =
+      [NSEvent addLocalMonitorForEventsMatchingMask:pointerMask
+                                            handler:^NSEvent *(NSEvent *event) {
+                                              [weakSelf
+                                                  updatePointerInteraction];
+                                              return event;
+                                            }];
+  self.globalMouseMonitor =
+      [NSEvent addGlobalMonitorForEventsMatchingMask:pointerMask
+                                              handler:^(NSEvent *event) {
+                                                (void)event;
+                                                BPPetHost *host = weakSelf;
+                                                if (host == nil) {
+                                                  return;
+                                                }
+                                                RunOnMain(^{
+                                                  [host
+                                                      updatePointerInteraction];
+                                                });
+                                              }];
+
+  if (self.localMouseMonitor == nil || self.globalMouseMonitor == nil) {
+    [self stopPointerMonitors];
+  }
+}
+
+- (void)stopPointerMonitors {
+  if (self.localMouseMonitor != nil) {
+    [NSEvent removeMonitor:self.localMouseMonitor];
+    self.localMouseMonitor = nil;
+  }
+  if (self.globalMouseMonitor != nil) {
+    [NSEvent removeMonitor:self.globalMouseMonitor];
+    self.globalMouseMonitor = nil;
+  }
+  _monitorLifecycle.hide();
+}
+
 - (void)updatePointerInteraction {
-  if (!self.panel.isVisible) {
+  if (!_monitorLifecycle.monitor_active()) {
     return;
   }
   if (self.gestureActive) {
@@ -361,11 +427,11 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 }
 
 - (void)shutdown {
-  [self.pointerTimer invalidate];
-  self.pointerTimer = nil;
+  [self stopPointerMonitors];
+  _monitorLifecycle.destroy();
   self.gestureActive = NO;
   self.petView.petHost = nil;
-  [self.petView.layer removeAllAnimations];
+  [self.petView setAnimating:NO];
   [self.panel orderOut:nil];
   [self.panel close];
   self.panel.contentView = nil;

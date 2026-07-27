@@ -1,5 +1,7 @@
 fn main() {
     println!("cargo:rerun-if-changed=native/mac/bridge.h");
+    println!("cargo:rerun-if-changed=native/mac/pet_lifecycle.h");
+    println!("cargo:rerun-if-changed=native/mac/pet_lifecycle_test.cc");
     println!("cargo:rerun-if-changed=native/mac/pet.mm");
 
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
