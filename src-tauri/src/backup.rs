@@ -292,6 +292,11 @@ fn read_backup(db: &AppDatabase) -> Result<Backup> {
     })
 }
 
+#[cfg(test)]
+fn export_json_for_test(db: &mut AppDatabase) -> Result<String> {
+    serde_json::to_string(&read_backup(db)?).map_err(|_| AppError::InvalidFile)
+}
+
 fn read_parse_cache(db: &AppDatabase) -> Result<Vec<ParseRow>> {
     let raw=rows(db,"SELECT source_hash,parsed_json,parse_count,created_at FROM parse_cache ORDER BY source_hash",|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,u32>(2)?,r.get::<_,String>(3)?)))?;
     raw.into_iter()
@@ -673,7 +678,7 @@ fn validate_balances(tx: &Transaction<'_>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{export_to_path, import_from_path};
+    use super::{export_json_for_test, export_to_path, import_from_path};
     use crate::{
         db::AppDatabase,
         inventory::{InventoryService, NewSpool},
@@ -685,6 +690,21 @@ mod tests {
     use rusqlite::params;
     use std::collections::BTreeMap;
     use uuid::Uuid;
+
+    #[test]
+    fn pet_coordinates_are_not_exported() {
+        let mut db = AppDatabase::open_in_memory().unwrap();
+        db.connection
+            .execute(
+                "INSERT INTO app_settings(setting_key,setting_value) VALUES
+                 ('pet_x','400'),('pet_y','220'),('pet_display_id','9')",
+                [],
+            )
+            .unwrap();
+        let json = export_json_for_test(&mut db).unwrap();
+        assert!(!json.contains("pet_x"));
+        assert!(!json.contains("pet_display_id"));
+    }
 
     fn populated() -> AppDatabase {
         let database = AppDatabase::open_in_memory().unwrap();

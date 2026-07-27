@@ -5,6 +5,7 @@ pub mod error;
 pub mod imports;
 pub mod inventory;
 pub mod parser;
+pub mod pet;
 pub mod settlement;
 pub mod tray;
 
@@ -83,6 +84,8 @@ pub fn run() {
             settlement::reverse_settlement,
             backup::export_backup,
             backup::import_backup,
+            pet::get_pet_settings,
+            pet::set_pet_settings,
             tray::set_watch_folder,
             tray::get_watch_folder,
             tray::open_main,
