@@ -183,6 +183,27 @@
     "watchedJobReady": "The watched folder found a print awaiting settlement",
     "openWatchedJob": "View job"
   },
+  "pet": {
+    "title": "Desktop black hole",
+    "mode": "Black hole type",
+    "real": "Real distortion",
+    "lite": "Lightweight mode",
+    "size": "Black hole size",
+    "small": "Small",
+    "medium": "Medium",
+    "large": "Large",
+    "fps": "Frame rate",
+    "auto": "Auto",
+    "fps30": "30 FPS",
+    "fps60": "60 FPS",
+    "show": "Show black hole",
+    "hide": "Hide black hole",
+    "reset": "Reset to main display",
+    "powerHint": "60 FPS increases GPU and battery use",
+    "permissionDenied": "Screen recording permission is off; lightweight mode is active",
+    "restartRequired": "Permission changed. Restart the app.",
+    "saveError": "Could not save desktop black hole settings"
+  },
   "notifications": {
     "imported": "Print file imported",
     "settled": "Filament usage deducted",

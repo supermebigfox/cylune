@@ -183,6 +183,27 @@
     "watchedJobReady": "監測資料夾發現了一個待結算任務",
     "openWatchedJob": "查看任務"
   },
+  "pet": {
+    "title": "桌面黑洞",
+    "mode": "黑洞類型",
+    "real": "真實扭曲",
+    "lite": "輕量模式",
+    "size": "黑洞尺寸",
+    "small": "小",
+    "medium": "中",
+    "large": "大",
+    "fps": "幀率",
+    "auto": "自動",
+    "fps30": "30 FPS",
+    "fps60": "60 FPS",
+    "show": "顯示黑洞",
+    "hide": "隱藏黑洞",
+    "reset": "重設到主顯示器",
+    "powerHint": "60 FPS 會增加 GPU 與電池耗電",
+    "permissionDenied": "未開啟螢幕錄製權限，目前使用輕量模式",
+    "restartRequired": "權限已變更，請重新啟動應用程式",
+    "saveError": "無法儲存桌面黑洞設定"
+  },
   "notifications": {
     "imported": "列印檔案已匯入",
     "settled": "耗材用量已扣減",

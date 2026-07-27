@@ -1,5 +1,18 @@
 import { expect, it, vi } from "vitest";
-import { createTauriApi } from "./tauri";
+import { createTauriApi, type PetSettings } from "./tauri";
+
+const pet: PetSettings = {
+  mode: "lite",
+  size: 220,
+  fps: "auto",
+  visible: true,
+  x: null,
+  y: null,
+  display_id: null,
+  effective_mode: "lite",
+  permission: "unavailable",
+  fallback_reason: "native_not_started",
+};
 
 it("passes Rust command names and snake-case payloads through the typed adapter", async () => {
   const invoke = vi.fn(async () => ({ job_id: "job-1" }));
@@ -45,4 +58,17 @@ it("reads persisted AMS slots through the typed command boundary", async () => {
 
   expect(slots[1]).toEqual({ slot_number: 2, spool_id: "spool-red" });
   expect(invoke).toHaveBeenCalledWith("list_slots", undefined);
+});
+
+it("reads and patches desktop black hole settings through the typed command boundary", async () => {
+  const invoke = vi.fn(async () => pet);
+  const api = createTauriApi(invoke);
+
+  await api.getPetSettings?.();
+  await api.setPetSettings?.({ mode: "real", size: 280, reset_position: true });
+
+  expect(invoke).toHaveBeenNthCalledWith(1, "get_pet_settings", undefined);
+  expect(invoke).toHaveBeenNthCalledWith(2, "set_pet_settings", {
+    patch: { mode: "real", size: 280, reset_position: true },
+  });
 });

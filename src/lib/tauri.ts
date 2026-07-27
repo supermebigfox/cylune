@@ -6,6 +6,21 @@ export type ImportState =
   | "new"
   | "existing_pending"
   | "new_print_confirmation_required";
+export type PetMode = "real" | "lite";
+export type PetFps = "auto" | "fps30" | "fps60";
+export interface PetSettings {
+  mode: PetMode;
+  size: number;
+  fps: PetFps;
+  visible: boolean;
+  x: number | null;
+  y: number | null;
+  display_id: number | null;
+  effective_mode: PetMode;
+  permission: "unavailable" | "not_determined" | "denied" | "restart_required" | "granted";
+  fallback_reason: string | null;
+}
+export type PetSettingsPatch = Partial<PetSettings> & { reset_position?: boolean };
 
 export interface Spool {
   spool_id: string;
@@ -128,6 +143,8 @@ export interface TauriApi {
   openMain?(): Promise<void>;
   openJobInMain?(jobId: string): Promise<void>;
   takePendingJob?(): Promise<string | null>;
+  getPetSettings?(): Promise<PetSettings>;
+  setPetSettings?(patch: PetSettingsPatch): Promise<PetSettings>;
 }
 
 export const demoSpools: Spool[] = [
@@ -184,6 +201,11 @@ export const demoPreview: ImportPreview = {
 function demoApi(): TauriApi {
   let spools = demoSpools.map((spool) => ({ ...spool }));
   let slots = demoSlots.map((slot) => ({ ...slot }));
+  let pet: PetSettings = {
+    mode: "lite", size: 220, fps: "auto", visible: true, x: null, y: null,
+    display_id: null, effective_mode: "lite", permission: "unavailable",
+    fallback_reason: "native_not_started",
+  };
   const refreshDemoStatuses = () => {
     const mounted = new Set(slots.flatMap((slot) => slot.spool_id ? [slot.spool_id] : []));
     spools = spools.map((spool) => ({
@@ -234,6 +256,12 @@ function demoApi(): TauriApi {
       return { job_id: jobId, outcome, settlement_version: 1, selected_layer: null, confidence: outcome.kind === "estimated" ? "estimated" : "exact", consumption: [] };
     },
     async reverseSettlement(jobId) { return { job_id: jobId, settlement_version: 1, already_reversed: false, restored: [] }; },
+    async getPetSettings() { return { ...pet }; },
+    async setPetSettings(patch) {
+      const { reset_position, ...settings } = patch;
+      pet = { ...pet, ...settings, ...(reset_position ? { x: null, y: null, display_id: null } : {}) };
+      return { ...pet };
+    },
   };
 }
 
@@ -262,6 +290,8 @@ function commandApi(invoke: Invoke): TauriApi {
     openMain: () => call<void>("open_main"),
     openJobInMain: (jobId) => call<void>("open_job_in_main", { jobId }),
     takePendingJob: () => call<string | null>("take_pending_job"),
+    getPetSettings: () => call<PetSettings>("get_pet_settings"),
+    setPetSettings: (patch) => call<PetSettings>("set_pet_settings", { patch }),
   };
 }
 

@@ -76,3 +76,20 @@ it("shows a localized retryable error instead of rejecting a watch action", asyn
   expect(await screen.findByRole("alert")).toHaveTextContent("无法识别这个文件");
   expect(screen.getByRole("button", { name: "启用" })).not.toBeDisabled();
 });
+
+it("includes the localized desktop black hole controls in the settings page", () => {
+  const apiClient = {
+    ...api,
+    mode: "demo",
+    getWatchFolder: vi.fn(async () => null),
+  } as TauriApi;
+  const dialogs = {
+    watch: vi.fn(async () => null),
+    importBackup: vi.fn(async () => null),
+    exportBackup: vi.fn(async () => null),
+  };
+  renderSettings(apiClient, dialogs);
+
+  expect(screen.getByRole("heading", { name: "桌面黑洞" })).toBeVisible();
+  expect(screen.getByLabelText("黑洞尺寸")).toHaveAttribute("step", "4");
+});

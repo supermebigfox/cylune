@@ -4,6 +4,7 @@ import { setLocale, supportedLocales, t, useLocale, type SupportedLocale } from 
 import { pickBackupDestination, pickBackupToImport, pickWatchFolder } from "../../lib/dialog";
 import { api, type TauriApi } from "../../lib/tauri";
 import { useTheme } from "../../theme/Theme";
+import { Pet } from "./Pet";
 
 type SettingsDialogs = {
   watch(): Promise<string | null>;
@@ -61,6 +62,7 @@ export function Settings({ apiClient=api, onRestored, dialogs=defaultDialogs }: 
       <div className="settings-main">
         <section className="setting-group"><h2>{copy("settings.language")}</h2><div className="segmented three">{supportedLocales.map((item) => <button className={locale === item ? "active" : ""} key={item} onClick={() => setLocale(item as SupportedLocale)}>{copy(`locale.${item === "zh-CN" ? "zhCN" : item === "zh-TW" ? "zhTW" : "en"}`)}</button>)}</div></section>
         <section className="setting-group"><h2>{copy("settings.appearance")}</h2><div className="segmented"><button className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}><Sun size={17} />{copy("settings.light")}</button><button className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}><Moon size={17} />{copy("settings.dark")}</button></div></section>
+        <Pet apiClient={apiClient} />
         <section className="setting-group action-setting"><div><FolderSimple size={21} /><span><h2>{copy("settings.watchFolder")}</h2><p>{watchFolder ?? copy("settings.watchHint")}</p></span></div><div className="setting-actions"><button disabled={busy} onClick={chooseWatch}>{watchFolder?copy("settings.change"):copy("settings.enable")}</button>{watchFolder?<button disabled={busy} onClick={disableWatch}>{copy("settings.disable")}</button>:null}</div></section>
         <section className="setting-group action-setting"><div><Bell size={21} /><span><h2>{copy("settings.notifications")}</h2><p>{copy("settings.notificationHint")}</p></span></div><b>{copy("settings.localNotifications")}</b></section>
         <section className="setting-group action-setting"><div><Database size={21} /><span><h2>{copy("settings.backup")}</h2><p>{copy("settings.backupHint")}</p></span></div><div className="setting-actions"><button disabled={busy} onClick={exportNow}><DownloadSimple size={16}/>{copy("settings.export")}</button><button disabled={busy} onClick={importNow}><UploadSimple size={16}/>{copy("settings.restore")}</button></div></section>
