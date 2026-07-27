@@ -105,15 +105,19 @@
     "watching": "Watching for new sliced files"
   },
   "errors": {
-    "invalid_file": "This file could not be recognized",
-    "unsliced_project": "This project has not been sliced",
-    "unknown_gcode": "No measurable extrusion data was found",
-    "slot_conflict": "That slot or spool is already in use",
-    "duplicate_job": "This print job already exists",
+    "archived_spool": "This spool has been archived",
     "database": "Local data is temporarily unavailable",
+    "duplicate_job": "This print job already exists",
+    "file_not_stable": "The file is still being written. Try again shortly.",
+    "insufficient_filament": "The spool does not have enough filament for this deduction",
+    "invalid_file": "This file could not be recognized",
+    "invalid_job": "This print job is in an invalid state",
+    "invalid_mapping": "The filament-to-spool mapping is invalid",
+    "invalid_slot": "The AMS Lite slot number is invalid",
     "io": "The file is temporarily unavailable",
-    "needs_confirmation": "Confirm the spools that were actually used",
-    "not_found": "The requested record could not be found"
+    "slot_conflict": "That slot or spool is already in use",
+    "unsliced_project": "This project has not been sliced",
+    "unknown_gcode": "No measurable extrusion data was found"
   },
   "tray": {
     "drop": "Drop .gcode.3mf",

@@ -105,15 +105,19 @@
     "watching": "正在监测新的切片文件"
   },
   "errors": {
-    "invalid_file": "无法识别这个文件",
-    "unsliced_project": "这个项目尚未切片",
-    "unknown_gcode": "没有找到可计算的挤出数据",
-    "slot_conflict": "这个槽位或耗材卷已被占用",
-    "duplicate_job": "这个打印任务已经存在",
+    "archived_spool": "这卷耗材已经归档",
     "database": "本地数据暂时无法读取",
+    "duplicate_job": "这个打印任务已经存在",
+    "file_not_stable": "文件仍在写入，请稍后重试",
+    "insufficient_filament": "耗材剩余量不足，无法完成扣减",
+    "invalid_file": "无法识别这个文件",
+    "invalid_job": "这个打印任务状态无效",
+    "invalid_mapping": "耗材颜色与实际卷的映射无效",
+    "invalid_slot": "AMS Lite 槽位编号无效",
     "io": "文件暂时无法访问",
-    "needs_confirmation": "请先确认实际使用的耗材卷",
-    "not_found": "没有找到对应记录"
+    "slot_conflict": "这个槽位或耗材卷已被占用",
+    "unsliced_project": "这个项目尚未切片",
+    "unknown_gcode": "没有找到可计算的挤出数据"
   },
   "tray": {
     "drop": "拖入 .gcode.3mf",

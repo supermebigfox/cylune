@@ -105,15 +105,19 @@
     "watching": "正在監測新的切片檔案"
   },
   "errors": {
-    "invalid_file": "無法辨識這個檔案",
-    "unsliced_project": "這個專案尚未切片",
-    "unknown_gcode": "沒有找到可計算的擠出資料",
-    "slot_conflict": "這個槽位或耗材卷已被佔用",
-    "duplicate_job": "這個列印任務已經存在",
+    "archived_spool": "這卷耗材已經封存",
     "database": "本機資料暫時無法讀取",
+    "duplicate_job": "這個列印任務已經存在",
+    "file_not_stable": "檔案仍在寫入，請稍後再試",
+    "insufficient_filament": "耗材剩餘量不足，無法完成扣減",
+    "invalid_file": "無法辨識這個檔案",
+    "invalid_job": "這個列印任務狀態無效",
+    "invalid_mapping": "耗材顏色與實際卷的對應無效",
+    "invalid_slot": "AMS Lite 槽位編號無效",
     "io": "檔案暫時無法存取",
-    "needs_confirmation": "請先確認實際使用的耗材卷",
-    "not_found": "沒有找到對應記錄"
+    "slot_conflict": "這個槽位或耗材卷已被佔用",
+    "unsliced_project": "這個專案尚未切片",
+    "unknown_gcode": "沒有找到可計算的擠出資料"
   },
   "tray": {
     "drop": "拖入 .gcode.3mf",
@@ -123,7 +127,7 @@
     "quit": "結束"
   },
   "locale": {
-    "zhCN": "简体中文",
+    "zhCN": "簡體中文",
     "zhTW": "繁體中文",
     "en": "English"
   }

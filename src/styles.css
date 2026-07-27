@@ -80,6 +80,21 @@ textarea {
   font-weight: 400;
 }
 
+:root:lang(zh-TW) {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+    "PingFang SC", sans-serif;
+}
+
+:root:lang(zh-TW) :where(h1, h2, h3, .display, .brand, .empty-title) {
+  font-family: "Smiley Sans", "PingFang TC", "PingFang SC", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root:lang(zh-TW) .data {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+    "PingFang SC", sans-serif;
+}
+
 .data {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "PingFang TC", sans-serif;

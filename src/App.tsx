@@ -1,12 +1,15 @@
 import { Mark } from "./brand/Mark";
-import { t } from "./i18n";
+import { t, useLocale } from "./i18n";
 
 export function App() {
+  const locale = useLocale();
+  const copy = (key: string) => t(key, {}, locale);
+
   return (
     <main>
-      <Mark label={t("brand.mark", {}, "zh-CN")} size={32} />
-      <p>本地模式</p>
-      <h1>拓竹耗材管家</h1>
+      <Mark label={copy("brand.mark")} size={32} />
+      <p>{copy("app.localMode")}</p>
+      <h1>{copy("app.name")}</h1>
     </main>
   );
 }

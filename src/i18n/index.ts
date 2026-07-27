@@ -11,12 +11,46 @@ export const LOCALE_KEY = "bambu-spools.locale";
 const resources = { "zh-CN": zhCN, "zh-TW": zhTW, en } as const;
 const listeners = new Set<() => void>();
 
+type LocaleDocument = Pick<Document, "documentElement">;
+
+function browserDocument(): LocaleDocument | null {
+  try {
+    return typeof document === "undefined" ? null : document;
+  } catch {
+    return null;
+  }
+}
+
+function browserLanguages(): readonly string[] {
+  try {
+    if (typeof navigator === "undefined") return [];
+    if (navigator.languages?.length) return navigator.languages;
+    return navigator.language ? [navigator.language] : [];
+  } catch {
+    return [];
+  }
+}
+
 function persistedLocale(): SupportedLocale | null {
-  if (typeof localStorage === "undefined") return null;
-  const value = localStorage.getItem(LOCALE_KEY);
-  return supportedLocales.includes(value as SupportedLocale)
-    ? (value as SupportedLocale)
-    : null;
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const value = localStorage.getItem(LOCALE_KEY);
+    return supportedLocales.includes(value as SupportedLocale)
+      ? (value as SupportedLocale)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistLocale(locale: SupportedLocale): void {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(LOCALE_KEY, locale);
+    }
+  } catch {
+    // Runtime language changes remain available when persistence is denied.
+  }
 }
 
 function matchLanguage(tag: string): SupportedLocale | null {
@@ -31,8 +65,7 @@ function matchLanguage(tag: string): SupportedLocale | null {
 }
 
 export function detectLocale(
-  languages: readonly string[] =
-    typeof navigator === "undefined" ? [] : navigator.languages,
+  languages: readonly string[] = browserLanguages(),
 ): SupportedLocale {
   const persisted = persistedLocale();
   if (persisted) return persisted;
@@ -46,6 +79,19 @@ export function detectLocale(
 
 let currentLocale = detectLocale();
 
+export function syncDocumentLocale(
+  locale: SupportedLocale,
+  target: LocaleDocument | null = browserDocument(),
+): void {
+  try {
+    if (target) target.documentElement.lang = locale;
+  } catch {
+    // A missing or restricted document must not break local state.
+  }
+}
+
+syncDocumentLocale(currentLocale);
+
 export function getLocale(): SupportedLocale {
   return currentLocale;
 }
@@ -54,9 +100,9 @@ export async function setLocale(locale: SupportedLocale): Promise<void> {
   if (!supportedLocales.includes(locale)) {
     throw new TypeError(`Unsupported locale: ${String(locale)}`);
   }
-  localStorage.setItem(LOCALE_KEY, locale);
   currentLocale = locale;
-  document.documentElement.lang = locale;
+  persistLocale(locale);
+  syncDocumentLocale(locale);
   listeners.forEach((listener) => listener());
 }
 

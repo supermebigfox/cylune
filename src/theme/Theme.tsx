@@ -19,49 +19,113 @@ export type ThemeContextValue = {
 export const THEME_KEY = "bambu-spools.theme";
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
-function storedTheme(): ThemeMode | null {
-  const value = localStorage.getItem(THEME_KEY);
-  return value === "light" || value === "dark" ? value : null;
+type ThemeWindow = Pick<Window, "matchMedia">;
+type ThemeDocument = Pick<Document, "documentElement">;
+
+function browserWindow(): ThemeWindow | null {
+  try {
+    return typeof window === "undefined" ? null : window;
+  } catch {
+    return null;
+  }
 }
 
-function systemTheme(): ThemeMode {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+function browserDocument(): ThemeDocument | null {
+  try {
+    return typeof document === "undefined" ? null : document;
+  } catch {
+    return null;
+  }
+}
+
+function storedTheme(): ThemeMode | null {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const value = localStorage.getItem(THEME_KEY);
+    return value === "light" || value === "dark" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistTheme(theme: ThemeMode): void {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(THEME_KEY, theme);
+    }
+  } catch {
+    // Manual theme changes remain available when persistence is denied.
+  }
+}
+
+function darkMedia(host = browserWindow()): MediaQueryList | null {
+  try {
+    return host && typeof host.matchMedia === "function"
+      ? host.matchMedia("(prefers-color-scheme: dark)")
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getSystemTheme(host: ThemeWindow | null = browserWindow()): ThemeMode {
+  return darkMedia(host)?.matches ? "dark" : "light";
+}
+
+export function syncThemeDocument(
+  theme: ThemeMode,
+  target: ThemeDocument | null = browserDocument(),
+): void {
+  try {
+    if (!target) return;
+    target.documentElement.dataset.theme = theme;
+    target.documentElement.style.colorScheme = theme;
+  } catch {
+    // A missing or restricted document must not break theme state.
+  }
 }
 
 export function Theme({ children }: { children: ReactNode }) {
-  const [manual, setManual] = useState(() => storedTheme() !== null);
-  const [theme, setMode] = useState<ThemeMode>(() => storedTheme() ?? systemTheme());
+  const [{ manual, theme }, setState] = useState(() => {
+    const stored = storedTheme();
+    return {
+      manual: stored !== null,
+      theme: stored ?? getSystemTheme(),
+    };
+  });
 
-  useLayoutEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    document.documentElement.style.colorScheme = theme;
+  useBrowserLayoutEffect(() => {
+    syncThemeDocument(theme);
   }, [theme]);
 
   useEffect(() => {
     if (manual) return;
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const media = darkMedia();
+    if (!media) return;
     const followSystem = (event: MediaQueryListEvent) => {
-      setMode(event.matches ? "dark" : "light");
+      setState({ manual: false, theme: event.matches ? "dark" : "light" });
     };
-    media.addEventListener("change", followSystem);
-    return () => media.removeEventListener("change", followSystem);
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", followSystem);
+      return () => media.removeEventListener("change", followSystem);
+    }
+    media.addListener(followSystem);
+    return () => media.removeListener(followSystem);
   }, [manual]);
 
   const setTheme = useCallback((next: ThemeMode) => {
-    localStorage.setItem(THEME_KEY, next);
-    setManual(true);
-    setMode(next);
+    persistTheme(next);
+    setState({ manual: true, theme: next });
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setManual(true);
-    setMode((current) => {
-      const next = current === "light" ? "dark" : "light";
-      localStorage.setItem(THEME_KEY, next);
-      return next;
+    setState((current) => {
+      const next = current.theme === "light" ? "dark" : "light";
+      persistTheme(next);
+      return { manual: true, theme: next };
     });
   }, []);
 
