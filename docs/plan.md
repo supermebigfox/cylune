@@ -25,7 +25,7 @@
 - 品牌图标使用已确认的“四根耗材汇入一个喷嘴”概念；不得采用圆环、旋转叶片或类似 Chrome 的构图。
 - 视觉参数固定为 `DESIGN_VARIANCE=7`、`MOTION_INTENSITY=5`、`VISUAL_DENSITY=6`；动效必须支持 `prefers-reduced-motion`。
 - 展示字体只用于标题、品牌语和关键空状态；正文、表单、表格和数值使用高可读系统字体。
-- 用户可见文案使用短而准确的名称；代码标识在不损失含义的前提下保持简洁，不堆叠重复上下文，也不使用难懂缩写。
+- 项目目录、文件名和代码标识在不损失含义的前提下保持简洁，不重复目录已经表达的上下文，也不使用难懂缩写；此规则不限制应用界面文案。
 
 ---
 
@@ -47,9 +47,9 @@
 - `src/theme/Theme.tsx`：主题检测、切换和持久化。
 - `src/features/tray/TrayDrop.tsx`：菜单栏拖放与最近任务浮窗。
 - `src/lib/tauri.ts`：类型安全的 Tauri command 包装。
-- `src/features/dashboard/Dashboard.tsx`：四槽、待结算任务和提醒。
-- `src/features/spools/SpoolLibrary.tsx`：不限数量耗材库与筛选。
-- `src/features/jobs/JobReview.tsx`：导入结果、槽位匹配和结算。
+- `src/features/home/Home.tsx`：四槽、待结算任务和提醒。
+- `src/features/spools/Spools.tsx`：不限数量耗材库与筛选。
+- `src/features/jobs/Job.tsx`：导入结果、槽位匹配和结算。
 - `src/features/settings/Settings.tsx`：监控文件夹、通知和备份。
 - `src/test/setup.ts`：前端测试环境。
 - `src-tauri/Cargo.toml`：Rust 依赖。
@@ -523,12 +523,12 @@ git commit -m "feat: add brand localization and themes"
 
 **Files:**
 - Create: `src/lib/tauri.ts`
-- Create: `src/features/dashboard/Dashboard.tsx`
-- Create: `src/features/spools/SpoolLibrary.tsx`
-- Create: `src/features/jobs/JobReview.tsx`
+- Create: `src/features/home/Home.tsx`
+- Create: `src/features/spools/Spools.tsx`
+- Create: `src/features/jobs/Job.tsx`
 - Create: `src/features/settings/Settings.tsx`
-- Create: `src/features/dashboard/Dashboard.test.tsx`
-- Create: `src/features/jobs/JobReview.test.tsx`
+- Create: `src/features/home/Home.test.tsx`
+- Create: `src/features/jobs/Job.test.tsx`
 - Modify: `src/App.tsx`
 - Modify: `src/styles.css`
 
@@ -539,14 +539,14 @@ git commit -m "feat: add brand localization and themes"
 - [ ] **Step 1: 写首页失败测试**
 
 ```tsx
-render(<Dashboard slots={fourSlots} pendingJobs={[]} />);
+render(<Home slots={fourSlots} pendingJobs={[]} />);
 expect(screen.getAllByTestId("ams-slot")).toHaveLength(4);
 expect(screen.getByText("耗材库 6 卷")).toBeVisible();
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `npm test -- --run src/features/dashboard/Dashboard.test.tsx src/features/jobs/JobReview.test.tsx`
+Run: `npm test -- --run src/features/home/Home.test.tsx src/features/jobs/Job.test.tsx`
 
 Expected: FAIL，因为界面不存在。
 
@@ -558,7 +558,7 @@ Expected: FAIL，因为界面不存在。
 
 - [ ] **Step 4: 实现关键交互**
 
-拖入文件后打开 `JobReview`；同款多卷用单选列表要求选择具体 `spool_id`；成功、失败、取消按钮有明确确认；失败表单要求停止层，百分比路径显示“估算”标签。
+拖入文件后打开 `Job`；同款多卷用单选列表要求选择具体 `spool_id`；成功、失败、取消按钮有明确确认；失败表单要求停止层，百分比路径显示“估算”标签。
 
 设置页提供简中、繁中、英语选择和日间/夜间开关；切换后不刷新页面。所有按钮提供悬停、按下、键盘焦点、加载、空、错误和禁用状态；动效只改变 `transform` 与 `opacity`，并在 `prefers-reduced-motion: reduce` 时退化为即时切换。
 
@@ -590,7 +590,7 @@ git commit -m "feat: add desktop inventory workflows"
 - Create: `src/features/tray/TrayDrop.tsx`
 - Create: `src/features/tray/TrayDrop.test.tsx`
 - Modify: `src/features/settings/Settings.tsx`
-- Create: `docs/user/mac-installation.md`
+- Create: `docs/install-mac.md`
 - Test: `src-tauri/src/backup.rs`
 
 **Interfaces:**
@@ -662,7 +662,7 @@ Expected: 生成可启动的 `.app` 和 `.dmg`；首次启动无需 Docker、Jav
 - [ ] **Step 9: 提交**
 
 ```bash
-git add src src-tauri docs/user/mac-installation.md
+git add src src-tauri docs/install-mac.md
 git commit -m "feat: package the macOS local prototype"
 ```
 
