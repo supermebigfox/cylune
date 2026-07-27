@@ -41,15 +41,15 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 - (void)pulse;
 @end
 
-@interface BPPetInteractionView : NSView
+@interface BPCoreHitTargetView : NSView
 @property(nonatomic, weak) BPPetHost *petHost;
 @end
 
 @interface BPPetHost : NSObject
 @property(nonatomic, strong) BPPetPanel *panel;
-@property(nonatomic, strong) BPPetPanel *interactionPanel;
+@property(nonatomic, strong) BPPetPanel *coreHitTargetPanel;
 @property(nonatomic, strong) BPPetView *petView;
-@property(nonatomic, strong) BPPetInteractionView *interactionView;
+@property(nonatomic, strong) BPCoreHitTargetView *coreHitTargetView;
 @property(nonatomic, assign) BOOL gestureActive;
 @property(nonatomic, assign) NSPoint gestureMouseOrigin;
 @property(nonatomic, assign) NSPoint gesturePanelOrigin;
@@ -62,7 +62,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 - (void)beginGestureAt:(NSPoint)screenPoint;
 - (void)continueGestureAt:(NSPoint)screenPoint;
 - (void)endGesture;
-- (void)syncInteractionFrame;
+- (void)syncCoreHitTargetFrame;
 - (void)shutdown;
 @end
 
@@ -143,19 +143,39 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 - (void)layout {
   [super layout];
   const CGRect bounds = self.bounds;
-  const CGFloat ringWidth = MAX(3.0, CGRectGetWidth(bounds) * 0.035);
-  const CGFloat inset = ringWidth * 1.6;
-  const CGRect diskFrame = CGRectInset(bounds, inset, inset);
+  const CGFloat effectDiameter =
+      MIN(CGRectGetWidth(bounds), CGRectGetHeight(bounds));
+  const PetEventHorizonGeometry geometry =
+      PetEventHorizonGeometryForEffectDiameter(effectDiameter);
+  const CGFloat ringWidth = MAX(3.0, effectDiameter * 0.035);
+  const CGRect effectFrame =
+      CGRectMake(CGRectGetMidX(bounds) -
+                     geometry.decorative_effect_diameter / 2.0,
+                 CGRectGetMidY(bounds) -
+                     geometry.decorative_effect_diameter / 2.0,
+                 geometry.decorative_effect_diameter,
+                 geometry.decorative_effect_diameter);
+  const CGRect eventHorizonFrame =
+      CGRectMake(CGRectGetMidX(bounds) -
+                     geometry.event_horizon_diameter / 2.0,
+                 CGRectGetMidY(bounds) -
+                     geometry.event_horizon_diameter / 2.0,
+                 geometry.event_horizon_diameter,
+                 geometry.event_horizon_diameter);
 
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
-  _diskLayer.frame = diskFrame;
-  _diskLayer.cornerRadius = CGRectGetWidth(diskFrame) / 2.0;
+  _diskLayer.frame = eventHorizonFrame;
+  _diskLayer.cornerRadius =
+      geometry.event_horizon_diameter / 2.0;
   _ringLayer.frame = bounds;
   _ringMask.frame = bounds;
   _ringMask.lineWidth = ringWidth;
+  // The full-size lens/accretion ring is decorative and click-through. The
+  // smaller black event horizon is the visible drop/drag target.
   CGPathRef ringPath =
-      CGPathCreateWithEllipseInRect(CGRectInset(bounds, inset, inset), nullptr);
+      CGPathCreateWithEllipseInRect(
+          CGRectInset(effectFrame, ringWidth / 2.0, ringWidth / 2.0), nullptr);
   _ringMask.path = ringPath;
   CGPathRelease(ringPath);
   [CATransaction commit];
@@ -193,9 +213,9 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   }
 
   CABasicAnimation *pulse =
-      [CABasicAnimation animationWithKeyPath:@"transform.scale"];
-  pulse.fromValue = @0.96;
-  pulse.toValue = @1.02;
+      [CABasicAnimation animationWithKeyPath:@"opacity"];
+  pulse.fromValue = @0.82;
+  pulse.toValue = @1.0;
   pulse.duration = 1.35;
   pulse.autoreverses = YES;
   pulse.repeatCount = HUGE_VALF;
@@ -226,7 +246,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
 
 @end
 
-@implementation BPPetInteractionView
+@implementation BPCoreHitTargetView
 
 - (void)mouseDown:(NSEvent *)event {
   (void)event;
@@ -268,6 +288,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
     _panel.hidesOnDeactivate = NO;
     _panel.releasedWhenClosed = NO;
     _panel.restorable = NO;
+    // The lens/accretion effect never participates in hit testing.
     _panel.ignoresMouseEvents = YES;
     _panel.collectionBehavior =
         NSWindowCollectionBehaviorCanJoinAllSpaces |
@@ -277,34 +298,36 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
     _petView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _panel.contentView = _petView;
 
-    const CGFloat interactionSide = (CGFloat)PetInteractionSide(220.0);
-    const NSRect interactionFrame =
-        NSMakeRect(0.0, 0.0, interactionSide, interactionSide);
-    _interactionPanel = [[BPPetPanel alloc]
-        initWithContentRect:interactionFrame
+    const PetEventHorizonGeometry geometry =
+        PetEventHorizonGeometryForEffectDiameter(220.0);
+    const CGFloat coreHitTargetSide = (CGFloat)geometry.core_hit_target_side;
+    const NSRect coreHitTargetFrame =
+        NSMakeRect(0.0, 0.0, coreHitTargetSide, coreHitTargetSide);
+    _coreHitTargetPanel = [[BPPetPanel alloc]
+        initWithContentRect:coreHitTargetFrame
                   styleMask:(NSWindowStyleMaskBorderless |
                              NSWindowStyleMaskNonactivatingPanel)
                     backing:NSBackingStoreBuffered
                       defer:NO];
-    _interactionPanel.opaque = NO;
-    _interactionPanel.backgroundColor = NSColor.clearColor;
-    _interactionPanel.hasShadow = NO;
-    _interactionPanel.level = NSFloatingWindowLevel;
-    _interactionPanel.hidesOnDeactivate = NO;
-    _interactionPanel.releasedWhenClosed = NO;
-    _interactionPanel.restorable = NO;
-    _interactionPanel.ignoresMouseEvents = NO;
-    _interactionPanel.collectionBehavior =
+    _coreHitTargetPanel.opaque = NO;
+    _coreHitTargetPanel.backgroundColor = NSColor.clearColor;
+    _coreHitTargetPanel.hasShadow = NO;
+    _coreHitTargetPanel.level = NSFloatingWindowLevel;
+    _coreHitTargetPanel.hidesOnDeactivate = NO;
+    _coreHitTargetPanel.releasedWhenClosed = NO;
+    _coreHitTargetPanel.restorable = NO;
+    _coreHitTargetPanel.ignoresMouseEvents = NO;
+    _coreHitTargetPanel.collectionBehavior =
         NSWindowCollectionBehaviorCanJoinAllSpaces |
         NSWindowCollectionBehaviorFullScreenAuxiliary;
 
-    _interactionView =
-        [[BPPetInteractionView alloc] initWithFrame:interactionFrame];
-    _interactionView.autoresizingMask =
+    _coreHitTargetView =
+        [[BPCoreHitTargetView alloc] initWithFrame:coreHitTargetFrame];
+    _coreHitTargetView.autoresizingMask =
         NSViewWidthSizable | NSViewHeightSizable;
-    _interactionView.petHost = self;
-    _interactionPanel.contentView = _interactionView;
-    [_panel addChildWindow:_interactionPanel ordered:NSWindowAbove];
+    _coreHitTargetView.petHost = self;
+    _coreHitTargetPanel.contentView = _coreHitTargetView;
+    [_panel addChildWindow:_coreHitTargetPanel ordered:NSWindowAbove];
     [self reset];
   }
   return self;
@@ -317,7 +340,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   const NSRect frame =
       NSMakeRect(center.x - size / 2.0, center.y - size / 2.0, size, size);
   [self.panel setFrame:frame display:YES animate:NO];
-  [self syncInteractionFrame];
+  [self syncCoreHitTargetFrame];
   [self.petView setReduceMotion:config.reduce_motion != 0];
 
   if (config.visible != 0) {
@@ -332,17 +355,17 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
     return;
   }
   _windowLifecycle.show();
-  [self syncInteractionFrame];
+  [self syncCoreHitTargetFrame];
   [self.petView setAnimating:YES];
   [self.panel orderFrontRegardless];
-  [self.interactionPanel orderFrontRegardless];
+  [self.coreHitTargetPanel orderFrontRegardless];
 }
 
 - (void)hide {
   self.gestureActive = NO;
   _windowLifecycle.hide();
   [self.petView setAnimating:NO];
-  [self.interactionPanel orderOut:nil];
+  [self.coreHitTargetPanel orderOut:nil];
   [self.panel orderOut:nil];
 }
 
@@ -357,7 +380,7 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
       NSMakePoint(NSMidX(visibleFrame) - NSWidth(frame) / 2.0,
                   NSMidY(visibleFrame) - NSHeight(frame) / 2.0);
   [self.panel setFrame:frame display:NO];
-  [self syncInteractionFrame];
+  [self syncCoreHitTargetFrame];
 }
 
 - (void)signal:(uint32_t)signal {
@@ -381,34 +404,35 @@ static_assert(offsetof(PetConfig, reduce_motion) == 28,
   [self.panel
       setFrameOrigin:NSMakePoint(self.gesturePanelOrigin.x + delta.x,
                                  self.gesturePanelOrigin.y + delta.y)];
-  [self syncInteractionFrame];
+  [self syncCoreHitTargetFrame];
 }
 
 - (void)endGesture {
   self.gestureActive = NO;
 }
 
-- (void)syncInteractionFrame {
+- (void)syncCoreHitTargetFrame {
   const NSRect visualFrame = self.panel.frame;
-  const CGFloat side =
-      (CGFloat)PetInteractionSide(NSWidth(visualFrame));
-  const NSRect interactionFrame =
+  const PetEventHorizonGeometry geometry =
+      PetEventHorizonGeometryForEffectDiameter(NSWidth(visualFrame));
+  const CGFloat side = (CGFloat)geometry.core_hit_target_side;
+  const NSRect coreHitTargetFrame =
       NSMakeRect(NSMidX(visualFrame) - side / 2.0,
                  NSMidY(visualFrame) - side / 2.0, side, side);
-  [self.interactionPanel setFrame:interactionFrame display:NO];
+  [self.coreHitTargetPanel setFrame:coreHitTargetFrame display:NO];
 }
 
 - (void)shutdown {
   [self hide];
   _windowLifecycle.destroy();
-  self.interactionView.petHost = nil;
-  [self.panel removeChildWindow:self.interactionPanel];
-  [self.interactionPanel close];
-  self.interactionPanel.contentView = nil;
+  self.coreHitTargetView.petHost = nil;
+  [self.panel removeChildWindow:self.coreHitTargetPanel];
+  [self.coreHitTargetPanel close];
+  self.coreHitTargetPanel.contentView = nil;
   [self.panel close];
   self.panel.contentView = nil;
-  self.interactionView = nil;
-  self.interactionPanel = nil;
+  self.coreHitTargetView = nil;
+  self.coreHitTargetPanel = nil;
   self.petView = nil;
   self.panel = nil;
   _callback = nullptr;
