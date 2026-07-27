@@ -78,6 +78,7 @@ pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
             let previous = positions.insert(current_tool, position).unwrap_or(0.0);
             position - previous
         } else {
+            *positions.entry(current_tool).or_insert(0.0) += position;
             position
         };
         if extruded > 0.0 {
@@ -167,6 +168,15 @@ mod tests {
         let report = parse_gcode(&src[..]).unwrap();
 
         assert_eq!(report.totals_mm[&0], 7.0);
+    }
+
+    #[test]
+    fn advances_the_absolute_position_during_relative_extrusion() {
+        let src = b"M82\nG1 E10\nM83\nG1 E3\nM82\nG1 E15\n";
+
+        let report = parse_gcode(&src[..]).unwrap();
+
+        assert_eq!(report.totals_mm[&0], 15.0);
     }
 
     #[test]
