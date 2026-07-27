@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
 import zhTW from "./locales/zh-TW.json";
@@ -104,6 +105,9 @@ export async function setLocale(locale: SupportedLocale): Promise<void> {
   persistLocale(locale);
   syncDocumentLocale(locale);
   listeners.forEach((listener) => listener());
+  if ("__TAURI_INTERNALS__" in globalThis) {
+    void invoke("set_native_locale",{locale}).catch(()=>undefined);
+  }
 }
 
 export function useLocale(): SupportedLocale {

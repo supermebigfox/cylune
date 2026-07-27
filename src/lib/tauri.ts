@@ -118,8 +118,16 @@ export interface TauriApi {
   importPrintFile(path: string): Promise<ImportPreview>;
   confirmJobMapping(jobId: string, mappings: ToolMapping[]): Promise<void>;
   confirmNewPrint(sourceHash: string): Promise<ImportPreview>;
+  getJobPreview?(jobId: string): Promise<ImportPreview>;
   settleJob(jobId: string, outcome: JobOutcome): Promise<SettlementResult>;
   reverseSettlement(jobId: string): Promise<ReversalResult>;
+  exportBackup?(path: string): Promise<string>;
+  importBackup?(path: string): Promise<string>;
+  setWatchFolder?(path: string | null): Promise<string | null>;
+  getWatchFolder?(): Promise<string | null>;
+  openMain?(): Promise<void>;
+  openJobInMain?(jobId: string): Promise<void>;
+  takePendingJob?(): Promise<string | null>;
 }
 
 export const demoSpools: Spool[] = [
@@ -244,8 +252,16 @@ function commandApi(invoke: Invoke): TauriApi {
     importPrintFile: (path) => call<ImportPreview>("import_print_file", { path }),
     confirmJobMapping: (jobId, mappings) => call<void>("confirm_job_mapping", { jobId, mappings }),
     confirmNewPrint: (sourceHash) => call<ImportPreview>("confirm_new_print", { sourceHash }),
+    getJobPreview: (jobId) => call<ImportPreview>("get_job_preview", { jobId }),
     settleJob: (jobId, outcome) => call<SettlementResult>("settle_job", { jobId, outcome }),
     reverseSettlement: (jobId) => call<ReversalResult>("reverse_settlement", { jobId }),
+    exportBackup: (path) => call<string>("export_backup", { path }),
+    importBackup: (path) => call<string>("import_backup", { path }),
+    setWatchFolder: (path) => call<string | null>("set_watch_folder", { path }),
+    getWatchFolder: () => call<string | null>("get_watch_folder"),
+    openMain: () => call<void>("open_main"),
+    openJobInMain: (jobId) => call<void>("open_job_in_main", { jobId }),
+    takePendingJob: () => call<string | null>("take_pending_job"),
   };
 }
 

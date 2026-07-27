@@ -167,6 +167,16 @@
     "localPrivacy": "列印檔案始終留在這台 Mac。",
     "network": "網路要求",
     "offline": "完全離線"
+    ,"enable": "啟用",
+    "change": "更換資料夾",
+    "disable": "停用",
+    "watchEnabled": "已開始監測所選資料夾",
+    "watchDisabled": "已停止自動匯入",
+    "localNotifications": "本機通知",
+    "export": "匯出備份",
+    "restore": "還原備份",
+    "backupDone": "備份已安全匯出",
+    "restoreDone": "資料已還原，還原前備份也已建立"
   },
   "notifications": {
     "imported": "列印檔案已匯入",
@@ -189,9 +199,15 @@
     "slot_conflict": "這個槽位或耗材卷已被佔用",
     "unsliced_project": "這個專案尚未切片",
     "unknown_gcode": "沒有找到可計算的擠出資料"
+    ,"standalone_gcode_profiles_required": "這個 G-code 沒有耗材設定，請從 Bambu Studio 匯出 .gcode.3mf，庫存尚未扣減。"
   },
   "tray": {
     "drop": "拖入 .gcode.3mf",
+    "dropTitle": "放下切片檔案",
+    "dropHint": "支援 .gcode.3mf、已切片 .3mf 與 .gcode",
+    "unsupported": "不支援 {{name}}",
+    "gcodeNeedsProfile": "這個 G-code 缺少耗材設定，請匯出 .gcode.3mf 後再試，庫存尚未扣減。",
+    "bind": "查看並綁定耗材卷",
     "open": "開啟耗材管家",
     "recent": "查看最近任務",
     "quickImport": "快速匯入切片檔案",

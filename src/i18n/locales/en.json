@@ -167,6 +167,16 @@
     "localPrivacy": "Your print files never leave this Mac.",
     "network": "Network requirement",
     "offline": "Fully offline"
+    ,"enable": "Enable",
+    "change": "Change folder",
+    "disable": "Disable",
+    "watchEnabled": "The selected folder is now being watched",
+    "watchDisabled": "Automatic import is disabled",
+    "localNotifications": "Local notifications",
+    "export": "Export backup",
+    "restore": "Restore backup",
+    "backupDone": "Backup exported safely",
+    "restoreDone": "Data restored and a pre-restore backup was created"
   },
   "notifications": {
     "imported": "Print file imported",
@@ -189,9 +199,15 @@
     "slot_conflict": "That slot or spool is already in use",
     "unsliced_project": "This project has not been sliced",
     "unknown_gcode": "No measurable extrusion data was found"
+    ,"standalone_gcode_profiles_required": "This G-code has no filament profile. Export .gcode.3mf from Bambu Studio; inventory was not changed."
   },
   "tray": {
     "drop": "Drop .gcode.3mf",
+    "dropTitle": "Drop a sliced file",
+    "dropHint": "Accepts .gcode.3mf, sliced .3mf, and .gcode",
+    "unsupported": "Unsupported: {{name}}",
+    "gcodeNeedsProfile": "This G-code has no filament profiles. Export .gcode.3mf and try again; inventory was not changed.",
+    "bind": "View and bind spools",
     "open": "Open Spool Keeper",
     "recent": "View recent jobs",
     "quickImport": "Quick import sliced file",

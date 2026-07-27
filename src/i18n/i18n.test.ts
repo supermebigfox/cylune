@@ -23,6 +23,7 @@ const stableErrorCodes = [
   "invalid_slot",
   "io",
   "slot_conflict",
+  "standalone_gcode_profiles_required",
   "unknown_gcode",
   "unsliced_project",
 ];

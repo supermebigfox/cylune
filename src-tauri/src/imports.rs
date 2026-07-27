@@ -206,6 +206,18 @@ mod tests {
     }
 
     #[test]
+    fn pending_job_can_be_reopened_by_id_without_source_file_access() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let imported = service
+            .import_print_file(&fixture("bambu_multicolor.3mf"))
+            .unwrap();
+        let reopened = service.get_job_preview(imported.job_id).unwrap();
+        assert_eq!(reopened.job_id, imported.job_id);
+        assert_eq!(reopened.filaments, imported.filaments);
+    }
+
+    #[test]
     fn confirmed_mappings_capture_current_slot_numbers() {
         let database = AppDatabase::open_in_memory().unwrap();
         let mut inventory = InventoryService::new(database);
@@ -255,6 +267,17 @@ mod tests {
             size: 124,
             modified_nanos: 456,
         }));
+    }
+
+    #[test]
+    fn standalone_gcode_without_profiles_never_creates_a_job() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let error = service
+            .import_print_file(&fixture("single_color.gcode"))
+            .unwrap_err();
+        assert_eq!(error.code(), "standalone_gcode_profiles_required");
+        assert_eq!(service.job_count("unused").unwrap(), 0);
     }
 
     #[test]
@@ -393,6 +416,13 @@ impl PrintService {
     }
 
     pub fn import_print_file(&mut self, path: &Path) -> Result<ImportPreview> {
+        if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("gcode"))
+        {
+            return Err(AppError::StandaloneGcodeProfilesRequired);
+        }
         self.ensure_stable(path)?;
         let source_hash = sha256(path)?;
 
@@ -471,6 +501,33 @@ impl PrintService {
                 |row| row.get(0),
             )
             .map_err(Into::into)
+    }
+
+    pub fn get_job_preview(&self, job_id: Uuid) -> Result<ImportPreview> {
+        let (source_hash, source_file_name, outcome): (String, String, Option<String>) = self
+            .database
+            .connection
+            .query_row(
+                "SELECT source_hash,source_file_name,outcome FROM print_jobs WHERE job_id=?1",
+                params![job_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?
+            .ok_or(AppError::InvalidJob)?;
+        let (_, parsed) = self
+            .persisted_parse(&source_hash)?
+            .ok_or(AppError::InvalidJob)?;
+        self.preview(
+            job_id,
+            source_hash,
+            source_file_name,
+            &parsed,
+            if outcome.is_none() {
+                ImportState::ExistingPending
+            } else {
+                ImportState::NewPrintConfirmationRequired
+            },
+        )
     }
 
     pub fn confirm_new_print(&mut self, source_hash: &str) -> Result<ImportPreview> {
@@ -785,4 +842,12 @@ pub fn confirm_new_print(
     state: tauri::State<'_, PrintState>,
 ) -> Result<ImportPreview> {
     with_print(state, |service| service.confirm_new_print(&source_hash))
+}
+
+#[tauri::command]
+pub fn get_job_preview(job_id: Uuid, state: tauri::State<'_, PrintState>) -> Result<ImportPreview> {
+    state
+        .lock()
+        .map_err(|_| AppError::Database("print lock poisoned".into()))?
+        .get_job_preview(job_id)
 }

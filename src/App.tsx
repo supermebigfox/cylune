@@ -9,6 +9,7 @@ import { t, useLocale } from "./i18n";
 import { pickSliced3mf } from "./lib/dialog";
 import { api, demoPreview, demoSlots, demoSpools, type ImportPreview, type JobOutcome, type NewSpool, type SettlementResult, type SlotAssignment, type SlotView, type Spool as SpoolData, type TauriApi, type ToolMapping } from "./lib/tauri";
 import { Theme } from "./theme/Theme";
+import { listen } from "@tauri-apps/api/event";
 
 type Page = "home" | "spools" | "jobs" | "settings";
 
@@ -16,6 +17,7 @@ const stableErrorCodes = new Set([
   "archived_spool", "database", "duplicate_job", "file_not_stable",
   "insufficient_filament", "invalid_file", "invalid_job", "invalid_mapping",
   "invalid_slot", "io", "slot_conflict", "unknown_gcode", "unsliced_project",
+  "standalone_gcode_profiles_required",
 ]);
 
 function errorCode(error: unknown) {
@@ -62,6 +64,14 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf }: {
     finally { setLoading(false); }
   };
   useEffect(() => { if (apiClient.mode === "tauri") void refresh(); }, []);
+  useEffect(()=>{
+    if(apiClient.mode!=="tauri"||!apiClient.getJobPreview)return;
+    let disposed=false;let unlisten:(()=>void)|undefined;
+    const openJob=async(jobId:string)=>{try{const next=await apiClient.getJobPreview!(jobId);if(!disposed){setPreview(next);setSettled(false);setResult(null);setPage("jobs");}}catch{if(!disposed)setError(copy("errors.invalid_job"));}};
+    void apiClient.takePendingJob?.().then((jobId)=>{if(jobId)void openJob(jobId)});
+    void listen<string>("open-job",(event)=>void openJob(event.payload)).then((stop)=>{if(disposed)stop();else unlisten=stop});
+    return()=>{disposed=true;unlisten?.();};
+  },[apiClient]);
 
   const slots = useMemo<SlotView[]>(() => {
     return slotAssignments.map((slot) => ({ ...slot, spool: spools.find((spool) => spool.spool_id === slot.spool_id) ?? null }));
@@ -130,7 +140,7 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf }: {
       {page === "home" ? <Home slots={slots} spools={spools} pendingJobs={preview && !settled ? 1 : 0} busy={busy} importing={busyAction === "import"} onImport={openImport} /> : null}
       {page === "spools" ? <Spools spools={spools} slotBySpool={slotBySpool} busy={busy} onCreate={actions.create} onCalibrate={actions.calibrate} onArchive={actions.archive} onMount={actions.mount} onUnmount={actions.unmount} onMove={actions.move} /> : null}
       {page === "jobs" ? <Job preview={preview} spools={spools} settled={settled} result={result} busy={busy} onConfirmMapping={actions.map} onSettle={actions.settle} onConfirmNewPrint={actions.repeat} onReverse={actions.reverse} /> : null}
-      {page === "settings" ? <Settings /> : null}
+      {page === "settings" ? <Settings apiClient={apiClient} onRestored={refresh} /> : null}
     </main>
   </div>;
 }
