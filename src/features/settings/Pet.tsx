@@ -22,8 +22,9 @@ export function Pet({ apiClient = api }: { apiClient?: TauriApi }) {
   useEffect(() => {
     if (apiClient.mode === "demo") return;
     let active = true;
+    const loadVersion = changeVersion.current;
     void apiClient.getPetSettings?.().then((value) => {
-      if (!active) return;
+      if (!active || changeVersion.current !== loadVersion) return;
       confirmed.current = value;
       current.current = value;
       setSettings(value);

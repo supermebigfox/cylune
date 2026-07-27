@@ -72,6 +72,26 @@ it("serializes rapid changes before starting the next server write", async () =>
   await waitFor(() => expect(api.setPetSettings).toHaveBeenLastCalledWith({ fps: "fps60" }));
 });
 
+it("ignores a stale initial load after a newer save", async () => {
+  let resolveLoad!: (value: PetSettings) => void;
+  const api = petApi({});
+  api.getPetSettings = vi.fn(() => new Promise<PetSettings>((resolve) => {
+    resolveLoad = resolve;
+  }));
+  api.setPetSettings = vi.fn(async (patch) => ({ ...defaultPet, ...patch }));
+  renderPet(api);
+  await screen.findByRole("heading", { name: "Desktop black hole" });
+  await waitFor(() => expect(api.getPetSettings).toHaveBeenCalledTimes(1));
+
+  fireEvent.click(screen.getByRole("button", { name: "Hide black hole" }));
+  await waitFor(() => expect(api.setPetSettings).toHaveBeenLastCalledWith({ visible: false }));
+  resolveLoad(defaultPet);
+
+  expect(await screen.findByRole("button", { name: "Show black hole" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Show black hole" }));
+  await waitFor(() => expect(api.setPetSettings).toHaveBeenLastCalledWith({ visible: true }));
+});
+
 it("rolls back optimistic changes and shows a localized error when saving fails", async () => {
   const api = petApi({ mode: "lite" });
   api.setPetSettings = vi.fn(async () => {
