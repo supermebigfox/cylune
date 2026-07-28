@@ -1055,6 +1055,48 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
+    fn approved_renderer_keeps_a_soft_premultiplied_feather() {
+        let input = [180_u8, 200, 220, 255]
+            .into_iter()
+            .cycle()
+            .take(256 * 256 * 4)
+            .collect::<Vec<_>>();
+        let output = super::test_render_with_options(
+            &input,
+            256,
+            256,
+            TestRenderOptions {
+                mode: TestRenderMode::Real,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .pixels;
+
+        let mut soft_feather_pixels = 0;
+        for pixel in output.chunks_exact(4) {
+            let alpha = pixel[3];
+            if (8..=160).contains(&alpha) {
+                soft_feather_pixels += 1;
+            }
+            if alpha > 0 && alpha < 255 {
+                assert!(
+                    pixel[..3]
+                        .iter()
+                        .all(|&channel| channel <= alpha.saturating_add(2)),
+                    "renderer emitted non-premultiplied RGBA {pixel:?}"
+                );
+            }
+        }
+
+        assert!(
+            soft_feather_pixels > 100,
+            "mask edge became an opaque lens: only {soft_feather_pixels} soft-feather pixels"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
     fn synthetic_capture_drives_distortion_in_the_annulus_outside_the_horizon() {
         let input = checkerboard_rgba(128, 128);
         let inverted = input

@@ -876,7 +876,9 @@ static PetRendererBackend ProductionRendererBackend() {
   uniforms.success_progress = animation.success_progress;
   uniforms.error_progress =
       MAX(animation.error_progress, drop.error_progress);
-  uniforms.pending_count = _visualState.pending_count();
+  // Pending jobs stay visible in the main app. The desktop black hole mirrors
+  // the upstream renderer and must not spawn unrelated orbiting markers.
+  uniforms.pending_count = 0u;
   uniforms.mode =
       PetEffectiveRenderMode(_mode, surface != nullptr);
   uniforms.drop_phase = (uint32_t)drop.phase;

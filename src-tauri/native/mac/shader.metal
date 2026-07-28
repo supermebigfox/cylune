@@ -1091,6 +1091,7 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
   }
   float3 color = approved.rgb;
   float alpha = approved.a;
+  float3 premultiplied_color = color * alpha;
 
   if (uniforms.drop_phase == 3u &&
       uniforms.reduce_motion == 0u &&
@@ -1098,6 +1099,7 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
     const float3 before = color;
     color = absorption_jet_overlay(color, p, uniforms);
     const float3 addition = max(color - before, float3(0.0f));
+    premultiplied_color += addition;
     alpha = max(alpha, max(addition.r,
                            max(addition.g, addition.b)));
   }
@@ -1106,6 +1108,7 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
     const float3 before = color;
     color = impact_afterglow_overlay(color, p, uniforms);
     const float3 addition = max(color - before, float3(0.0f));
+    premultiplied_color += addition;
     alpha = max(alpha, max(addition.r,
                            max(addition.g, addition.b)));
   }
@@ -1127,6 +1130,7 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
     const float3 addition =
         float3(0.16f, 1.0f, 0.43f) * pulse * 1.4f;
     color += addition;
+    premultiplied_color += addition;
     alpha = max(alpha,
                 max(pulse, max(addition.r,
                                max(addition.g, addition.b))));
@@ -1147,19 +1151,21 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
     const float3 addition =
         float3(1.0f, 0.07f, 0.10f) * ripple * 1.5f;
     color += addition;
+    premultiplied_color += addition;
     alpha = max(alpha,
                 max(ripple, max(addition.r,
                                 max(addition.g, addition.b))));
   }
 
   const float4 card = procedural_file_card(p, uniforms);
-  color = card.rgb + color * (1.0f - card.a);
+  premultiplied_color =
+      card.rgb + premultiplied_color * (1.0f - card.a);
   alpha = card.a + alpha * (1.0f - card.a);
 
-  color = clamp(color, float3(0.0f), float3(1.0f));
-  alpha = clamp(max(alpha, max(color.r, max(color.g, color.b))),
-                0.0f, 1.0f);
-  return float4(color, alpha);
+  premultiplied_color =
+      clamp(premultiplied_color, float3(0.0f), float3(1.0f));
+  alpha = clamp(alpha, 0.0f, 1.0f);
+  return float4(premultiplied_color, alpha);
 }
 
 vertex PetPendingVertexOutput pet_pending_vertex(
