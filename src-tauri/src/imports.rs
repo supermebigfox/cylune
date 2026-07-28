@@ -269,6 +269,84 @@ mod tests {
         }));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn file_stability_rejects_links_and_non_files() {
+        use std::os::unix::fs::symlink;
+        let directory =
+            std::env::temp_dir().join(format!("bambu-pools-stability-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let file = directory.join("source.3mf");
+        let link = directory.join("link.3mf");
+        fs::write(&file, b"fixture").unwrap();
+        symlink(&file, &link).unwrap();
+
+        assert_eq!(
+            FileStability::read(&link).unwrap_err().code(),
+            "invalid_file"
+        );
+        assert_eq!(
+            FileStability::read(&directory).unwrap_err().code(),
+            "invalid_file"
+        );
+
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn changed_file_is_rejected_before_new_parse_or_job_persistence() {
+        let path = std::env::temp_dir().join(format!(
+            "bambu-pools-changing-new-{}.3mf",
+            uuid::Uuid::new_v4()
+        ));
+        fs::copy(fixture("bambu_multicolor.3mf"), &path).unwrap();
+        let original_hash = super::sha256(&path).unwrap();
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        service.before_final_stability_check = Some(Box::new(|path| {
+            fs::OpenOptions::new()
+                .append(true)
+                .open(path)
+                .unwrap()
+                .write_all(b"changed")
+                .unwrap();
+        }));
+
+        let error = service.import_print_file(&path).unwrap_err();
+
+        assert_eq!(error.code(), "file_not_stable");
+        assert_eq!(service.parse_result_count(&original_hash).unwrap(), 0);
+        assert_eq!(service.job_count(&original_hash).unwrap(), 0);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn changed_cached_file_is_rejected_before_returning_a_preview() {
+        let path = std::env::temp_dir().join(format!(
+            "bambu-pools-changing-cached-{}.3mf",
+            uuid::Uuid::new_v4()
+        ));
+        fs::copy(fixture("bambu_multicolor.3mf"), &path).unwrap();
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let first = service.import_print_file(&path).unwrap();
+        service.before_final_stability_check = Some(Box::new(|path| {
+            fs::OpenOptions::new()
+                .append(true)
+                .open(path)
+                .unwrap()
+                .write_all(b"changed")
+                .unwrap();
+        }));
+
+        let error = service.import_print_file(&path).unwrap_err();
+
+        assert_eq!(error.code(), "file_not_stable");
+        assert_eq!(service.parse_result_count(&first.source_hash).unwrap(), 1);
+        assert_eq!(service.job_count(&first.source_hash).unwrap(), 1);
+        fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn standalone_gcode_without_profiles_never_creates_a_job() {
         let database = AppDatabase::open_in_memory().unwrap();
@@ -338,7 +416,10 @@ pub struct FileStability {
 
 impl FileStability {
     fn read(path: &Path) -> Result<Self> {
-        let metadata = fs::metadata(path)?;
+        let metadata = fs::symlink_metadata(path)?;
+        if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+            return Err(AppError::InvalidFile);
+        }
         let modified_nanos = metadata
             .modified()?
             .duration_since(UNIX_EPOCH)
@@ -405,6 +486,8 @@ pub struct SavedMapping {
 pub struct PrintService {
     pub(crate) database: AppDatabase,
     stability_delay: Duration,
+    #[cfg(test)]
+    before_final_stability_check: Option<Box<dyn FnOnce(&Path) + Send>>,
 }
 
 pub type PrintState = Mutex<PrintService>;
@@ -418,6 +501,8 @@ impl PrintService {
         Self {
             database,
             stability_delay,
+            #[cfg(test)]
+            before_final_stability_check: None,
         }
     }
 
@@ -429,28 +514,36 @@ impl PrintService {
         {
             return Err(AppError::StandaloneGcodeProfilesRequired);
         }
-        self.ensure_stable(path)?;
+        let stability = self.ensure_stable(path)?;
         let source_hash = sha256(path)?;
 
         if let Some((file_name, parsed)) = self.persisted_parse(&source_hash)? {
             validate_profiles(&parsed)?;
             if let Some(job_id) = self.pending_job(&source_hash)? {
-                return self.preview(
+                let preview = self.preview(
                     job_id,
                     source_hash,
                     file_name,
                     &parsed,
                     ImportState::ExistingPending,
-                );
+                )?;
+                #[cfg(test)]
+                self.run_before_final_stability_check(path);
+                self.ensure_unchanged(path, stability)?;
+                return Ok(preview);
             }
             if let Some(job_id) = self.latest_job(&source_hash)? {
-                return self.preview(
+                let preview = self.preview(
                     job_id,
                     source_hash,
                     file_name,
                     &parsed,
                     ImportState::NewPrintConfirmationRequired,
-                );
+                )?;
+                #[cfg(test)]
+                self.run_before_final_stability_check(path);
+                self.ensure_unchanged(path, stability)?;
+                return Ok(preview);
             }
         }
 
@@ -465,6 +558,9 @@ impl PrintService {
             .to_owned();
         let parsed_json = serde_json::to_string(&parsed)
             .map_err(|error| AppError::Database(error.to_string()))?;
+        #[cfg(test)]
+        self.run_before_final_stability_check(path);
+        self.ensure_unchanged(path, stability)?;
         let transaction = self.database.connection.transaction()?;
         transaction.execute(
             "INSERT INTO parse_cache (source_hash, source_file_name, parsed_json, parse_count) VALUES (?1, ?2, ?3, 1)",
@@ -687,14 +783,30 @@ impl PrintService {
         serde_json::from_str(&json).map_err(|error| AppError::Database(error.to_string()))
     }
 
-    fn ensure_stable(&self, path: &Path) -> Result<()> {
+    fn ensure_stable(&self, path: &Path) -> Result<FileStability> {
         let first = FileStability::read(path)?;
         thread::sleep(self.stability_delay);
-        let second = FileStability::read(path)?;
+        let second = FileStability::read(path).map_err(|_| AppError::FileNotStable)?;
         if first.is_same_as(&second) {
+            Ok(first)
+        } else {
+            Err(AppError::FileNotStable)
+        }
+    }
+
+    fn ensure_unchanged(&self, path: &Path, expected: FileStability) -> Result<()> {
+        let current = FileStability::read(path).map_err(|_| AppError::FileNotStable)?;
+        if expected.is_same_as(&current) {
             Ok(())
         } else {
             Err(AppError::FileNotStable)
+        }
+    }
+
+    #[cfg(test)]
+    fn run_before_final_stability_check(&mut self, path: &Path) {
+        if let Some(hook) = self.before_final_stability_check.take() {
+            hook(path);
         }
     }
 

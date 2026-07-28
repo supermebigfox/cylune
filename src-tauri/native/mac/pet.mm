@@ -11,6 +11,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <sys/stat.h>
 #include <atomic>
 #include <vector>
 
@@ -34,6 +35,11 @@ static const CGFloat kPetMinimumSize = 120.0;
 static const CGFloat kPetMaximumSize = 900.0;
 static const CGFloat kPetDragThreshold = 4.0;
 static const CGFloat kPetSafeInset = 16.0;
+
+typedef struct {
+  BOOL valid;
+  uint32_t fileKind;
+} BPDropCandidateKind;
 
 static_assert(sizeof(PetConfig) == 64, "PetConfig ABI size changed");
 static_assert(alignof(PetConfig) == 8, "PetConfig ABI alignment changed");
@@ -571,6 +577,9 @@ static PetRendererBackend ProductionRendererBackend() {
 
 - (BOOL)finishImport:(uint64_t)generation result:(uint32_t)result {
   const CFTimeInterval now = CACurrentMediaTime();
+  if (!_dropState.can_finish(generation, result, now)) {
+    return NO;
+  }
   const PetDropSnapshot waiting = _dropState.sample(now, false);
   if (!_dropState.finish(generation, result, now)) {
     return NO;
@@ -1084,6 +1093,7 @@ static PetRendererBackend ProductionRendererBackend() {
 
 @implementation BPCoreHitTargetView {
   BOOL _dragInsideCore;
+  PetDropSession _dropSession;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -1130,48 +1140,12 @@ static PetRendererBackend ProductionRendererBackend() {
   [self.petHost endGesture];
 }
 
-- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
-  const NSPoint point =
-      [self convertPoint:sender.draggingLocation fromView:nil];
-  if (![self pointInsideCore:point]) {
-    _dragInsideCore = NO;
-    return NSDragOperationNone;
+- (BPDropCandidateKind)dropCandidateFromPasteboard:
+                           (NSPasteboard *)pasteboard
+                                      path:(NSString **)pathOut {
+  if (pathOut != nullptr) {
+    *pathOut = nil;
   }
-  _dragInsideCore = YES;
-  [self.petHost dragEntered];
-  return NSDragOperationCopy;
-}
-
-- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
-  const NSPoint point =
-      [self convertPoint:sender.draggingLocation fromView:nil];
-  const BOOL insideCore = [self pointInsideCore:point];
-  if (insideCore != _dragInsideCore) {
-    _dragInsideCore = insideCore;
-    if (insideCore) {
-      [self.petHost dragEntered];
-    } else {
-      [self.petHost dragExited];
-    }
-  }
-  return insideCore ? NSDragOperationCopy : NSDragOperationNone;
-}
-
-- (void)draggingExited:(nullable id<NSDraggingInfo>)sender {
-  (void)sender;
-  if (_dragInsideCore) {
-    _dragInsideCore = NO;
-    [self.petHost dragExited];
-  }
-}
-
-- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
-  const NSPoint point =
-      [self convertPoint:sender.draggingLocation fromView:nil];
-  if (![self pointInsideCore:point]) {
-    return NO;
-  }
-  NSPasteboard *pasteboard = sender.draggingPasteboard;
   NSArray *urls = [pasteboard
       readObjectsForClasses:@[ NSURL.class ]
                     options:@{
@@ -1186,31 +1160,134 @@ static PetRendererBackend ProductionRendererBackend() {
     if (!url.fileURL || path == nil || !path.absolutePath) {
       continue;
     }
-    NSNumber *isRegularFile = nil;
-    if (![url getResourceValue:&isRegularFile
-                        forKey:NSURLIsRegularFileKey
-                         error:nil] ||
-        !isRegularFile.boolValue) {
+    const char *fileSystemPath = path.fileSystemRepresentation;
+    struct stat status = {};
+    if (fileSystemPath == nullptr || lstat(fileSystemPath, &status) != 0 ||
+        S_ISLNK(status.st_mode) || !S_ISREG(status.st_mode)) {
       continue;
     }
     NSString *lowercasePath = path.lowercaseString;
-    if (![lowercasePath hasSuffix:@".gcode.3mf"] &&
-        ![lowercasePath hasSuffix:@".3mf"] &&
-        ![lowercasePath hasSuffix:@".gcode"]) {
+    uint32_t fileKind = PET_FILE_NONE;
+    if ([lowercasePath hasSuffix:@".gcode.3mf"] ||
+        [lowercasePath hasSuffix:@".3mf"]) {
+      fileKind = PET_FILE_3MF;
+    } else if ([lowercasePath hasSuffix:@".gcode"]) {
+      fileKind = PET_FILE_GCODE;
+    } else {
       continue;
     }
-    if (self.callback != nullptr) {
-      self.callback(kPetCallbackFileDropped, path.fileSystemRepresentation,
-                    0.0, 0.0, 0);
+    if (pathOut != nullptr) {
+      *pathOut = path;
     }
-    return YES;
+    return {YES, fileKind};
   }
-  return NO;
+  return {NO, PET_FILE_NONE};
+}
+
+- (void)cancelDropSessionAndExit {
+  _dropSession.cancel();
+  if (_dragInsideCore) {
+    _dragInsideCore = NO;
+    [self.petHost dragExited];
+  }
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+  const NSPoint point =
+      [self convertPoint:sender.draggingLocation fromView:nil];
+  NSString *path = nil;
+  const BPDropCandidateKind candidate =
+      [self dropCandidateFromPasteboard:sender.draggingPasteboard
+                                   path:&path];
+  if (![self pointInsideCore:point] || !candidate.valid || path == nil) {
+    _dropSession.cancel();
+    _dragInsideCore = NO;
+    return NSDragOperationNone;
+  }
+  const uint64_t generation =
+      _dropSession.enter(path.fileSystemRepresentation, candidate.fileKind);
+  if (generation == 0) {
+    _dragInsideCore = NO;
+    return NSDragOperationNone;
+  }
+  _dragInsideCore = YES;
+  [self.petHost dragEntered];
+  return NSDragOperationCopy;
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
+  const NSPoint point =
+      [self convertPoint:sender.draggingLocation fromView:nil];
+  const BOOL insideCore = [self pointInsideCore:point];
+  NSString *path = nil;
+  const BPDropCandidateKind candidate =
+      [self dropCandidateFromPasteboard:sender.draggingPasteboard
+                                   path:&path];
+  const uint64_t generation = _dropSession.generation();
+  const BOOL matches =
+      candidate.valid && path != nil &&
+      candidate.fileKind == _dropSession.file_kind() &&
+      _dropSession.can_submit(generation, path.fileSystemRepresentation,
+                              insideCore);
+  if (!matches) {
+    [self cancelDropSessionAndExit];
+    return NSDragOperationNone;
+  }
+  return NSDragOperationCopy;
+}
+
+- (void)draggingExited:(nullable id<NSDraggingInfo>)sender {
+  (void)sender;
+  [self cancelDropSessionAndExit];
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+  const NSPoint point =
+      [self convertPoint:sender.draggingLocation fromView:nil];
+  const BOOL insideCore = [self pointInsideCore:point];
+  NSString *path = nil;
+  const BPDropCandidateKind candidate =
+      [self dropCandidateFromPasteboard:sender.draggingPasteboard
+                                   path:&path];
+  const uint64_t generation = _dropSession.generation();
+  if (!candidate.valid || path == nil ||
+      candidate.fileKind != _dropSession.file_kind() ||
+      !_dropSession.can_submit(generation, path.fileSystemRepresentation,
+                               insideCore) ||
+      self.callback == nullptr || self.window == nil ||
+      self.petHost.petView.window == nil) {
+    [self cancelDropSessionAndExit];
+    return NO;
+  }
+
+  const NSPoint hitWindowPoint = [self convertPoint:point toView:nil];
+  const NSPoint screenPoint =
+      [self.window convertPointToScreen:hitWindowPoint];
+  const NSPoint petWindowPoint =
+      [self.petHost.petView.window convertPointFromScreen:screenPoint];
+  const NSPoint petPoint =
+      [self.petHost.petView convertPoint:petWindowPoint fromView:nil];
+  if (![self.petHost.petView beginImportWait:generation
+                                      origin:petPoint
+                                    fileKind:candidate.fileKind]) {
+    [self cancelDropSessionAndExit];
+    return NO;
+  }
+  if (!_dropSession.submit(generation, path.fileSystemRepresentation,
+                           insideCore)) {
+    [self.petHost.petView cancelImport];
+    [self cancelDropSessionAndExit];
+    return NO;
+  }
+  self.callback(kPetCallbackFileDropped, path.fileSystemRepresentation,
+                0.0, 0.0, generation);
+  return YES;
 }
 
 - (void)concludeDragOperation:(nullable id<NSDraggingInfo>)sender {
   (void)sender;
   _dragInsideCore = NO;
+  _dropSession.cancel();
   [self.petHost dropCompleted];
 }
 
@@ -1918,6 +1995,20 @@ extern "C" void pet_signal(void *handle, uint32_t signal) {
     if (!bridge.destroyed) {
       [bridge ensureHost];
       [bridge.host signal:signal];
+    }
+  });
+}
+
+extern "C" void pet_finish_drop(void *handle, uint64_t generation,
+                                 uint32_t result) {
+  if (handle == nullptr || generation == 0 ||
+      (result != PET_DROP_ACCEPTED && result != PET_DROP_REJECTED)) {
+    return;
+  }
+  BPPetBridge *bridge = (__bridge BPPetBridge *)handle;
+  RunOnMain(^{
+    if (!bridge.destroyed && bridge.host != nil) {
+      [bridge.host.petView finishImport:generation result:result];
     }
   });
 }

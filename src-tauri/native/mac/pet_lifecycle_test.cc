@@ -690,6 +690,19 @@ static void frame_dispatch_gate_is_initialized_before_the_first_callback() {
   assert(!gate.try_enqueue());
 }
 
+static void a_drop_session_requires_the_same_generation_path_and_core_point() {
+  PetDropSession session;
+  const uint64_t generation =
+      session.enter("/tmp/first.gcode.3mf", PET_FILE_3MF);
+  assert(generation != 0);
+  assert(session.can_submit(generation, "/tmp/first.gcode.3mf", true));
+  assert(!session.can_submit(generation + 1, "/tmp/first.gcode.3mf", true));
+  assert(!session.can_submit(generation, "/tmp/second.gcode.3mf", true));
+  assert(!session.can_submit(generation, "/tmp/first.gcode.3mf", false));
+  assert(session.submit(generation, "/tmp/first.gcode.3mf", true));
+  assert(!session.submit(generation, "/tmp/first.gcode.3mf", true));
+}
+
 static void import_wait_never_crosses_before_acknowledgment() {
   PetDropState state;
   assert(state.begin_wait(7, {0.72f, 0.44f}, PET_FILE_3MF, 10.0));
@@ -916,6 +929,7 @@ int main() {
   renderer_create_failure_reports_once_after_host_binding();
   fatal_and_repeated_draw_failures_degrade_once_and_destroy();
   frame_dispatch_gate_is_initialized_before_the_first_callback();
+  a_drop_session_requires_the_same_generation_path_and_core_point();
   import_wait_never_crosses_before_acknowledgment();
   accepted_import_runs_the_complete_reference_timing();
   stale_ack_and_reduced_motion_are_bounded();

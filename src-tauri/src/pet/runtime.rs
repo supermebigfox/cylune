@@ -1,9 +1,10 @@
 use crate::{
     error::{AppError, Result},
     imports::{ImportState, PendingSummary, PrintService, PrintState},
+    pet::input::DropValidation,
     pet::native::{
-        NativeCaptureState, NativePet, NativePetError, NativeRendererState, NativeShutdownState,
-        PetCallbackKind, PetNativeConfig,
+        NativeCaptureState, NativeDropResult, NativePet, NativePetError, NativeRendererState,
+        NativeShutdownState, PetCallbackKind, PetNativeConfig,
     },
     pet::{CapturePermission, PetMode, PetSettings, PetSettingsPatch, PetStatus, PetStore},
     tray::persist_pending_job,
@@ -226,7 +227,7 @@ pub enum NativeEvent {
     Moved { x: f64, y: f64, display_id: u64 },
     DropEntered,
     DropExited,
-    FileDropped(PathBuf),
+    FileDropped { generation: u64, path: PathBuf },
     DisplayChanged { x: f64, y: f64, display_id: u64 },
     PermissionChanged(NativeCaptureState),
     CaptureFailed,
@@ -317,6 +318,7 @@ trait RuntimeNative: Send {
     fn hide(&self);
     fn reset(&self);
     fn signal(&self, signal: u32);
+    fn finish_drop(&self, generation: u64, result: NativeDropResult);
     fn shutdown(self: Box<Self>) -> NativeShutdownState;
 }
 
@@ -339,6 +341,10 @@ impl RuntimeNative for NativePet {
 
     fn signal(&self, signal: u32) {
         NativePet::signal(self, signal);
+    }
+
+    fn finish_drop(&self, generation: u64, result: NativeDropResult) {
+        NativePet::finish_drop(self, generation, result);
     }
 
     fn shutdown(self: Box<Self>) -> NativeShutdownState {
@@ -746,7 +752,9 @@ fn handle_native_event(
                 eprintln!("pet position failed: {}", error.code());
             }
         }
-        NativeEvent::FileDropped(path) => import_from_pet(app, state, &path),
+        NativeEvent::FileDropped { generation, path } => {
+            import_from_pet(app, state, generation, &path)
+        }
         // Enter/exit animations are applied synchronously by the native hit
         // target; consuming them here keeps business work off AppKit.
         NativeEvent::DropEntered | NativeEvent::DropExited => {}
@@ -771,6 +779,7 @@ fn handle_native_event(
 #[cfg(test)]
 struct RecordingRuntimeNative {
     configs: Arc<Mutex<Vec<PetNativeConfig>>>,
+    drop_results: Arc<Mutex<Vec<(u64, NativeDropResult)>>>,
     _identity: Arc<()>,
 }
 
@@ -789,6 +798,13 @@ impl RuntimeNative for RecordingRuntimeNative {
     fn reset(&self) {}
     fn signal(&self, _signal: u32) {}
 
+    fn finish_drop(&self, generation: u64, result: NativeDropResult) {
+        self.drop_results
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((generation, result));
+    }
+
     fn shutdown(self: Box<Self>) -> NativeShutdownState {
         NativeShutdownState::Complete
     }
@@ -799,8 +815,10 @@ struct RuntimeCore {
     service: PrintService,
     state: Arc<Mutex<RuntimeState>>,
     configs: Arc<Mutex<Vec<PetNativeConfig>>>,
+    drop_results: Arc<Mutex<Vec<(u64, NativeDropResult)>>>,
     native_identity: Arc<()>,
     fixture: PathBuf,
+    fixture_mappings: Vec<crate::imports::ToolMapping>,
 }
 
 #[cfg(test)]
@@ -847,26 +865,29 @@ impl RuntimeCore {
         let mut service =
             PrintService::with_stability_delay(inventory.into_database(), Duration::ZERO);
         let imported = service.import_print_file(&fixture).unwrap();
+        let fixture_mappings = vec![
+            ToolMapping {
+                tool: 0,
+                spool_id: basic,
+            },
+            ToolMapping {
+                tool: 1,
+                spool_id: matte,
+            },
+        ];
         service
-            .confirm_job_mapping(
-                imported.job_id,
-                vec![
-                    ToolMapping {
-                        tool: 0,
-                        spool_id: basic,
-                    },
-                    ToolMapping {
-                        tool: 1,
-                        spool_id: matte,
-                    },
-                ],
-            )
+            .confirm_job_mapping(imported.job_id, fixture_mappings.clone())
+            .unwrap();
+        service
+            .settle_job(imported.job_id, crate::domain::JobOutcome::Success)
             .unwrap();
 
         let configs = Arc::new(Mutex::new(Vec::new()));
+        let drop_results = Arc::new(Mutex::new(Vec::new()));
         let native_identity = Arc::new(());
         let native = RecordingRuntimeNative {
             configs: Arc::clone(&configs),
+            drop_results: Arc::clone(&drop_results),
             _identity: Arc::clone(&native_identity),
         };
         let state = Arc::new(Mutex::new(RuntimeState {
@@ -881,7 +902,7 @@ impl RuntimeCore {
                 y: None,
                 display_id: None,
             },
-            pending_count: 1,
+            pending_count: 0,
             capture_state: NativeCaptureState::Ready,
             renderer_state: NativeRendererState::Ready,
         }));
@@ -894,8 +915,10 @@ impl RuntimeCore {
             service,
             state,
             configs,
+            drop_results,
             native_identity,
             fixture,
+            fixture_mappings,
         }
     }
 
@@ -910,7 +933,15 @@ impl RuntimeCore {
     }
 
     fn import_fixture(&mut self) -> Result<crate::imports::ImportPreview> {
-        self.service.import_print_file(&self.fixture)
+        let preview = self.service.import_print_file(&self.fixture)?;
+        let preview = if preview.state == ImportState::NewPrintConfirmationRequired {
+            self.service.confirm_new_print(&preview.source_hash)?
+        } else {
+            preview
+        };
+        self.service
+            .confirm_job_mapping(preview.job_id, self.fixture_mappings.clone())?;
+        Ok(preview)
     }
 
     fn settle_success(&mut self, job_id: Uuid) -> Result<()> {
@@ -955,6 +986,35 @@ impl RuntimeCore {
     fn native_identity(&self) -> usize {
         Arc::as_ptr(&self.native_identity) as usize
     }
+
+    fn handle(&mut self, event: NativeEvent) {
+        if let NativeEvent::FileDropped { generation, path } = event {
+            let _ = process_pet_drop(&mut self.service, &self.state, generation, &path);
+        } else {
+            self.reduce(event);
+        }
+    }
+
+    fn drop_results(&self) -> Vec<(u64, NativeDropResult)> {
+        self.drop_results
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn balance_rows(&self) -> Vec<(String, f64)> {
+        let mut statement = self
+            .service
+            .database
+            .connection
+            .prepare("SELECT spool_id, remaining_grams FROM spools ORDER BY spool_id")
+            .unwrap();
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
 }
 
 fn open_from_pet(app: &AppHandle) {
@@ -982,50 +1042,82 @@ fn open_from_pet(app: &AppHandle) {
     }
 }
 
-fn import_from_pet(app: &AppHandle, state: &Arc<Mutex<RuntimeState>>, path: &Path) {
-    let outcome = app
-        .state::<PrintState>()
-        .lock()
-        .map_err(|_| AppError::Database("print lock poisoned".to_owned()))
-        .and_then(|mut service| handle_file_drop(&mut service, path));
+fn import_from_pet(
+    app: &AppHandle,
+    state: &Arc<Mutex<RuntimeState>>,
+    generation: u64,
+    path: &Path,
+) {
+    let outcome = match app.state::<PrintState>().lock() {
+        Ok(mut service) => process_pet_drop(&mut service, state, generation, path),
+        Err(_) => {
+            let error = AppError::Database("print lock poisoned".to_owned());
+            refresh_pending_state(
+                state,
+                PendingSummary {
+                    count: pending_count_state(state),
+                    newest_job_id: None,
+                },
+                None,
+            );
+            finish_native_drop(state, generation, NativeDropResult::Rejected);
+            Err(error)
+        }
+    };
     match outcome {
-        Ok(
-            signal @ PetSignal::ImportSucceeded {
-                job_id,
-                pending_count,
-            },
-        ) => {
+        Ok(job_id) => {
+            let _ = app.emit_to("main", "open-job", job_id.to_string());
+        }
+        Err(error) => {
+            let code = error.code().to_owned();
+            eprintln!("pet import failed: {}", error.code());
+            let _ = app.emit_to("main", "pet-import-error", code.clone());
+            crate::tray::notify_import_error(app, &code);
+        }
+    }
+}
+
+fn process_pet_drop(
+    service: &mut PrintService,
+    state: &Arc<Mutex<RuntimeState>>,
+    generation: u64,
+    path: &Path,
+) -> Result<Uuid> {
+    match handle_file_drop(service, path) {
+        Ok(PetSignal::ImportSucceeded {
+            job_id,
+            pending_count,
+        }) => {
             refresh_pending_state(
                 state,
                 PendingSummary {
                     count: pending_count,
                     newest_job_id: Some(job_id),
                 },
-                Some(signal),
+                None,
             );
-            let _ = app.emit_to("main", "open-job", job_id.to_string());
+            finish_native_drop(state, generation, NativeDropResult::Accepted);
+            Ok(job_id)
         }
-        Ok(_) => {}
+        Ok(_) => unreachable!("file import only returns an import result"),
         Err(error) => {
-            let code = error.code().to_owned();
-            eprintln!("pet import failed: {code}");
-            let summary = app
-                .state::<PrintState>()
-                .lock()
-                .ok()
-                .and_then(|service| service.pending_summary().ok())
-                .unwrap_or(PendingSummary {
-                    count: pending_count_state(state),
-                    newest_job_id: None,
-                });
-            refresh_pending_state(
-                state,
-                summary,
-                Some(PetSignal::ImportFailed { code: code.clone() }),
-            );
-            let _ = app.emit_to("main", "pet-import-error", code.clone());
-            crate::tray::notify_import_error(app, &code);
+            let summary = service.pending_summary().unwrap_or(PendingSummary {
+                count: pending_count_state(state),
+                newest_job_id: None,
+            });
+            refresh_pending_state(state, summary, None);
+            finish_native_drop(state, generation, NativeDropResult::Rejected);
+            Err(error)
         }
+    }
+}
+
+fn finish_native_drop(state: &Arc<Mutex<RuntimeState>>, generation: u64, result: NativeDropResult) {
+    let state = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(pet) = state.pet.as_ref() {
+        pet.finish_drop(generation, result);
     }
 }
 
@@ -1055,8 +1147,8 @@ fn pending_count_state(state: &Arc<Mutex<RuntimeState>>) -> u32 {
         .pending_count
 }
 
-extern "C" fn native_callback(kind: u32, payload: *const c_char, x: f64, y: f64, display_id: u64) {
-    let Some(event) = copy_native_event(kind, payload, x, y, display_id) else {
+extern "C" fn native_callback(kind: u32, payload: *const c_char, x: f64, y: f64, event_value: u64) {
+    let Some(event) = copy_native_event(kind, payload, x, y, event_value) else {
         return;
     };
     if let Some(sender) = CALLBACK_SENDER
@@ -1069,7 +1161,8 @@ extern "C" fn native_callback(kind: u32, payload: *const c_char, x: f64, y: f64,
 }
 
 pub fn handle_file_drop(service: &mut PrintService, path: &Path) -> Result<PetSignal> {
-    let preview = service.import_print_file(path)?;
+    let validation = DropValidation::read(path).map_err(|_| AppError::InvalidFile)?;
+    let preview = service.import_print_file(&validation.canonical_path)?;
     let preview = if preview.state == ImportState::NewPrintConfirmationRequired {
         service.confirm_new_print(&preview.source_hash)?
     } else {
@@ -1116,11 +1209,15 @@ fn copy_native_event(
     payload: *const c_char,
     x: f64,
     y: f64,
-    display_id: u64,
+    event_value: u64,
 ) -> Option<NativeEvent> {
     match PetCallbackKind::try_from(kind).ok()? {
         PetCallbackKind::Clicked => Some(NativeEvent::Clicked),
-        PetCallbackKind::Moved => Some(NativeEvent::Moved { x, y, display_id }),
+        PetCallbackKind::Moved => Some(NativeEvent::Moved {
+            x,
+            y,
+            display_id: event_value,
+        }),
         PetCallbackKind::DropEntered => Some(NativeEvent::DropEntered),
         PetCallbackKind::DropExited => Some(NativeEvent::DropExited),
         PetCallbackKind::FileDropped => {
@@ -1132,9 +1229,16 @@ fn copy_native_event(
             let owned = unsafe { CStr::from_ptr(payload) }
                 .to_string_lossy()
                 .into_owned();
-            Some(NativeEvent::FileDropped(PathBuf::from(owned)))
+            Some(NativeEvent::FileDropped {
+                generation: event_value,
+                path: PathBuf::from(owned),
+            })
         }
-        PetCallbackKind::DisplayChanged => Some(NativeEvent::DisplayChanged { x, y, display_id }),
+        PetCallbackKind::DisplayChanged => Some(NativeEvent::DisplayChanged {
+            x,
+            y,
+            display_id: event_value,
+        }),
         PetCallbackKind::PermissionChanged => {
             if payload.is_null() {
                 return None;
@@ -1175,7 +1279,8 @@ mod tests {
         RuntimeMutation, RuntimeNative, RuntimeState,
     };
     use crate::pet::native::{
-        NativeCaptureState, NativeRendererState, NativeShutdownState, PetNativeConfig,
+        NativeCaptureState, NativeDropResult, NativeRendererState, NativeShutdownState,
+        PetNativeConfig,
     };
     use crate::pet::{PetFps, PetMode, PetSettings, PetStore, PetVisualStyle};
     use crate::{
@@ -1209,6 +1314,10 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap()
+    }
+
+    fn mapped_service() -> PrintService {
+        PrintService::with_stability_delay(AppDatabase::open_in_memory().unwrap(), Duration::ZERO)
     }
 
     #[test]
@@ -1338,13 +1447,62 @@ mod tests {
     #[test]
     fn callback_copies_file_path_before_native_storage_expires() {
         let payload = CString::new("/tmp/owned.gcode.3mf").unwrap();
+        let generation = 73;
 
-        let event = copy_native_event(5, payload.as_ptr(), 0.0, 0.0, 0).unwrap();
+        let event = copy_native_event(5, payload.as_ptr(), 0.0, 0.0, generation).unwrap();
         drop(payload);
 
         assert_eq!(
             event,
-            NativeEvent::FileDropped(Path::new("/tmp/owned.gcode.3mf").to_path_buf())
+            NativeEvent::FileDropped {
+                generation,
+                path: Path::new("/tmp/owned.gcode.3mf").to_path_buf(),
+            }
+        );
+    }
+
+    #[test]
+    fn success_ack_uses_the_same_generation_and_follows_task_persistence() {
+        let mut core = RuntimeCore::for_test_with_mapped_fixture();
+        let generation = 41;
+        let event = NativeEvent::FileDropped {
+            generation,
+            path: core.fixture.clone(),
+        };
+        core.handle(event);
+        assert_eq!(core.pending_summary().unwrap().count, 1);
+        assert_eq!(
+            core.drop_results(),
+            vec![(generation, NativeDropResult::Accepted)]
+        );
+    }
+
+    #[test]
+    fn rejected_import_ack_does_not_change_pending_or_balances() {
+        let mut core = RuntimeCore::for_test_with_mapped_fixture();
+        let before = core.balance_rows();
+        core.handle(NativeEvent::FileDropped {
+            generation: 9,
+            path: fixture("project_only.3mf"),
+        });
+        assert_eq!(core.pending_summary().unwrap().count, 0);
+        assert_eq!(core.balance_rows(), before);
+        assert_eq!(core.drop_results(), vec![(9, NativeDropResult::Rejected)]);
+    }
+
+    #[test]
+    fn successful_pet_import_does_not_modify_the_source() {
+        let source = fixture("bambu_multicolor.3mf");
+        let bytes_before = std::fs::read(&source).unwrap();
+        let metadata_before = std::fs::metadata(&source).unwrap();
+        let mut service = mapped_service();
+        handle_file_drop(&mut service, &source).unwrap();
+        let metadata_after = std::fs::metadata(&source).unwrap();
+        assert_eq!(std::fs::read(&source).unwrap(), bytes_before);
+        assert_eq!(metadata_after.len(), metadata_before.len());
+        assert_eq!(
+            metadata_after.modified().unwrap(),
+            metadata_before.modified().unwrap()
         );
     }
 
@@ -1406,6 +1564,7 @@ mod tests {
             fn hide(&self) {}
             fn reset(&self) {}
             fn signal(&self, _signal: u32) {}
+            fn finish_drop(&self, _generation: u64, _result: NativeDropResult) {}
 
             fn shutdown(self: Box<Self>) -> NativeShutdownState {
                 self.events.send(Event::NativeShutdown).unwrap();

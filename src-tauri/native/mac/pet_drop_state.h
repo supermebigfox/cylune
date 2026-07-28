@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <string>
 
 enum class PetDropPhase : uint32_t {
   kIdle = 0,
@@ -47,6 +48,61 @@ inline void PetApplyDropMotionUniforms(
   uniforms.reduce_motion = render.reduce_motion ? 1u : 0u;
 }
 
+class PetDropSession {
+ public:
+  uint64_t enter(const char *path, uint32_t file_kind) {
+    cancel();
+    if (path == nullptr || path[0] == '\0' ||
+        (file_kind != PET_FILE_3MF && file_kind != PET_FILE_GCODE)) {
+      return 0;
+    }
+    ++next_generation_;
+    if (next_generation_ == 0) {
+      ++next_generation_;
+    }
+    generation_ = next_generation_;
+    path_ = path;
+    file_kind_ = file_kind;
+    active_ = true;
+    return generation_;
+  }
+
+  bool can_submit(uint64_t generation, const char *path,
+                  bool point_inside_core) const {
+    return active_ && !submitted_ && generation != 0 &&
+           generation == generation_ && path != nullptr &&
+           path_ == path && point_inside_core;
+  }
+
+  bool submit(uint64_t generation, const char *path,
+              bool point_inside_core) {
+    if (!can_submit(generation, path, point_inside_core)) {
+      return false;
+    }
+    submitted_ = true;
+    return true;
+  }
+
+  void cancel() {
+    generation_ = 0;
+    path_.clear();
+    file_kind_ = PET_FILE_NONE;
+    active_ = false;
+    submitted_ = false;
+  }
+
+  uint64_t generation() const { return generation_; }
+  uint32_t file_kind() const { return file_kind_; }
+
+ private:
+  uint64_t next_generation_ = 0;
+  uint64_t generation_ = 0;
+  std::string path_;
+  uint32_t file_kind_ = PET_FILE_NONE;
+  bool active_ = false;
+  bool submitted_ = false;
+};
+
 class PetDropState {
  public:
   bool begin_wait(uint64_t generation, PetDropOrigin origin,
@@ -66,10 +122,15 @@ class PetDropState {
     return true;
   }
 
+  bool can_finish(uint64_t generation, uint32_t result,
+                  double now_seconds) const {
+    return phase_ == PetDropPhase::kImportPending && generation != 0 &&
+           generation == generation_ && std::isfinite(now_seconds) &&
+           (result == PET_DROP_ACCEPTED || result == PET_DROP_REJECTED);
+  }
+
   bool finish(uint64_t generation, uint32_t result, double now_seconds) {
-    if (phase_ != PetDropPhase::kImportPending || generation == 0 ||
-        generation != generation_ || !std::isfinite(now_seconds) ||
-        (result != PET_DROP_ACCEPTED && result != PET_DROP_REJECTED)) {
+    if (!can_finish(generation, result, now_seconds)) {
       return false;
     }
     phase_ = result == PET_DROP_ACCEPTED ? PetDropPhase::kSwallow

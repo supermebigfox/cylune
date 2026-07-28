@@ -26,6 +26,19 @@ pub struct DropFile {
     is_regular_file: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DropValidation {
+    pub canonical_path: PathBuf,
+    pub size: u64,
+    pub modified_nanos: u128,
+}
+
+impl DropValidation {
+    pub fn read(path: &Path) -> io::Result<Self> {
+        validate_supported_drop_path(path)
+    }
+}
+
 impl DropFile {
     pub fn new(path: impl Into<PathBuf>, is_regular_file: bool) -> Self {
         Self {
@@ -95,6 +108,32 @@ pub fn is_supported_print_path(path: &Path) -> bool {
     lower.ends_with(".gcode.3mf") || lower.ends_with(".3mf") || lower.ends_with(".gcode")
 }
 
+pub fn validate_supported_drop_path(path: &Path) -> io::Result<DropValidation> {
+    let link = std::fs::symlink_metadata(path)?;
+    if link.file_type().is_symlink()
+        || !link.file_type().is_file()
+        || !path.is_absolute()
+        || !is_supported_print_path(path)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unsupported drop",
+        ));
+    }
+    let canonical_path = path.canonicalize()?;
+    let metadata = std::fs::metadata(&canonical_path)?;
+    let modified_nanos = metadata
+        .modified()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid mtime"))?
+        .as_nanos();
+    Ok(DropValidation {
+        canonical_path,
+        size: metadata.len(),
+        modified_nanos,
+    })
+}
+
 pub fn first_supported_drop(files: &[DropFile]) -> Option<&Path> {
     files
         .iter()
@@ -113,8 +152,8 @@ pub fn canonicalize_supported_drop(files: &[DropFile]) -> io::Result<Option<Path
 #[cfg(test)]
 mod tests {
     use super::{
-        canonicalize_supported_drop, first_supported_drop, DropFile, InputState, PetAction,
-        PetInput,
+        canonicalize_supported_drop, first_supported_drop, validate_supported_drop_path, DropFile,
+        InputState, PetAction, PetInput,
     };
     use std::{fs, path::PathBuf};
 
@@ -207,5 +246,27 @@ mod tests {
         assert!(canonicalize_supported_drop(&files).is_err());
 
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symbolic_links_are_not_ordinary_drop_files() {
+        use std::os::unix::fs::symlink;
+        let directory = temp_drop_dir();
+        fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("target.gcode.3mf");
+        let link = directory.join("link.gcode.3mf");
+        fs::write(&target, b"fixture").unwrap();
+        symlink(&target, &link).unwrap();
+        assert!(validate_supported_drop_path(&link).is_err());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn directories_are_not_ordinary_drop_files() {
+        let directory = temp_drop_dir().join("folder.3mf");
+        fs::create_dir_all(&directory).unwrap();
+        assert!(validate_supported_drop_path(&directory).is_err());
+        fs::remove_dir_all(directory.parent().unwrap()).unwrap();
     }
 }

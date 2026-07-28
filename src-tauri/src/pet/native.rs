@@ -8,7 +8,7 @@ use std::{
 };
 
 pub type PetCallback =
-    extern "C" fn(kind: u32, payload: *const c_char, x: f64, y: f64, display_id: u64);
+    extern "C" fn(kind: u32, payload: *const c_char, x: f64, y: f64, event_value: u64);
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +61,13 @@ pub enum NativeCaptureState {
 pub enum NativeRendererState {
     Unavailable = 0,
     Ready = 1,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeDropResult {
+    Accepted = 1,
+    Rejected = 2,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -450,6 +457,7 @@ mod platform {
         fn pet_hide(handle: *mut c_void);
         fn pet_reset(handle: *mut c_void);
         fn pet_signal(handle: *mut c_void, signal: u32);
+        fn pet_finish_drop(handle: *mut c_void, generation: u64, result: u32);
         fn pet_capture_state(handle: *mut c_void) -> u32;
         fn pet_renderer_state(handle: *mut c_void) -> u32;
         fn pet_abi_version() -> u32;
@@ -507,6 +515,12 @@ mod platform {
         pub fn signal(&self, signal: u32) {
             if let Some(handle) = self.0 {
                 unsafe { pet_signal(handle.as_ptr(), signal) }
+            }
+        }
+
+        pub fn finish_drop(&self, generation: u64, result: u32) {
+            if let Some(handle) = self.0 {
+                unsafe { pet_finish_drop(handle.as_ptr(), generation, result) }
             }
         }
 
@@ -615,6 +629,8 @@ mod platform {
 
         pub fn signal(&self, _signal: u32) {}
 
+        pub fn finish_drop(&self, _generation: u64, _result: u32) {}
+
         pub fn capture_state(&self) -> NativeCaptureState {
             NativeCaptureState::Unavailable
         }
@@ -691,6 +707,10 @@ impl NativePet {
 
     pub fn signal(&self, signal: u32) {
         self.handle.signal(signal);
+    }
+
+    pub fn finish_drop(&self, generation: u64, result: NativeDropResult) {
+        self.handle.finish_drop(generation, result as u32);
     }
 
     pub fn capture_state(&self) -> NativeCaptureState {

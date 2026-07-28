@@ -18,7 +18,7 @@ extern "C" {
 #endif
 
 typedef void (*PetCallback)(uint32_t kind, const char *payload,
-                            double x, double y, uint64_t display_id);
+                            double x, double y, uint64_t event_value);
 
 typedef struct {
   uint32_t abi_version;
@@ -138,6 +138,7 @@ void pet_show(void *handle);
 void pet_hide(void *handle);
 void pet_reset(void *handle);
 void pet_signal(void *handle, uint32_t signal);
+void pet_finish_drop(void *handle, uint64_t generation, uint32_t result);
 uint32_t pet_capture_state(void *handle);
 uint32_t pet_renderer_state(void *handle);
 uint32_t pet_abi_version(void);
