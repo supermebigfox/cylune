@@ -2,21 +2,25 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the current rainbow-ring desktop pet with the approved BlackHoleTrash `Gargantua` appearance and complete swallow animation while converting its delete action into an acknowledged, source-preserving print-file import.
+**Goal:** Deliver complete `Gargantua` / `Fusion` black-hole appearances from 120–900 px, including desktop distortion and every swallow/failure/fallback state, while converting the upstream delete action into an acknowledged, source-preserving print-file import.
 
-**Architecture:** Keep the existing Tauri/Rust business services, two-window AppKit hit-target architecture, ScreenCaptureKit-to-IOSurface path, Metal renderer, settings, pending-job state, and settlement ledger. Add explicit capture mapping and circular hit geometry, port the pinned BlackHoleTrash Schwarzschild/Gargantua WGSL path to Metal, add an independently tested faller state, and connect native drag generations to Rust import acknowledgments so the file only crosses the horizon after a successful local import.
+**Architecture:** Keep the existing Tauri/Rust business services, two-window AppKit hit-target architecture, ScreenCaptureKit-to-IOSurface path, Metal renderer, settings, pending-job state, and settlement ledger. Tasks 1–2 already established exact capture mapping and the pinned Schwarzschild/Gargantua path. The remaining work expands logical sizing while capping the internal drawable, adds Fusion as a material branch inside the existing 152-byte uniform ABI, completes the independently tested faller/drop acknowledgment path, and admits a user preview only after the complete Real/Lite, permission, motion, failure/cancel, dual-style, and large-size matrix passes.
 
 **Tech Stack:** Tauri 2, Rust, SQLite, Objective-C++17, AppKit, ScreenCaptureKit, Metal/MetalKit, C ABI, React/Vitest, Rust tests, standalone C++ assertions.
 
 ## Global Constraints
 
 - Approved design: `docs/superpowers/specs/2026-07-28-black-hole-import-design.md`.
-- Normative visual source: BlackHoleTrash commit `229d93213cd3e57364b4c6655cfb2c75b7ea4d18`; normative preset is its default `Gargantua`.
+- Normative optical source: BlackHoleTrash commit `229d93213cd3e57364b4c6655cfb2c75b7ea4d18`; `Gargantua` remains its unchanged default.
 - macOS interaction/animation source: blackhole-mac commit `f719aa1139ecc49a728cbb8fac2e60fcfa51996e`; it does not replace BlackHoleTrash as the optical reference.
+- Fusion material/parameter source: blackhole-timer commit `f3cc9cc349540ad6d274cd8074cf050b9b0c0200`; Fusion reuses the BlackHoleTrash trace and is not a second optical implementation.
 - The current cyan/violet/rose `spectral_ring` and reciprocal-radius lens are replacement targets, not compatibility requirements.
-- `pet_size` remains the visual-panel side and stays within `120..=360` logical pixels.
+- `pet_size` remains the visual-panel side and stays within `120..=900` logical pixels; presets are exactly `300/600/900`, and legacy `360` is an explicit 40%-of-maximum regression point.
 - The shadow radius is `0.075 × pet_size`; the circular hit radius is `max(22 px, 1.15 × shadow_radius)`.
-- Real mode captures a square of side `1.60 × pet_size`; edge clipping must preserve panel-to-capture UV alignment.
+- Real mode always captures a square of side `1.60 × pet_size`; edge clipping must preserve panel-to-capture UV alignment even above 360.
+- The Metal internal drawable logical side is `min(pet_size, 360)`; the AppKit panel, hit geometry, capture geometry, persisted size, and user-facing size remain `pet_size`.
+- `PetRenderUniforms` remains exactly 152 bytes. `visual_style` reuses the first existing trailing padding word at offset 140, and `PetConfig` reuses its 64-byte trailing padding; neither ABI may grow.
+- `Gargantua = 0` and `Fusion = 1` use the same trace, capture UV, event horizon, animation state, pending draw, Lite/Real path, and hit geometry.
 - Only an external file URL released inside the circular core can request an import.
 - Each drag accepts exactly the first supported regular non-symlink file in pasteboard order.
 - Accepted extensions remain `.gcode.3mf`, `.3mf`, and `.gcode`; `PrintService` remains the final format validator.
@@ -26,12 +30,18 @@
 - Standard motion uses a 4.6-second faller, crossing at `u = 0.82`, plus a 0.90-second BlackHoleTrash absorption jet; the visual state returns to Idle at 4.672 seconds.
 - Reduce Motion uses one 0.15-second fade/pulse with no orbit, shear, fragments, jet, or shockwave.
 - Auto FPS is 30 in Idle, 60 during hover/import/swallow/reject/settlement, and 0 while hidden; fixed 30/60 behavior remains unchanged.
-- Lite mode keeps the Gargantua hole, disk, file card, swallow, error, settlement, and pending indicators without capturing desktop pixels.
+- Lite mode keeps the selected Gargantua/Fusion hole, disk, file card, swallow, error,
+  settlement, and pending indicators without capturing desktop pixels.
+- Absent, denied, revoked, restart-required, or failed screen recording automatically makes
+  Lite the effective mode.
 - Metal failure keeps the existing Core Animation fallback and safe import behavior.
 - Screen frames, file paths, thumbnails, and file contents must not enter JavaScript, SQLite, ordinary logs, or network traffic.
 - The user fixture `/Users/robin/Desktop/叠色/萨莫面具-布莱克.gcode.3mf` is read only through `BAMBU_SMOKE_3MF`; never copy or commit it.
 - Add complete MIT attribution for GreenScreen410 and Jack Zhang before release.
+- Add active Fusion attribution for s13k/blackhole-timer at the pinned commit before release.
 - Every task starts red, implements the minimum scoped behavior, ends green, and receives an independent commit.
+- Tasks 1 and 2 are already complete and must not be rewritten or replayed.
+- Do not present another user preview until Tasks 3–6 are green and the complete preview matrix has recorded Real desktop distortion, 4.6 s swallow, 0.90 s jet, failure, cancellation, Reduce Motion, Lite/Real, both styles, 600/900 sizes, and screen-recording authorization/restart behavior.
 
 ## File Map
 
@@ -48,6 +58,12 @@
 - `src-tauri/native/mac/render.mm`: Metal pipelines, uniform ABI checks, synthetic render harness.
 - `src-tauri/native/mac/shader.metal`: BlackHoleTrash optical port, procedural card/faller/fragments, jet and Lite compositing.
 - `src-tauri/build.rs`: rerun when the new state header changes.
+- `src-tauri/src/pet/mod.rs`: `PetVisualStyle` and the expanded 120–900 setting contract.
+- `src-tauri/src/pet/store.rs`: validate/persist the expanded size and visual style without adding either to business backup.
+- `src/features/settings/Pet.tsx`: exact 300/600/900 presets and Gargantua/Fusion selector.
+- `src/features/settings/Pet.test.tsx`: settings boundary, preset, style, and permission fallback UI tests.
+- `src/lib/tauri.ts`: matching TypeScript pet setting/style contract.
+- `src/i18n/locales/{zh-CN,zh-TW,en}.json`: user-visible style and permission/restart labels.
 
 ### Rust acknowledgment and file safety
 
@@ -65,6 +81,27 @@
 - `src-tauri/src/settlement.rs`: extend the existing ignored real-file smoke only if an assertion required by this spec is absent.
 
 ---
+
+## Task dependencies and preview gate
+
+```text
+Task 1 capture geometry ─┐
+                         ├─> Task 3 size/style ABI ─> Task 4 complete animation ─┐
+Task 2 Gargantua port ───┘                                                       ├─> Task 6 complete preview gate ─> Task 7 release evidence
+Task 1 capture geometry ────────────────> Task 5 safe acknowledgment ────────────┘
+Task 4 animation state ─────────────────> Task 5 safe acknowledgment
+```
+
+- Tasks 1 and 2 are complete at commits `99435e5` and `28bc82b`; their sections below remain
+  unchanged as execution evidence.
+- Task 3 depends on Tasks 1–2 and establishes the expanded settings, capped drawable, and dual
+  style ABI that every later visual test consumes.
+- Task 4 depends on Task 3 and completes every visual success/reject/cancel/Reduce Motion state
+  for both styles and both render modes.
+- Task 5 depends on Tasks 1 and 4 and connects those states to generation-safe Rust persistence.
+- Task 6 depends on Tasks 3–5 and is the only task allowed to produce the next user preview.
+- Task 7 depends on Task 6 and records final release, licensing, documentation, and full-suite
+  evidence.
 
 ### Task 1: Capture geometry, edge mapping, and circular hit target
 
@@ -516,7 +553,235 @@ git add src-tauri/native/mac/bridge.h \
 git commit -m "feat: port BlackHoleTrash rendering to Metal"
 ```
 
-### Task 3: Complete file-card faller, jet, Lite, and Reduce Motion
+### Task 3: Expand size, cap the drawable, and add the Fusion appearance
+
+**Files:**
+- Modify: `src-tauri/src/pet/mod.rs`
+- Modify: `src-tauri/src/pet/store.rs`
+- Modify: `src-tauri/src/pet/native.rs`
+- Modify: `src-tauri/native/mac/bridge.h`
+- Modify: `src-tauri/native/mac/pet_lifecycle.h`
+- Modify: `src-tauri/native/mac/pet_lifecycle_test.cc`
+- Modify: `src-tauri/native/mac/pet.mm`
+- Modify: `src-tauri/native/mac/render.mm`
+- Modify: `src-tauri/native/mac/shader.metal`
+- Modify: `src/features/settings/Pet.tsx`
+- Modify: `src/features/settings/Pet.test.tsx`
+- Modify: `src/lib/tauri.ts`
+- Modify: `src/i18n/locales/zh-CN.json`
+- Modify: `src/i18n/locales/zh-TW.json`
+- Modify: `src/i18n/locales/en.json`
+- Modify: `THIRD_PARTY_NOTICES.md`
+
+**Interfaces:**
+- Consumes: Task 1 `PetEffectGeometryForSize` and `PetCaptureRegionForPanel`, Task 2's
+  152-byte `PetRenderUniforms` and single Schwarzschild trace.
+- Produces: `PetVisualStyle::{Gargantua, Fusion}` serialized as
+  `"gargantua" | "fusion"` and native values `0 | 1`.
+- Produces: `double PetDrawableLogicalSide(double pet_size)` returning
+  `min(clamp(pet_size, 120, 900), 360)`.
+- Produces: `PetRenderUniforms.visual_style` at offset 140 by consuming one existing
+  `_padding[3]` word; total uniform size remains 152 bytes.
+- Produces: `PetConfig.visual_style` at offset 62 by consuming existing tail padding; total
+  config size remains 64 bytes.
+- Preserves: `capture_side = 1.60 × pet_size`, normalized capture UV, event-horizon physics,
+  circular hit geometry, Real/Lite behavior, animation state, and pending draw count.
+
+- [ ] **Step 1: Add failing Rust and UI tests for the exact setting contract**
+
+In `src-tauri/src/pet/store.rs`, add:
+
+```rust
+#[test]
+fn pet_size_accepts_the_expanded_range_and_rejects_outside_values() {
+    assert!(parse_size(Some("120".to_owned())).is_ok());
+    assert!(parse_size(Some("360".to_owned())).is_ok());
+    assert!(parse_size(Some("600".to_owned())).is_ok());
+    assert!(parse_size(Some("900".to_owned())).is_ok());
+    assert!(parse_size(Some("119".to_owned())).is_err());
+    assert!(parse_size(Some("901".to_owned())).is_err());
+}
+
+#[test]
+fn pet_visual_style_round_trips_and_defaults_to_gargantua() {
+    assert_eq!(parse_visual_style(None).unwrap(), PetVisualStyle::Gargantua);
+    assert_eq!(parse_visual_style(Some("fusion".to_owned())).unwrap(),
+               PetVisualStyle::Fusion);
+    assert!(parse_visual_style(Some("inferno".to_owned())).is_err());
+}
+```
+
+In `src/features/settings/Pet.test.tsx`, assert all three visible preset buttons and both
+styles:
+
+```tsx
+expect(screen.getByRole("button", { name: "300 px" })).toBeVisible();
+expect(screen.getByRole("button", { name: "600 px" })).toBeVisible();
+expect(screen.getByRole("button", { name: "900 px" })).toBeVisible();
+expect(screen.getByLabelText("Black hole size")).toHaveAttribute("min", "120");
+expect(screen.getByLabelText("Black hole size")).toHaveAttribute("max", "900");
+await userEvent.click(screen.getByRole("button", { name: "Fusion" }));
+expect(api.setPetSettings).toHaveBeenLastCalledWith({ visual_style: "fusion" });
+```
+
+- [ ] **Step 2: Add failing native tests for large geometry, capture, and drawable cap**
+
+Append to `pet_lifecycle_test.cc`:
+
+```cpp
+static void large_sizes_keep_logical_geometry_but_cap_the_drawable() {
+  const PetEffectGeometry six = PetEffectGeometryForSize(600.0);
+  const PetEffectGeometry nine = PetEffectGeometryForSize(900.0);
+  assert(close_to(six.panel_side, 600.0));
+  assert(close_to(six.shadow_radius, 45.0));
+  assert(close_to(nine.panel_side, 900.0));
+  assert(close_to(nine.shadow_radius, 67.5));
+  assert(close_to(PetDrawableLogicalSide(300.0), 300.0));
+  assert(close_to(PetDrawableLogicalSide(360.0), 360.0));
+  assert(close_to(PetDrawableLogicalSide(600.0), 360.0));
+  assert(close_to(PetDrawableLogicalSide(900.0), 360.0));
+
+  const PetScreenFrame display = {0.0, 0.0, 2560.0, 1600.0, 2.0, 42};
+  const PetCaptureRegion capture = PetCaptureRegionForPanel(
+      {800.0, 350.0, 900.0, 900.0}, display);
+  assert(close_to(capture.source_width, 1440.0));
+  assert(close_to(capture.source_height, 1440.0));
+  assert(close_to(capture.panel_extent_uv[0], 0.625));
+  assert(close_to(capture.panel_extent_uv[1], 0.625));
+}
+```
+
+Run the Rust, UI, and native focused tests. Expected: the old 360 validator rejects 600/900,
+the old presets are still visible, and `PetDrawableLogicalSide`/style fields do not exist.
+
+- [ ] **Step 3: Implement settings and preserve both native ABIs**
+
+Add the Rust enum and setting field:
+
+```rust
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PetVisualStyle { Gargantua, Fusion }
+```
+
+Validate `120..=900`, persist `pet_visual_style`, and use Gargantua when the key is absent so
+existing databases remain compatible. The UI range is `120..900 step=4`; replace the old
+three preset values with exactly `300`, `600`, and `900`.
+
+Use the existing padding without changing sizes:
+
+```c
+typedef struct {
+  /* existing PetConfig fields through request_permission at offset 61 */
+  uint8_t visual_style; /* offset 62 */
+  uint8_t _reserved;    /* offset 63 */
+} PetConfig;
+
+typedef struct {
+  /* existing PetRenderUniforms fields through file_kind at offset 136 */
+  uint32_t visual_style; /* offset 140 */
+  uint32_t _padding[2];  /* offsets 144 and 148 */
+} PetRenderUniforms;
+```
+
+Add C, Objective-C++, MSL, and Rust assertions for sizes `64`/`152` and offsets `62`/`140`.
+Zero remains Gargantua; reject config values greater than one.
+
+- [ ] **Step 4: Cap only the Metal drawable, never the panel or capture**
+
+Add:
+
+```cpp
+inline double PetDrawableLogicalSide(double pet_size) {
+  return std::min(360.0, std::clamp(pet_size, 120.0, 900.0));
+}
+```
+
+When applying config, keep the AppKit visual panel and hit geometry at `pet_size`, keep
+`PetCaptureRegionForPanel` at `1.60 × pet_size`, and set:
+
+```objc
+const CGFloat drawableLogicalSide = PetDrawableLogicalSide(config.size);
+metalView.drawableSize = CGSizeMake(drawableLogicalSide * backingScale,
+                                   drawableLogicalSide * backingScale);
+```
+
+The view scales that drawable to the full `pet_size × pet_size` panel. Do not replace `S` with
+`D` in capture, event-horizon, point conversion, drag origin, or persisted coordinates.
+
+- [ ] **Step 5: Add Fusion as one resolved material branch**
+
+Resolve the exact Fusion uniforms on the CPU:
+
+```text
+temperature=5200, inclination=1.535, roll=0.04,
+disk_inner=1.9, disk_outer=8.0, disk_opacity=0.88,
+doppler=0.45, beaming=2.2, gain=2.0, contrast=0.65,
+wind=7.0, speed=4.0, exposure=1.35, stars=0.0, spin=0.0
+```
+
+In `shade_crossing`, retain the Gargantua branch unchanged and use Fusion's wider band,
+`density = band × (0.62 + 0.58 × streaks)`, and a 12% mix toward
+`float3(1.0, 0.91, 0.70)`. Add a Fusion-only rim outside `kCriticalImpact` and start its outer
+alpha feather at panel radius `0.42`; Gargantua remains `0.46`. Both end at `0.495`.
+
+Do not add another trace, texture sample sequence, geometry pipeline, or animation state.
+The style branch completes before absorption/success/error overlays.
+
+- [ ] **Step 6: Lock style, large-size, and physical invariants with synthetic tests**
+
+Add tests asserting:
+
+```text
+uniform size = 152; visual_style offset = 140
+config size = 64; visual_style offset = 62
+style 0 → 1 → 0 returns byte-identical Gargantua frames
+both styles change annulus checksum when checkerboard input is inverted
+both styles keep center RGB 0/0/0 and event-horizon area within 1%
+Fusion variance_x / variance_y >= 2.2
+Fusion warm annulus has R > G > B, G/R 0.78..0.96, B/R 0.45..0.82
+Fusion emission coverage is 1.15..1.80 × Gargantua with <12% saturated pixels
+Fusion alpha from panel radius 0.42..0.495 is monotonic and corners are transparent
+300/360/600/900 output uses drawable logical sides 300/360/360/360
+```
+
+Run:
+
+```bash
+npm test -- src/features/settings/Pet.test.tsx src/lib/tauri.test.ts
+clang++ -std=c++17 -I src-tauri/native/mac \
+  src-tauri/native/mac/pet_lifecycle_test.cc \
+  -o /tmp/bambu-pet-native-test
+/tmp/bambu-pet-native-test
+cd src-tauri
+cargo test pet::store::tests -- --nocapture
+cargo test pet::native::tests -- --nocapture
+```
+
+Expected: all focused tests pass without launching the app or requesting screen-recording
+permission.
+
+- [ ] **Step 7: Attribute the active Fusion source and commit**
+
+Update `THIRD_PARTY_NOTICES.md` so blackhole-timer is an active Fusion material/parameter
+source at commit `f3cc9cc349540ad6d274cd8074cf050b9b0c0200`, retain its full MIT text and
+`Copyright (c) 2026 s13k <s13k@pm.me>`, and state that browser/Pomodoro behavior was not
+copied.
+
+```bash
+git add src-tauri/src/pet/mod.rs src-tauri/src/pet/store.rs \
+  src-tauri/src/pet/native.rs src-tauri/native/mac/bridge.h \
+  src-tauri/native/mac/pet_lifecycle.h \
+  src-tauri/native/mac/pet_lifecycle_test.cc src-tauri/native/mac/pet.mm \
+  src-tauri/native/mac/render.mm src-tauri/native/mac/shader.metal \
+  src/features/settings/Pet.tsx src/features/settings/Pet.test.tsx \
+  src/lib/tauri.ts src/i18n/locales/zh-CN.json \
+  src/i18n/locales/zh-TW.json src/i18n/locales/en.json \
+  THIRD_PARTY_NOTICES.md
+git commit -m "feat: add scalable Fusion black hole style"
+```
+
+### Task 4: Complete file-card faller, jet, cancellation, Lite, and Reduce Motion
 
 **Files:**
 - Create: `src-tauri/native/mac/pet_drop_state.h`
@@ -531,11 +796,11 @@ git commit -m "feat: port BlackHoleTrash rendering to Metal"
 - Modify: `THIRD_PARTY_NOTICES.md`
 
 **Interfaces:**
-- Consumes: Task 2 named uniforms and Gargantua base render.
+- Consumes: Task 3 size/style ABI, capped drawable, and Gargantua/Fusion base renders.
 - Produces: `PetDropState`, `PetDropSnapshot`, `PetDropPhase`, and generation-aware animation methods.
 - Produces: procedural `PET_FILE_3MF` and `PET_FILE_GCODE` cards; no filename, path, thumbnail, or file texture.
 - Produces: 4.6-second faller, one crossing at `u = 0.82`, 0.90-second absorption jet, impact/afterglow, 0.42-second rejection, and 0.15-second reduced-motion path.
-- Produces native view methods for Task 4: `beginImportWait`, `finishImport`, `cancelImport`.
+- Produces native view methods for Task 5: `beginImportWait`, `finishImport`, `cancelImport`.
 - Maps the design's composite states explicitly: `Hidden` remains in `PetWindowLifecycle`,
   `PetDragging` remains in `BPPetHost`, `SettlementPulse` remains in
   `PetRenderAnimationState`, and the external-file states live in `PetDropPhase`.
@@ -596,6 +861,18 @@ static void rejected_import_recoils_without_delivery() {
   assert(!recoil.deliver_once);
   assert(recoil.absorption_progress == 0.0f);
   assert(state.sample(2.421, false).phase == PetDropPhase::kIdle);
+}
+
+static void cancellation_clears_every_visual_without_delivery() {
+  PetDropState state;
+  assert(state.begin_wait(8, {0.8f, 0.5f}, PET_FILE_3MF, 1.0));
+  state.cancel();
+  const PetDropSnapshot cancelled = state.sample(100.0, false);
+  assert(cancelled.phase == PetDropPhase::kIdle);
+  assert(cancelled.fragment_count == 0);
+  assert(cancelled.absorption_progress == 0.0f);
+  assert(!cancelled.deliver_once);
+  assert(!state.finish(8, PET_DROP_ACCEPTED, 101.0));
 }
 ```
 
@@ -696,6 +973,9 @@ Do not implement batch growth or cursor graphics.
 Each display-link tick samples the state and fills `drop_origin_uv`, `drop_progress`,
 `absorption_progress`, `error_progress`, `drop_phase`, and `file_kind`.
 Treat ImportPending/Swallow/ImportRejected as signal activity for Auto 60 FPS.
+Window hide, sleep, destroy, drag exit before submission, and explicit import cancellation call
+`cancelImport`, invalidate the generation, remove card/fragments/jet/error overlays, and cannot
+emit `deliver_once`.
 
 For Lite mode, call the same card and animation shader on a transparent background.
 For Metal-unavailable CA fallback, create one generic rounded `CAShapeLayer` card and use:
@@ -728,8 +1008,11 @@ cargo test pet::native::tests -- --nocapture
 cargo test
 ```
 
-Expected: exact timing, stale-ack, Reduce Motion, Gargantua rendering, native lifecycle, and
-all Rust tests pass.
+Add synthetic matrix cases for
+`Gargantua/Fusion × Real/Lite × standard/Reduce Motion × pending/success/reject/cancel`.
+Expected: exact timing, stale-ack, cancellation cleanup, both appearances, both render modes,
+Reduce Motion, native lifecycle, and all Rust tests pass. In every standard success cell the
+faller is 4.6 seconds and jet 0.90 seconds; reject/cancel cells contain no jet or delivery.
 
 - [ ] **Step 7: Commit the complete visual animation**
 
@@ -747,7 +1030,7 @@ git add src-tauri/native/mac/pet_drop_state.h \
 git commit -m "feat: add complete black hole swallow animation"
 ```
 
-### Task 4: Generation-safe native drop and Rust import acknowledgment
+### Task 5: Generation-safe native drop and Rust import acknowledgment
 
 **Files:**
 - Modify: `src-tauri/native/mac/bridge.h`
@@ -760,7 +1043,7 @@ git commit -m "feat: add complete black hole swallow animation"
 - Modify: `src-tauri/src/imports.rs`
 
 **Interfaces:**
-- Consumes: Task 3 `beginImportWait`/`finishImport`, existing `PrintService::import_print_file`, `confirm_new_print`, pending summary, notifications, and main-window navigation.
+- Consumes: Task 4 `beginImportWait`/`finishImport`, existing `PrintService::import_print_file`, `confirm_new_print`, pending summary, notifications, and main-window navigation.
 - Produces native callback event: `FileDropped { generation: u64, path: PathBuf }`.
 - Produces C ABI: `void pet_finish_drop(void *handle, uint64_t generation, uint32_t result)`.
 - Produces Rust: `DropValidation::read(&Path) -> Result<DropValidation>` and `NativePet::finish_drop(generation, result)`.
@@ -943,7 +1226,7 @@ NativeEvent::FileDropped {
 }
 ```
 
-Native `pet_finish_drop` dispatches to the main thread and calls Task 3 `finishImport`; stale
+Native `pet_finish_drop` dispatches to the main thread and calls Task 4 `finishImport`; stale
 generations return without visual changes.
 
 - [ ] **Step 6: Revalidate ordinary files and file stability inside Rust**
@@ -1037,7 +1320,183 @@ git add src-tauri/native/mac/bridge.h \
 git commit -m "fix: acknowledge safe black hole imports"
 ```
 
-### Task 5: Fixtures, licensing, release build, and manual acceptance
+### Task 6: Gate the next preview on the complete state and permission matrix
+
+**Files:**
+- Modify: `src-tauri/src/pet/native.rs`
+- Modify: `src-tauri/src/pet/runtime.rs`
+- Modify: `src-tauri/native/mac/pet_lifecycle_test.cc`
+- Modify: `src/features/settings/Pet.test.tsx`
+- Modify: `docs/qa-black-hole.md`
+
+**Interfaces:**
+- Consumes: Task 3 size/style contract, Task 4 visual state machine, Task 5 acknowledged import,
+  existing `PetStatus { effective_mode, permission, fallback_reason }`, synthetic renderer,
+  and release application build.
+- Produces: automated coverage for every preview cell and a completed
+  `docs/qa-black-hole.md` preview matrix with observed result/evidence.
+- Produces: the only preview build that may be shown to the user after this plan revision.
+- Preserves: no real desktop frame, source path, filename, thumbnail, or screen recording is
+  committed as preview evidence.
+
+- [ ] **Step 1: Add failing permission/effective-mode regressions**
+
+In `src-tauri/src/pet/runtime.rs`, exercise every unavailable capture result:
+
+```rust
+#[test]
+fn every_unavailable_capture_state_uses_lite_without_changing_requested_mode() {
+    for (event, permission, reason) in [
+        (CaptureEvent::NotDetermined, CapturePermission::NotDetermined,
+         "permission_not_determined"),
+        (CaptureEvent::Denied, CapturePermission::Denied, "permission_denied"),
+        (CaptureEvent::RestartRequired, CapturePermission::RestartRequired,
+         "permission_restart_required"),
+        (CaptureEvent::Unavailable, CapturePermission::Unavailable,
+         "capture_unavailable"),
+    ] {
+        let status = CaptureState::Requested.reduce(event);
+        assert_eq!(status.effective_mode, PetMode::Lite);
+        assert_eq!(status.permission, permission);
+        assert_eq!(status.fallback_reason.as_deref(), Some(reason));
+        assert!(status.pet_visible);
+    }
+}
+
+#[test]
+fn ready_capture_restores_real_and_saved_large_fusion_settings_reload() {
+    let db = AppDatabase::open_in_memory().unwrap();
+    let saved = PetStore::apply(&db, PetSettingsPatch {
+        mode: Some(PetMode::Real),
+        size: Some(900),
+        visual_style: Some(PetVisualStyle::Fusion),
+        ..Default::default()
+    }).unwrap();
+    let status = capture_status(
+        saved.mode,
+        NativeCaptureState::Ready,
+        NativeRendererState::Ready,
+    );
+    assert_eq!(status.effective_mode, PetMode::Real);
+    let reloaded = PetStore::load(&db).unwrap();
+    assert_eq!(reloaded.size, 900);
+    assert_eq!(reloaded.visual_style, PetVisualStyle::Fusion);
+}
+```
+
+The settings UI test must assert that `restart_required` shows an explicit restart instruction,
+`denied` shows Lite as active, and neither state silently changes the requested mode from Real.
+
+- [ ] **Step 2: Add one table-driven synthetic preview test**
+
+Add a test table over:
+
+```rust
+for style in [Gargantua, Fusion] {
+    for mode in [Real, Lite] {
+        for size in [300_u32, 600, 900] {
+            verify_idle_distortion_or_transparency(style, mode, size);
+            verify_standard_success(style, mode, size, 4.6, 0.90);
+            verify_rejection_has_no_delivery_or_jet(style, mode, size, 0.42);
+            verify_cancellation_is_idle_and_empty(style, mode, size);
+            verify_reduced_motion_has_no_fragments_or_jet(style, mode, size, 0.15);
+        }
+    }
+}
+```
+
+`verify_idle_distortion_or_transparency` must invert a checkerboard capture and require changed
+annulus checksums in Real; Lite must remain independent of capture input with transparent
+corners. Each 600/900 case asserts drawable logical side 360 while the capture region remains
+`1.60 × size`. Success samples the 4.6-second phase boundaries and 0.90-second jet midpoint;
+failure and cancellation assert zero delivery, fragments, impact, and jet.
+
+- [ ] **Step 3: Run the complete automated preview gate before launching**
+
+Run:
+
+```bash
+npm test
+npm run build
+clang++ -std=c++17 -I src-tauri/native/mac \
+  src-tauri/native/mac/pet_lifecycle_test.cc \
+  -o /tmp/bambu-pet-native-test
+/tmp/bambu-pet-native-test
+cd src-tauri
+cargo test pet::native::tests -- --nocapture
+cargo test pet::runtime::tests -- --nocapture
+cargo test
+cd ..
+```
+
+Expected: frontend, native, synthetic Metal, runtime, and full Rust suites pass. Stop here and
+do not launch or preview if any cell fails.
+
+- [ ] **Step 4: Build one integrated preview application**
+
+Run:
+
+```bash
+npm run tauri build
+```
+
+Use only the generated `.app` for the following matrix. Do not provide an earlier Gargantua-only,
+Fusion-only, animation-only, or large-size-only preview.
+
+- [ ] **Step 5: Record the complete visual/state matrix**
+
+On a privacy-safe desktop fixture containing text and a straight grid, record pass/fail plus
+notes in `docs/qa-black-hole.md` for all of:
+
+```text
+Real Gargantua and Real Fusion: desktop letters/grid bend continuously, not circular zoom
+Lite Gargantua and Lite Fusion: transparent background, same hole/card/state timing
+300, legacy 360, 600, and 900 px: no clipping; 600/900 remain responsive
+standard success: full 4.6 s approach/stretch/fragment/merge/crossing
+absorption jet: visible for 0.90 s and triggered once at u=0.82
+failure: 0.42 s recoil, no delivery/jet/pending increment
+cancel by drag exit, hide, sleep, and destroy: card/fragment/jet removed, stale ack ignored
+Reduce Motion: 0.15 s fade/pulse, no orbit/stretch/fragments/jet
+Auto/30/60 FPS and 1×/2× displays
+left/right/top/bottom clipping and two-display crossing
+```
+
+Run every animation/state row once per style and once per Real/Lite mode. The matrix may use
+the smallest representative size for animation repetition, but both 600 and 900 must complete
+one standard success and one cancel in each style.
+
+- [ ] **Step 6: Exercise authorization, denial, revocation, and restart**
+
+Start from a system state where the app lacks Screen Recording permission:
+
+```text
+1. Select requested mode Real; verify effective mode is automatically Lite.
+2. Click the explicit authorization control once; verify no repeated prompt loop.
+3. If macOS reports restart_required, verify the UI says a full quit/restart is required.
+4. Quit every app process, relaunch exactly one .app instance, and verify Real desktop
+   distortion becomes active while size/style/position/pending state are preserved.
+5. Deny once and verify Lite remains fully interactive and safely imports.
+6. Revoke an existing grant, return to/restart the app as required, and verify automatic Lite.
+7. Re-grant and restart; verify Real returns without resetting 900 px + Fusion.
+```
+
+Record the OS version, each reported permission enum, effective mode, whether restart was
+required, and observed pass/fail. Do not commit screenshots containing the user's desktop.
+
+- [ ] **Step 7: Commit only after every preview row passes**
+
+```bash
+git add src-tauri/src/pet/native.rs src-tauri/src/pet/runtime.rs \
+  src-tauri/native/mac/pet_lifecycle_test.cc \
+  src/features/settings/Pet.test.tsx docs/qa-black-hole.md
+git commit -m "test: gate the complete black hole preview"
+```
+
+Expected: this commit does not exist until desktop distortion, 4.6 s swallow, 0.90 s jet,
+failure, cancellation, Reduce Motion, Lite/Real, both styles, 600/900, and permission/restart
+rows are all complete.
+
+### Task 7: Fixtures, licensing, release build, and final acceptance
 
 **Files:**
 - Modify: `src-tauri/src/pet/native.rs`
@@ -1047,7 +1506,7 @@ git commit -m "fix: acknowledge safe black hole imports"
 - Modify: `docs/qa-black-hole.md`
 
 **Interfaces:**
-- Consumes: all Tasks 1–4, existing synthetic renderer, existing ignored `BAMBU_SMOKE_3MF` test, existing release scripts.
+- Consumes: all Tasks 1–6, existing synthetic renderer, existing ignored `BAMBU_SMOKE_3MF` test, existing release scripts.
 - Produces: deterministic optical/animation regression tests, complete MIT notices, user-facing safe-import documentation, and a signed-for-local-testing `.app`/`.dmg`.
 - Produces: a completed manual matrix covering the user screenshot, pinned BlackHoleTrash reference, source preservation, edge displays, FPS, Lite, Reduce Motion, permission and lifecycle.
 
@@ -1154,11 +1613,16 @@ ZGhey/blackhole-mac
 commit f719aa1139ecc49a728cbb8fac2e60fcfa51996e
 Copyright (c) 2026 Jack Zhang
 Faller/Impacts timing adapted; optional trash action and source mutation were not copied.
+
+cabbagehao/blackhole-timer
+commit f3cc9cc349540ad6d274cd8074cf050b9b0c0200
+Copyright (c) 2026 s13k <s13k@pm.me>
+Fusion material parameters and feather semantics adapted; browser/Pomodoro behavior was not copied.
 ```
 
-Each entry must include the complete MIT permission and warranty paragraphs. Historical notices
-can remain, but the file and shader must agree that BlackHoleTrash is the current normative
-source.
+Each entry must include the complete MIT permission and warranty paragraphs. The file and shader
+must agree that BlackHoleTrash is the normative optical/physics source and blackhole-timer is an
+active Fusion look source, not a second trace implementation.
 
 - [ ] **Step 4: Update install and QA documentation with exact user-visible behavior**
 
@@ -1172,12 +1636,15 @@ In `docs/install-mac.md`, state:
 In `docs/qa-black-hole.md`, add checkboxes for:
 
 ```text
-- Pinned BlackHoleTrash Gargantua reference and user screenshot match.
+- Pinned BlackHoleTrash Gargantua and specified Fusion appearance both match their references.
 - No cyan/violet/rose legacy ring is visible.
 - Desktop text bends continuously through near/far lens regions.
+- 120..900 is enforced; presets are 300/600/900; legacy 360 remains a regression point.
+- Capture is 1.60 × size while 600/900 use a 360 logical-side internal drawable.
 - File waits outside the horizon before Rust success.
 - Standard success shows 4.6 s faller and 0.90 s jet.
 - Failure recoils and never shows delivery/jet.
+- Cancellation removes the card and never shows delivery/jet.
 - Reduce Motion completes in 0.15 s without orbit/fragments/jet.
 - Dragging the pet across Finder files creates zero imports.
 - Multi-file drop imports only the first supported ordinary file.
@@ -1185,7 +1652,9 @@ In `docs/qa-black-hole.md`, add checkboxes for:
 - Source SHA-256, length, and modification time are unchanged after success and failure.
 - Left/right/top/bottom display edges align with desktop pixels.
 - Two-display crossing, 1×/2× scale, Auto/30/60, sleep/wake, hide/show pass.
-- Permission denied and Metal unavailable retain Lite safe import.
+- Not-determined, denied, revoked, restart-required, capture failure, and Metal unavailable
+  retain Lite safe import.
+- Permission grant plus complete app restart restores Real without resetting size/style/state.
 ```
 
 - [ ] **Step 5: Build and inspect the release application**
@@ -1224,7 +1693,7 @@ git status --short
 ```
 
 Expected: `git diff --check` is silent; the source scan finds no legacy ring or delete/recycle
-call in the implementation; all tests/builds pass; status contains only the Task 5 documentation
+call in the implementation; all tests/builds pass; status contains only the Task 7 documentation
 and test changes before commit.
 
 - [ ] **Step 7: Commit the verified release evidence**
@@ -1240,15 +1709,28 @@ git commit -m "test: verify BlackHoleTrash safe import release"
 
 ## Completion Gate
 
-- [ ] All five task commits exist and each task passed its focused tests before proceeding.
-- [ ] The current black hole is the pinned BlackHoleTrash `Gargantua` Metal port, not the old
-      rainbow ring or a blackhole-timer hybrid.
+- [ ] All seven task commits exist and each task passed its focused tests before proceeding;
+      Tasks 1–2 retain their original completed commits.
+- [ ] The current black hole provides complete `Gargantua` and `Fusion` appearances on one
+      pinned BlackHoleTrash optical path, not the old rainbow ring or a second fake lens.
+- [ ] `pet_size` is `120..=900`, presets are `300/600/900`, and legacy 360 is approximately
+      40% of the new maximum.
+- [ ] Capture remains `1.60 × pet_size`; the Metal internal drawable logical side caps at 360
+      without changing panel, hit, capture, or persisted geometry.
+- [ ] `PetRenderUniforms` remains 152 bytes with `visual_style` at offset 140; `PetConfig`
+      remains 64 bytes.
 - [ ] Capture mapping is correct at all four screen edges and on 1×/2× displays.
 - [ ] The central target is circular and pet movement never reads or imports Finder files.
 - [ ] Native enter/drop and Rust each revalidate the file; stale generations are ignored.
 - [ ] The full swallow starts only after the matching Rust success acknowledgment.
-- [ ] Standard, Reduce Motion, Lite, error, pending, settlement, FPS and lifecycle states pass.
+- [ ] Standard, Reduce Motion, Real, Lite, failure, cancellation, pending, settlement, FPS,
+      dual-style, and 600/900 lifecycle states pass.
+- [ ] The next user preview was not produced until Task 6 recorded desktop distortion,
+      4.6-second swallow, 0.90-second jet, failure/cancel, Reduce Motion, Lite/Real, both
+      appearances, large sizes, and authorization/restart.
+- [ ] Missing, denied, revoked, restart-required, and failed Screen Recording automatically use
+      Lite; authorization plus full restart restores Real.
 - [ ] Source SHA-256, length and modification time are unchanged in fixture and real-file tests.
 - [ ] Existing pending/reprint/settlement/inventory behavior passes without changed balances on import.
-- [ ] GreenScreen410 and Jack Zhang MIT notices are complete.
+- [ ] GreenScreen410, Jack Zhang, and s13k MIT notices and pinned source descriptions are complete.
 - [ ] The release `.app` runs as one process with one menu-bar icon and one black hole.

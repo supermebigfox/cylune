@@ -31,6 +31,8 @@ BlackHoleTrash 为准。
   `229d93213cd3e57364b4c6655cfb2c75b7ea4d18`
 - blackhole-mac：commit
   `f719aa1139ecc49a728cbb8fac2e60fcfa51996e`
+- blackhole-timer（仅 Fusion 材质/参数语义）：commit
+  `f3cc9cc349540ad6d274cd8074cf050b9b0c0200`
 
 实现和视觉验收使用上述固定版本，避免上游更新改变本项目的完成标准。
 
@@ -57,8 +59,8 @@ BlackHoleTrash 原本在回收成功后播放吸收反馈。本应用把“删�
 - 把固定版本 BlackHoleTrash 默认 `Gargantua` 光学效果移植到 Metal。
 - 加入一张不暴露文件内容的通用文件卡片和完整吞噬动画。
 - 加入有 generation 的原生拖放会话和 Rust 导入回执。
-- 保留真实模式、轻量模式、120–360 px、自动/30/60 FPS、多显示器和
-  Reduce Motion。
+- 保留真实模式、轻量模式、120–900 px、自动/30/60 FPS、多显示器和
+  Reduce Motion，并提供 `Gargantua` / `Fusion` 两种完整外观。
 - 保留现有待结算轨道点、结算成功反馈和错误通知，但使其与新视觉一致。
 
 ### 3.2 非目标
@@ -74,8 +76,10 @@ BlackHoleTrash 原本在回收成功后播放吸收反馈。本应用把“删�
 
 ## 4. 几何、窗口和捕获
 
-`pet_size` 继续表示透明视觉窗口的逻辑边长，范围保持 `120..=360` px；不新增
-第二个尺寸概念。
+`pet_size` 继续表示透明视觉窗口的逻辑边长，范围扩大为 `120..=900` px；不新增
+第二个用户可见尺寸概念。设置页固定提供 `300`、`600`、`900` 三个预设，并保留
+连续调节；旧上限 `360` 恰好等于新上限的 `40%`，用于迁移与回归对照，但不再是
+预设或最大值。
 
 对于边长 `S`：
 
@@ -87,7 +91,8 @@ BlackHoleTrash 原本在回收成功后播放吸收反馈。本应用把“删�
 - 吸积盘、透镜和喷流只负责绘制，命中区域不能扩展到这些装饰区域。
 - 视觉窗口外的桌面必须保持可点击。
 
-真实模式从当前显示器捕获以视觉窗口为中心、边长 `1.60 × S` 的区域。捕获区域
+真实模式从当前显示器捕获以视觉窗口为中心、边长 `1.60 × S` 的区域。该公式在
+`S > 360` 时也不能缩小或改成固定捕获范围。捕获区域
 被显示器边界裁剪时，必须把“视觉窗口左上角在捕获纹理中的 UV”和“视觉窗口
 占捕获纹理的 UV 尺寸”传给 Shader。Shader 不能假设视觉窗口永远位于捕获纹理
 正中央。
@@ -102,6 +107,14 @@ capture_uv = capture_origin_uv + local_panel_uv × capture_extent_uv
 然后限制到实际捕获纹理的 `0.002..0.998`。位于屏幕左、右、上、下边缘时，
 未被裁剪的一侧仍必须与桌面像素对齐；不能拉伸整个捕获纹理来填满窗口。
 
+为限制 900 px 视觉窗口的持续 GPU 成本，Metal 内部 drawable 的逻辑边长为
+`D = min(S, 360)`，物理 drawable 边长为 `D × backing_scale`。AppKit 视觉窗口、
+圆形命中、拖放坐标、持久化位置和 ScreenCaptureKit 捕获几何仍全部使用 `S`；
+MTKView 只把内部 drawable 双线性放大到 `S × S`，Shader 继续在规范化
+`local_panel_uv` 中计算。内部上限不能改变 `0.075 × S` 阴影和命中语义，也不能
+把真实捕获改成 `1.60 × D`。中心、四边、1×/2×、`S = 300/360/600/900` 都必须
+验证捕获映射与桌面文字连续弯折。
+
 多显示器继续按视觉窗口与各屏幕的最大交集选择捕获源。跨屏时先更新显示器、
 backing scale、捕获映射和 Metal drawable，再提交新帧。显示器断开时回到主显示器
 安全区域。拖放会话进行中不得自动把黑洞漂移到其他位置。
@@ -110,8 +123,8 @@ backing scale、捕获映射和 Metal drawable，再提交新帧。显示器断�
 
 ### 5.1 固定默认参数
 
-首版不暴露预设或自旋设置。Metal uniform 使用 BlackHoleTrash `Gargantua`
-默认值：
+不暴露自旋或物理预设设置。`Gargantua` 外观的 Metal uniform 使用
+BlackHoleTrash 默认值：
 
 ```text
 temperature = 4500 K
@@ -161,6 +174,49 @@ WGSL 到 MSL 的移植必须保留下列行为和数值边界：
   必须为零。
 - 轻量模式不能绘制不透明矩形背景。
 - 捕获必须排除本应用，避免递归捕获。
+
+### 5.4 Gargantua / Fusion 双外观
+
+外观设置只有两个稳定值：
+
+- `Gargantua = 0`：保持第 5.1 节和已完成 Metal 移植的默认效果。
+- `Fusion = 1`：复用完全相同的 Schwarzschild 近场、弱偏折远场、多次盘面穿越、
+  capture UV、事件视界、文件状态机和命中几何；只改变盘面材质、暖金临界轮廓
+  与外缘 feather。
+
+Fusion 固定参数为：
+
+```text
+temperature = 5200 K
+inclination = 1.535 rad
+roll = 0.04 rad
+inner radius = 1.9 r_s
+outer radius = 8.0 r_s
+opacity = 0.88
+doppler = 0.45
+beaming = 2.2
+gain = 2.0
+contrast = 0.65
+wind = 7.0
+speed = 4.0
+exposure = 1.35
+stars = 0.0
+spin = 0.0
+```
+
+Fusion 的材质语义参考 `cabbagehao/blackhole-timer` 固定 commit
+`f3cc9cc349540ad6d274cd8074cf050b9b0c0200` 的 Inferno 暖光与 Gargantua
+edge-on 形态，但不能引入第二次 trace、第二套黑洞物理或 2D 假椭圆。
+
+`PetRenderUniforms` / Metal `PetUniforms` / Rust 测试布局必须继续保持 **152 bytes**。
+把当前尾部 `_padding[3]` 的第一个 `uint32_t`（offset `140`）重命名为
+`visual_style`，尾部变为 `_padding[2]`；不得增加结构体大小或改变既有字段偏移。
+零初始化仍选中 Gargantua。`PetConfig` 同样复用现有 64-byte 结构尾部 padding
+传递 style，不扩大 ABI。
+
+Fusion 不能改变事件视界面积、桌面采样位置、4.6 s / 0.90 s 时间线、
+Reduce Motion、Lite/Real 行为或 pending draw call 数。两种外观都必须在
+300/600/900 px 下完整显示，不裁剪、不过曝、不出现不透明方角。
 
 ## 6. 文件卡片与完整吞噬动画
 
@@ -341,11 +397,24 @@ Rust 收到事件后：
 - 待结算轨道点；
 - 圆形命中和安全拖放。
 
-轻量模式不绘制桌面纹理或假桌面截图。黑洞以透明背景合成。Metal 不可用时，
+轻量模式不绘制桌面纹理或假桌面截图。Gargantua 和 Fusion 都以透明背景合成。
+Metal 不可用时，
 Core Animation 降级至少保留黑色中心、暖金盘面、通用文件卡片、成功/失败颜色
 反馈；不要求 CA 复现测地线。
 
-### 9.3 FPS
+### 9.3 屏幕录制权限与自动降级
+
+用户选择真实模式但屏幕录制权限为 `not_determined`、`denied`、
+`restart_required`、被撤销或运行时捕获失败时，`effective_mode` 必须自动为
+Lite；黑洞、拖放、导入回执、失败/取消与待结算状态继续工作。应用不得显示空白
+真实模式或反复弹权限框。只有用户明确点击授权动作时才请求权限。
+
+权限验收必须包含：首次未授权自动 Lite、点击授权、系统要求重启时显示明确提示、
+彻底退出后重启单一应用副本并切回 Real、授权被拒绝仍保持 Lite、授权撤销后下一次
+状态刷新自动回到 Lite。授权与重启不能丢失尺寸、外观、位置、待结算任务或拖放
+安全约束。
+
+### 9.4 FPS
 
 - `auto`：`Idle` 30 FPS；
   `ExternalHoverValid/ImportPending/Swallow/ImportRejected/SettlementPulse`
@@ -394,16 +463,29 @@ Core Animation 降级至少保留黑色中心、暖金盘面、通用文件卡�
 `shader.metal` 头注释和产品文档必须明确 BlackHoleTrash 是当前规范来源。不能再
 声称新的光学实现以当前彩色圆环或混合方案为目标。
 
+Fusion 使用 `blackhole-timer` 的参数、材质与外缘 mask 语义后，该项目不再只是
+历史说明。通知必须固定 commit
+`f3cc9cc349540ad6d274cd8074cf050b9b0c0200`，保留其 MIT 全文与
+`Copyright (c) 2026 s13k <s13k@pm.me>`，并说明 Fusion 仍复用 BlackHoleTrash
+物理路径、未复制浏览器演示和 Pomodoro 行为。
+
 ## 13. 测试和视觉验收
 
 ### 13.1 自动测试
 
 - 中央、四个屏幕边缘和 Retina 2× 的捕获 UV 映射。
-- 120/220/360 px 的阴影半径与圆形命中边界。
+- 120/220/360/600/900 px 的阴影半径与圆形命中边界；设置预设固定为
+  300/600/900，360 作为旧上限回归值。
+- `S = 300/360/600/900` 时捕获边长始终为 `1.60 × S`，Metal 内部 drawable
+  逻辑边长分别为 `300/360/360/360`，且放大后无裁剪或命中漂移。
 - 命中方形四角返回 false。
 - 测地线近场改变棋盘格采样位置，远场衔接没有硬边。
 - 事件视界黑色、暖色盘面、上下透镜弧和透明窗口四角。
 - Shader 不再包含 `spectral_ring`。
+- `visual_style` 位于 152-byte uniform 的 offset 140；Gargantua/Fusion 切换不改变
+  trace、capture UV、事件视界面积或动画时长。
+- Fusion 暖白金厚盘、横向形态、柔和外缘和中心纯黑通过 black/checkerboard
+  synthetic fixture 的像素阈值。
 - 4.6 s Faller 的阶段边界和 `u = 0.82` 单次交付。
 - 0.90 s absorption jet 的开始、中点和完成。
 - Reduce Motion 的 0.15 s 单次淡入，不产生碎片或喷流。
@@ -414,10 +496,13 @@ Core Animation 降级至少保留黑色中心、暖金盘面、通用文件卡�
 - 移动黑洞不产生任何导入事件。
 - 导入成功不修改耗材余额；结算仍是唯一扣料入口。
 - Auto/30/60、隐藏、睡眠和唤醒状态的帧率与生命周期。
+- 屏幕录制未授权、拒绝、撤销、运行时失败和 `restart_required` 都自动使用 Lite；
+  授权并重启后恢复 Real。
 
 ### 13.2 人工视觉验收
 
-- 对照 BlackHoleTrash 固定 commit 的 `Gargantua` 默认效果和用户截图。
+- 对照 BlackHoleTrash 固定 commit 的 `Gargantua` 默认效果、Fusion 固定参数和
+  用户截图，在同一桌面、位置、尺寸下完成 A/B。
 - 使用带文字和图标的桌面背景检查连续引力弯折，不能只看到圆形放大。
 - 看到黑色事件视界、暖白金盘面、上下透镜弧和远近场无接缝。
 - 看不到当前实现的青/紫/玫红彩虹环。
@@ -425,18 +510,28 @@ Core Animation 降级至少保留黑色中心、暖金盘面、通用文件卡�
 - 解析较慢时文件停在视界外；失败时回退。
 - 在 Finder 文件上拖动黑洞不读取、不选择、不导入。
 - 将多个文件拖入时只导入第一个受支持普通文件，其余源文件保持不变。
-- 在两块显示器、屏幕四边、1×/2× scale、30/60/Auto 和 Reduce Motion 下检查。
-- 真实模式权限拒绝或 Metal 失败后，轻量模式仍能安全导入。
+- 在两块显示器、屏幕四边、1×/2× scale、300/360/600/900 px、30/60/Auto 和
+  Reduce Motion 下检查。
+- 真实模式首次未授权、拒绝、撤销、要求重启或 Metal 失败后，轻量模式仍能安全
+  导入；授权并彻底重启后恢复真实桌面扭曲。
+- 下一次提供给用户的预览必须一次性覆盖：真实桌面连续扭曲、4.6 s 吞噬、
+  0.90 s 喷流、失败、取消、Reduce Motion、Lite/Real、Gargantua/Fusion 和
+  600/900 大尺寸；其中任一项未完成时不得提前给出局部视觉预览。
 
 ## 14. 完成标准
 
-- 产品视觉以固定版本 BlackHoleTrash `Gargantua` 为基准，不再是彩色圆环或
-  blackhole-timer 混合外观。
+- 产品视觉提供完整 `Gargantua` 与 `Fusion` 双外观；两者共享固定版本
+  BlackHoleTrash 物理路径，均不再是彩色圆环。
+- `pet_size` 为 `120..=900`，预设为 `300/600/900`；捕获保持 `1.60 × size`，
+  Metal 内部 drawable 逻辑边长最多 `360`。
 - 文件只在主动拖入中央圆并完成两次原生验证与一次 Rust 验证后导入。
 - Rust 成功回执前不能完成吞噬；失败不能伪装成成功。
 - 成功动画包含 4.6 s 完整 Faller 和 0.90 s absorption jet。
 - 源文件在所有成功、失败、重复和多文件场景下保持不变。
 - 多屏、边缘捕获、FPS、Reduce Motion、轻量模式和 Metal 降级通过自动与人工
   验收。
+- 未获屏幕录制权限时自动 Lite，授权/拒绝/撤销/重启流程通过人工验收。
+- 下一次用户预览通过第 13.2 节列出的完整矩阵，不接受缺少状态、外观或大尺寸
+  的部分预览。
 - 现有解析、待结算、结算和库存账本行为保持不变。
 - MIT 版权和修改说明完整。
