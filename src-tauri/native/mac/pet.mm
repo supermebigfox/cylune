@@ -141,6 +141,8 @@ static_assert(offsetof(PetConfig, request_permission) == 61,
 - (instancetype)initWithCallback:(PetCallback)callback
                       metalSource:(NSString *)metalSource;
 - (void)ensureHost;
+- (uint64_t)issueApplyGeneration;
+- (BOOL)acceptApplyGeneration:(uint64_t)generation;
 - (uint32_t)shutdown;
 @end
 
@@ -1335,7 +1337,9 @@ static PetRendererBackend ProductionRendererBackend() {
 
 @end
 
-@implementation BPPetBridge
+@implementation BPPetBridge {
+  PetApplyGenerationGate _applyGeneration;
+}
 
 - (instancetype)initWithCallback:(PetCallback)callback
                       metalSource:(NSString *)metalSource {
@@ -1352,6 +1356,14 @@ static PetRendererBackend ProductionRendererBackend() {
     self.host = [[BPPetHost alloc] initWithCallback:self.callback
                                         metalSource:self.metalSource];
   }
+}
+
+- (uint64_t)issueApplyGeneration {
+  return _applyGeneration.issue();
+}
+
+- (BOOL)acceptApplyGeneration:(uint64_t)generation {
+  return _applyGeneration.accept(generation);
 }
 
 - (uint32_t)shutdown {
@@ -1446,10 +1458,14 @@ extern "C" bool pet_apply(void *handle, PetConfig config) {
     return false;
   }
   BPPetBridge *bridge = (__bridge BPPetBridge *)handle;
+  const uint64_t generation = [bridge issueApplyGeneration];
   // Routine apply is deliberately asynchronous. Rust callers may hold the
-  // runtime-state mutex while submitting it.
+  // runtime-state mutex while submitting it. Main-thread calls can run
+  // inline while an older worker call is still queued, so the generation
+  // gate rejects any stale config that arrives out of submission order.
   RunOnMain(^{
-    if (!bridge.destroyed) {
+    if (!bridge.destroyed &&
+        [bridge acceptApplyGeneration:generation]) {
       [bridge ensureHost];
       [bridge.host applyConfig:config];
     }

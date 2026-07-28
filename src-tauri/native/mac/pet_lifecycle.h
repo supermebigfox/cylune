@@ -36,6 +36,33 @@ struct PetDrawableMetrics {
   double pixel_height;
 };
 
+class PetApplyGenerationGate {
+ public:
+  uint64_t issue() {
+    return issued_.fetch_add(1, std::memory_order_acq_rel) + 1;
+  }
+
+  bool accept(uint64_t generation) {
+    uint64_t accepted = accepted_.load(std::memory_order_acquire);
+    while (generation > accepted) {
+      if (accepted_.compare_exchange_weak(
+              accepted, generation, std::memory_order_acq_rel,
+              std::memory_order_acquire)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  uint64_t last_accepted() const {
+    return accepted_.load(std::memory_order_acquire);
+  }
+
+ private:
+  std::atomic<uint64_t> issued_{0};
+  std::atomic<uint64_t> accepted_{0};
+};
+
 inline PetDrawableMetrics PetDrawableMetricsForLogicalSize(
     double logical_width, double logical_height, double backing_scale) {
   const double scale =

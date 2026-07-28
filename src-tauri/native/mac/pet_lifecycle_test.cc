@@ -171,6 +171,36 @@ static void backing_scale_updates_drawable_pixels_without_logical_resize() {
   assert(one_x.logical_height == two_x.logical_height);
 }
 
+static void reverse_main_queue_delivery_discards_the_older_apply() {
+  PetApplyGenerationGate generation;
+  PetConfig old_config = {};
+  old_config.size = 220.0;
+  old_config.x = 100.0;
+  old_config.y = 80.0;
+  old_config.display_id = 1;
+  PetConfig new_config = old_config;
+  new_config.size = 300.0;
+  new_config.x = 1700.0;
+  new_config.y = 120.0;
+  new_config.display_id = 2;
+
+  const uint64_t queued_worker_old = generation.issue();
+  const uint64_t inline_main_new = generation.issue();
+  PetConfig applied = {};
+  if (generation.accept(inline_main_new)) {
+    applied = new_config;
+  }
+  if (generation.accept(queued_worker_old)) {
+    applied = old_config;
+  }
+
+  assert(applied.size == 300.0);
+  assert(applied.x == 1700.0);
+  assert(applied.y == 120.0);
+  assert(applied.display_id == 2);
+  assert(generation.last_accepted() == inline_main_new);
+}
+
 static void drag_persistence_is_emitted_only_once_on_mouse_up() {
   PetDragPersistenceGate gate;
 
@@ -586,6 +616,7 @@ int main() {
   disconnected_panel_returns_to_primary_with_safe_inset();
   missing_saved_display_uses_system_primary_not_focused_screen();
   backing_scale_updates_drawable_pixels_without_logical_resize();
+  reverse_main_queue_delivery_discards_the_older_apply();
   drag_persistence_is_emitted_only_once_on_mouse_up();
   live_capture_reconfiguration_ignores_fps_and_pending_only_updates();
   native_failure_reason_is_published_once_until_an_allowed_retry();
