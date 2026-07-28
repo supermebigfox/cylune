@@ -1,14 +1,23 @@
 #import "bridge.h"
 #import "pet_lifecycle.h"
+#import "pet_render_state.h"
 #import "pet_visual_state.h"
 
 #import <AppKit/AppKit.h>
+#import <CoreVideo/CoreVideo.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
 #import <dispatch/dispatch.h>
 
 #include <math.h>
 #include <stddef.h>
+#include <atomic>
+
+// CVDisplayLink remains the frame clock on macOS 10.15–14. The replacement
+// NSDisplayLink APIs start at macOS 14, so suppress only this intentional SDK
+// deprecation while retaining the project's 10.15 deployment target.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 static const uint32_t kPetAbiVersion = 1;
 static const uint32_t kPetCallbackClicked = 1;
@@ -51,12 +60,19 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 
 @interface BPPetView : NSView
 @property(nonatomic, weak) BPPetHost *petHost;
+- (instancetype)initWithFrame:(NSRect)frame metalSource:(NSString *)metalSource;
 - (BOOL)metalAvailable;
+- (void)setMode:(uint32_t)mode;
+- (void)setFps:(uint32_t)fps;
 - (void)setReduceMotion:(BOOL)reduceMotion;
 - (void)setAnimating:(BOOL)animating;
+- (void)setHovering:(BOOL)hovering;
+- (void)completeDrop;
 - (void)setPendingCount:(uint32_t)pendingCount;
 - (void)signal:(uint32_t)signal;
 - (void)pulse;
+- (void)displayLinkTick:(const CVTimeStamp *)outputTime;
+- (void)renderFrame;
 @end
 
 @interface BPCoreHitTargetView : NSView
@@ -76,7 +92,8 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 @property(nonatomic, assign) uint64_t displayID;
 @property(nonatomic, assign) BOOL observingScreenChanges;
 @property(nonatomic, assign) BOOL observingWorkspace;
-- (instancetype)initWithCallback:(PetCallback)callback;
+- (instancetype)initWithCallback:(PetCallback)callback
+                      metalSource:(NSString *)metalSource;
 - (void)applyConfig:(PetConfig)config;
 - (void)show;
 - (void)showWithPermissionRequest:(BOOL)requestPermission;
@@ -88,6 +105,7 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 - (void)endGesture;
 - (void)dragEntered;
 - (void)dragExited;
+- (void)dropCompleted;
 - (void)syncCoreHitTargetFrame;
 - (NSScreen *)screenForPanel;
 - (void)updateDisplaySelectionAndEmit:(BOOL)emit;
@@ -96,6 +114,7 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 - (void)workspaceDidWake:(NSNotification *)notification;
 - (void)refreshCaptureWithPermissionRequest:(BOOL)requestPermission;
 - (void)rendererBecameUnavailable;
+- (IOSurfaceRef)copyLatestSurface CF_RETURNS_RETAINED;
 - (uint32_t)captureState;
 - (uint32_t)rendererState;
 - (uint32_t)shutdown;
@@ -104,9 +123,11 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 @interface BPPetBridge : NSObject
 @property(nonatomic, assign) PetCallback callback;
 @property(nonatomic, strong) BPPetHost *host;
+@property(nonatomic, copy) NSString *metalSource;
 @property(nonatomic, assign) BOOL destroyed;
 @property(nonatomic, assign) uint32_t shutdownState;
-- (instancetype)initWithCallback:(PetCallback)callback;
+- (instancetype)initWithCallback:(PetCallback)callback
+                      metalSource:(NSString *)metalSource;
 - (void)ensureHost;
 - (uint32_t)shutdown;
 @end
@@ -123,6 +144,23 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 
 @end
 
+static CVReturn PetDisplayLinkCallback(CVDisplayLinkRef displayLink,
+                                       const CVTimeStamp *now,
+                                       const CVTimeStamp *outputTime,
+                                       CVOptionFlags flagsIn,
+                                       CVOptionFlags *flagsOut,
+                                       void *displayLinkContext) {
+  (void)displayLink;
+  (void)now;
+  (void)flagsIn;
+  (void)flagsOut;
+  @autoreleasepool {
+    BPPetView *view = (__bridge BPPetView *)displayLinkContext;
+    [view displayLinkTick:outputTime];
+  }
+  return kCVReturnSuccess;
+}
+
 @implementation BPPetView {
   CALayer *_diskLayer;
   CAGradientLayer *_ringLayer;
@@ -134,11 +172,29 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   BOOL _reduceMotion;
   BOOL _animating;
   BOOL _metalAvailable;
+  NSString *_metalSource;
+  void *_rendererHandle;
+  CVDisplayLinkRef _displayLink;
+  std::atomic<bool> _frameEnqueued;
+  std::atomic<bool> _renderingEnabled;
+  CFTimeInterval _renderEpoch;
+  CFTimeInterval _lastRenderedAt;
+  uint32_t _mode;
+  uint32_t _fps;
+  PetRenderAnimationState _renderAnimation;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
+  return [self initWithFrame:frame metalSource:@""];
+}
+
+- (instancetype)initWithFrame:(NSRect)frame metalSource:(NSString *)metalSource {
   self = [super initWithFrame:frame];
   if (self) {
+    _metalSource = [metalSource copy];
+    _fps = 0;
+    _mode = 1;
+    _renderEpoch = CACurrentMediaTime();
     self.wantsLayer = YES;
     self.layer.backgroundColor = NSColor.clearColor.CGColor;
 
@@ -171,8 +227,26 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
     _signalLayer.lineCap = kCALineCapRound;
     _signalLayer.opacity = 0.0;
     [self.layer addSublayer:_signalLayer];
+
+    if (CVDisplayLinkCreateWithActiveCGDisplays(&_displayLink) ==
+        kCVReturnSuccess) {
+      CVDisplayLinkSetOutputCallback(_displayLink, PetDisplayLinkCallback,
+                                     (__bridge void *)self);
+    }
   }
   return self;
+}
+
+- (void)dealloc {
+  if (_displayLink != nullptr) {
+    CVDisplayLinkStop(_displayLink);
+    CVDisplayLinkRelease(_displayLink);
+    _displayLink = nullptr;
+  }
+  if (_rendererHandle != nullptr) {
+    mac_renderer_destroy(_rendererHandle);
+    _rendererHandle = nullptr;
+  }
 }
 
 - (CALayer *)makeBackingLayer {
@@ -183,6 +257,14 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
     metalLayer.device = device;
     metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     metalLayer.framebufferOnly = YES;
+    metalLayer.opaque = NO;
+    _rendererHandle =
+        mac_renderer_create(_metalSource.UTF8String,
+                            (__bridge void *)metalLayer);
+    _metalAvailable = _rendererHandle != nullptr;
+    if (!_metalAvailable) {
+      [self.petHost rendererBecameUnavailable];
+    }
     return metalLayer;
   }
   [self.petHost rendererBecameUnavailable];
@@ -200,6 +282,16 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 - (void)layout {
   [super layout];
   const CGRect bounds = self.bounds;
+  if (_metalAvailable && [self.layer isKindOfClass:CAMetalLayer.class]) {
+    CAMetalLayer *metalLayer = (CAMetalLayer *)self.layer;
+    const CGFloat scale = self.window.backingScaleFactor > 0.0
+                              ? self.window.backingScaleFactor
+                              : NSScreen.mainScreen.backingScaleFactor;
+    metalLayer.contentsScale = scale;
+    metalLayer.drawableSize =
+        CGSizeMake(CGRectGetWidth(bounds) * scale,
+                   CGRectGetHeight(bounds) * scale);
+  }
   const CGFloat effectDiameter =
       MIN(CGRectGetWidth(bounds), CGRectGetHeight(bounds));
   const PetEventHorizonGeometry geometry =
@@ -222,6 +314,10 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
+  _diskLayer.hidden = _metalAvailable;
+  _ringLayer.hidden = _metalAvailable;
+  _pendingDotsLayer.hidden = _metalAvailable;
+  _signalLayer.hidden = _metalAvailable;
   _diskLayer.frame = eventHorizonFrame;
   _diskLayer.cornerRadius =
       geometry.event_horizon_diameter / 2.0;
@@ -265,6 +361,91 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   _signalLayer.path = signalPath;
   CGPathRelease(signalPath);
   [CATransaction commit];
+}
+
+- (void)setMode:(uint32_t)mode {
+  _mode = mode == 0 ? 0 : 1;
+}
+
+- (void)setFps:(uint32_t)fps {
+  _fps = fps == 30 || fps == 60 ? fps : 0;
+  _lastRenderedAt = 0.0;
+}
+
+- (void)setHovering:(BOOL)hovering {
+  _renderAnimation.set_hover(hovering, CACurrentMediaTime());
+  if (!_metalAvailable && hovering) {
+    [self pulse];
+  }
+}
+
+- (void)completeDrop {
+  _renderAnimation.complete_drop(CACurrentMediaTime());
+}
+
+- (void)displayLinkTick:(const CVTimeStamp *)outputTime {
+  (void)outputTime;
+  if (!_renderingEnabled.load(std::memory_order_acquire) ||
+      _frameEnqueued.exchange(true, std::memory_order_acq_rel)) {
+    return;
+  }
+  __weak BPPetView *weakSelf = self;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    BPPetView *strongSelf = weakSelf;
+    if (strongSelf == nil) {
+      return;
+    }
+    strongSelf->_frameEnqueued.store(false, std::memory_order_release);
+    if (strongSelf->_renderingEnabled.load(std::memory_order_acquire)) {
+      [strongSelf renderFrame];
+    }
+  });
+}
+
+- (void)renderFrame {
+  if (!_metalAvailable || _rendererHandle == nullptr || !_animating) {
+    return;
+  }
+  const CFTimeInterval now = CACurrentMediaTime();
+  const PetAnimationSnapshot animation =
+      _renderAnimation.sample(now, _reduceMotion);
+  const uint32_t targetFps = PetTargetFps(_fps, animation.activity);
+  if (targetFps == 0) {
+    return;
+  }
+  const CFTimeInterval interval = 1.0 / (CFTimeInterval)targetFps;
+  if (_lastRenderedAt > 0.0 && now - _lastRenderedAt < interval * 0.92) {
+    return;
+  }
+  _lastRenderedAt = now;
+
+  CAMetalLayer *metalLayer =
+      [self.layer isKindOfClass:CAMetalLayer.class]
+          ? (CAMetalLayer *)self.layer
+          : nil;
+  if (metalLayer == nil || metalLayer.drawableSize.width <= 0.0 ||
+      metalLayer.drawableSize.height <= 0.0) {
+    return;
+  }
+  PetRenderUniforms uniforms = {};
+  uniforms.viewport_px[0] = (float)metalLayer.drawableSize.width;
+  uniforms.viewport_px[1] = (float)metalLayer.drawableSize.height;
+  uniforms.time_seconds = (float)fmod(now - _renderEpoch, 4096.0);
+  uniforms.lens_strength = 1.0f;
+  uniforms.hover_progress = animation.hover_progress;
+  uniforms.swallow_progress = animation.swallow_progress;
+  uniforms.success_progress = animation.success_progress;
+  uniforms.error_progress = animation.error_progress;
+  uniforms.pending_count = _visualState.pending_count();
+  uniforms.mode = _mode;
+  uniforms.reduce_motion = _reduceMotion ? 1 : 0;
+
+  IOSurfaceRef surface =
+      self.petHost == nil ? nullptr : [self.petHost copyLatestSurface];
+  (void)mac_renderer_draw(_rendererHandle, surface, uniforms);
+  if (surface != nullptr) {
+    CFRelease(surface);
+  }
 }
 
 - (void)setPendingCount:(uint32_t)pendingCount {
@@ -333,6 +514,17 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
     [_pendingDotsLayer removeAllAnimations];
     [_signalLayer removeAllAnimations];
   }
+  _renderingEnabled.store(animating, std::memory_order_release);
+  if (_displayLink != nullptr) {
+    if (animating) {
+      _lastRenderedAt = 0.0;
+      CVDisplayLinkStart(_displayLink);
+      [self renderFrame];
+    } else {
+      CVDisplayLinkStop(_displayLink);
+      _frameEnqueued.store(false, std::memory_order_release);
+    }
+  }
 }
 
 - (void)installAnimations {
@@ -397,6 +589,12 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
     return;
   }
   _visualState.apply_signal(signal);
+  _renderAnimation.signal(signal, CACurrentMediaTime());
+  _lastRenderedAt = 0.0;
+  if (_metalAvailable) {
+    [self renderFrame];
+    return;
+  }
   const PetVisualSignalEffect effect = _visualState.signal_effect();
   if (effect == PetVisualSignalEffect::kNone) {
     return;
@@ -552,6 +750,11 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   return NO;
 }
 
+- (void)concludeDragOperation:(nullable id<NSDraggingInfo>)sender {
+  (void)sender;
+  [self.petHost dropCompleted];
+}
+
 @end
 
 @implementation BPPetHost {
@@ -563,7 +766,8 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   BOOL _sleeping;
 }
 
-- (instancetype)initWithCallback:(PetCallback)callback {
+- (instancetype)initWithCallback:(PetCallback)callback
+                      metalSource:(NSString *)metalSource {
   self = [super init];
   if (self) {
     _callback = callback;
@@ -588,7 +792,8 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
         NSWindowCollectionBehaviorCanJoinAllSpaces |
         NSWindowCollectionBehaviorFullScreenAuxiliary;
 
-    _petView = [[BPPetView alloc] initWithFrame:frame];
+    _petView = [[BPPetView alloc] initWithFrame:frame
+                                    metalSource:metalSource];
     _petView.petHost = self;
     _petView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _panel.contentView = _petView;
@@ -672,6 +877,8 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   [self syncCoreHitTargetFrame];
   [self updateDisplaySelectionAndEmit:NO];
   [self.petView setReduceMotion:config.reduce_motion != 0];
+  [self.petView setMode:config.mode];
+  [self.petView setFps:config.fps];
   [self.petView setPendingCount:config.pending_count];
 
   const PetApplyCapturePlan capturePlan =
@@ -801,16 +1008,21 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 }
 
 - (void)dragEntered {
-  [self.petView pulse];
+  [self.petView setHovering:YES];
   if (_callback != nullptr) {
     _callback(kPetCallbackDropEntered, nullptr, 0.0, 0.0, self.displayID);
   }
 }
 
 - (void)dragExited {
+  [self.petView setHovering:NO];
   if (_callback != nullptr) {
     _callback(kPetCallbackDropExited, nullptr, 0.0, 0.0, self.displayID);
   }
+}
+
+- (void)dropCompleted {
+  [self.petView completeDrop];
 }
 
 - (void)syncCoreHitTargetFrame {
@@ -975,6 +1187,10 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   }
 }
 
+- (IOSurfaceRef)copyLatestSurface {
+  return mac_capture_copy_latest_surface(_captureHandle);
+}
+
 - (uint32_t)captureState {
   return mac_capture_state(_captureHandle);
 }
@@ -986,6 +1202,7 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 
 - (uint32_t)shutdown {
   uint32_t shutdownState = PET_SHUTDOWN_COMPLETE;
+  [self.petView setAnimating:NO];
   if (_captureHandle != nullptr) {
     shutdownState = mac_capture_destroy(_captureHandle);
     _captureHandle = nullptr;
@@ -1020,17 +1237,20 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 
 @implementation BPPetBridge
 
-- (instancetype)initWithCallback:(PetCallback)callback {
+- (instancetype)initWithCallback:(PetCallback)callback
+                      metalSource:(NSString *)metalSource {
   self = [super init];
   if (self) {
     _callback = callback;
+    _metalSource = [metalSource copy];
   }
   return self;
 }
 
 - (void)ensureHost {
   if (!self.destroyed && self.host == nil) {
-    self.host = [[BPPetHost alloc] initWithCallback:self.callback];
+    self.host = [[BPPetHost alloc] initWithCallback:self.callback
+                                        metalSource:self.metalSource];
   }
 }
 
@@ -1042,6 +1262,7 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   self.shutdownState =
       self.host == nil ? PET_SHUTDOWN_COMPLETE : [self.host shutdown];
   self.host = nil;
+  self.metalSource = nil;
   self.callback = nullptr;
   return self.shutdownState;
 }
@@ -1088,8 +1309,15 @@ static bool IsValidConfig(PetConfig config) {
 
 extern "C" void *pet_create(PetCallback callback,
                              const char *metal_source) {
-  (void)metal_source;
-  BPPetBridge *bridge = [[BPPetBridge alloc] initWithCallback:callback];
+  NSString *source =
+      metal_source == nullptr
+          ? @""
+          : [[NSString alloc] initWithUTF8String:metal_source];
+  if (source == nil) {
+    return nullptr;
+  }
+  BPPetBridge *bridge = [[BPPetBridge alloc] initWithCallback:callback
+                                                  metalSource:source];
   void *handle = (__bridge_retained void *)bridge;
   RunOnMain(^{
     [bridge ensureHost];
@@ -1215,3 +1443,5 @@ extern "C" uint32_t pet_renderer_state(void *handle) {
 extern "C" uint32_t pet_abi_version(void) {
   return kPetAbiVersion;
 }
+
+#pragma clang diagnostic pop

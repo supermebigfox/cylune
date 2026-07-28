@@ -41,6 +41,20 @@ typedef struct {
   uint32_t pixel_height;
 } PetCaptureRegion;
 
+typedef struct {
+  float viewport_px[2];
+  float time_seconds;
+  float lens_strength;
+  float hover_progress;
+  float swallow_progress;
+  float success_progress;
+  float error_progress;
+  uint32_t pending_count;
+  uint32_t mode;
+  uint32_t reduce_motion;
+  uint32_t _padding;
+} PetRenderUniforms;
+
 enum {
   PET_CAPTURE_UNAVAILABLE = 0,
   PET_CAPTURE_NOT_DETERMINED = 1,
@@ -80,6 +94,15 @@ void mac_capture_configure(void *handle, PetCaptureRegion region,
 void mac_capture_stop(void *handle);
 uint32_t mac_capture_state(void *handle);
 IOSurfaceRef mac_capture_copy_latest_surface(void *handle);
+
+void *mac_renderer_create(const char *metal_source, void *metal_layer);
+void mac_renderer_destroy(void *handle);
+bool mac_renderer_draw(void *handle, IOSurfaceRef surface,
+                       PetRenderUniforms uniforms);
+uint64_t pet_test_render_rgba(const uint8_t *input, uint32_t width,
+                              uint32_t height, uint32_t mode, uint8_t *output,
+                              uint64_t output_capacity,
+                              const char *metal_source);
 
 #ifdef __cplusplus
 }

@@ -1,4 +1,5 @@
 #include "pet_lifecycle.h"
+#include "pet_render_state.h"
 #include "pet_visual_state.h"
 
 #include <assert.h>
@@ -280,6 +281,75 @@ static void visual_state_applies_pending_count_and_signal_code() {
   assert(state.signal_effect() == PetVisualSignalEffect::kFailureRedRipple);
 }
 
+static void native_frame_pacing_matches_auto_fixed_and_hidden_modes() {
+  assert(PetTargetFps(0, PetRenderActivity::kIdle) == 30);
+  assert(PetTargetFps(0, PetRenderActivity::kDropHover) == 60);
+  assert(PetTargetFps(0, PetRenderActivity::kSignal) == 60);
+  assert(PetTargetFps(30, PetRenderActivity::kDropHover) == 30);
+  assert(PetTargetFps(60, PetRenderActivity::kIdle) == 60);
+  assert(PetTargetFps(60, PetRenderActivity::kHidden) == 0);
+}
+
+static void animation_state_distinguishes_hover_and_each_signal() {
+  PetRenderAnimationState state;
+  state.set_hover(true, 2.0);
+  PetAnimationSnapshot hover = state.sample(2.15, false);
+  assert(hover.hover_progress > 0.95);
+  assert(hover.activity == PetRenderActivity::kDropHover);
+
+  state.signal(1, 3.0);
+  PetAnimationSnapshot swallow = state.sample(3.26, false);
+  assert(swallow.swallow_progress > 0.45);
+  assert(swallow.swallow_progress < 0.55);
+  assert(swallow.activity == PetRenderActivity::kSignal);
+
+  state.signal(3, 4.0);
+  PetAnimationSnapshot success = state.sample(4.24, false);
+  assert(success.success_progress > 0.45);
+  assert(success.success_progress < 0.55);
+
+  state.signal(2, 5.0);
+  PetAnimationSnapshot error = state.sample(5.21, false);
+  assert(error.error_progress > 0.45);
+  assert(error.error_progress < 0.55);
+}
+
+static void reduced_motion_uses_short_color_transitions_without_spring() {
+  PetRenderAnimationState state;
+  state.set_hover(true, 1.0);
+  state.signal(1, 2.0);
+
+  const PetAnimationSnapshot transition = state.sample(2.075, true);
+  assert(transition.hover_progress == 0.0);
+  assert(transition.swallow_progress > 0.45);
+  assert(transition.swallow_progress < 0.55);
+  assert(state.sample(2.16, true).swallow_progress == 0.0);
+}
+
+static void hover_exit_keeps_auto_fps_high_until_the_fade_finishes() {
+  PetRenderAnimationState state;
+  state.set_hover(true, 1.0);
+  (void)state.sample(1.2, false);
+  state.set_hover(false, 2.0);
+
+  const PetAnimationSnapshot fading = state.sample(2.075, false);
+  assert(fading.hover_progress > 0.45);
+  assert(fading.hover_progress < 0.55);
+  assert(fading.activity == PetRenderActivity::kDropHover);
+  assert(state.sample(2.16, false).activity == PetRenderActivity::kIdle);
+}
+
+static void completing_a_drop_clears_the_persistent_hover_state() {
+  PetRenderAnimationState state;
+  state.set_hover(true, 1.0);
+  assert(state.sample(1.2, false).hover_progress > 0.99);
+
+  state.complete_drop(2.0);
+
+  assert(state.sample(2.16, false).hover_progress == 0.0);
+  assert(state.sample(2.16, false).activity == PetRenderActivity::kIdle);
+}
+
 int main() {
   event_horizon_circle_fits_inside_core_hit_target();
   core_hit_target_corners_stay_inside_decorative_effect_circle();
@@ -299,4 +369,9 @@ int main() {
   pending_tasks_map_one_to_one_onto_concentric_orbit_dots();
   native_signal_codes_map_to_distinct_visual_effects();
   visual_state_applies_pending_count_and_signal_code();
+  native_frame_pacing_matches_auto_fixed_and_hidden_modes();
+  animation_state_distinguishes_hover_and_each_signal();
+  reduced_motion_uses_short_color_transitions_without_spring();
+  hover_exit_keeps_auto_fps_high_until_the_fade_finishes();
+  completing_a_drop_clears_the_persistent_hover_state();
 }
