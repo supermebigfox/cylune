@@ -10,7 +10,7 @@
 #include <stddef.h>
 #include <vector>
 
-static_assert(sizeof(PetRenderUniforms) == 48,
+static_assert(sizeof(PetRenderUniforms) == 64,
               "PetRenderUniforms ABI size changed");
 static_assert(offsetof(PetRenderUniforms, viewport_px) == 0,
               "PetRenderUniforms viewport offset changed");
@@ -18,6 +18,10 @@ static_assert(offsetof(PetRenderUniforms, time_seconds) == 8,
               "PetRenderUniforms time offset changed");
 static_assert(offsetof(PetRenderUniforms, pending_count) == 32,
               "PetRenderUniforms pending offset changed");
+static_assert(offsetof(PetRenderUniforms, capture_origin_uv) == 48,
+              "PetRenderUniforms capture origin offset changed");
+static_assert(offsetof(PetRenderUniforms, capture_extent_uv) == 56,
+              "PetRenderUniforms capture extent offset changed");
 static_assert(sizeof(PetRenderStats) == 16,
               "PetRenderStats ABI size changed");
 

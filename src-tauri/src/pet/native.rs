@@ -203,6 +203,8 @@ struct TestNativeRenderUniforms {
     mode: u32,
     reduce_motion: u32,
     padding: u32,
+    capture_origin_uv: [f32; 2],
+    capture_extent_uv: [f32; 2],
 }
 
 #[cfg(test)]
@@ -218,6 +220,7 @@ impl From<TestRenderOptions> for TestNativeRenderUniforms {
             pending_count: options.pending_count,
             mode: options.mode as u32,
             reduce_motion: u32::from(options.reduce_motion),
+            capture_extent_uv: [1.0, 1.0],
             ..Self::default()
         }
     }
@@ -823,6 +826,15 @@ mod tests {
         assert_eq!(offset_of!(PetNativeConfig, pending_count), 56);
         assert_eq!(offset_of!(PetNativeConfig, reduce_motion), 60);
         assert_eq!(offset_of!(PetNativeConfig, request_permission), 61);
+        assert_eq!(size_of::<super::TestNativeRenderUniforms>(), 64);
+        assert_eq!(
+            offset_of!(super::TestNativeRenderUniforms, capture_origin_uv),
+            48
+        );
+        assert_eq!(
+            offset_of!(super::TestNativeRenderUniforms, capture_extent_uv),
+            56
+        );
 
         let pet = NativePet::new(test_callback).unwrap();
         assert!(pet.apply(PetNativeConfig::lite(220.0, PetFps::Auto, true)));

@@ -102,6 +102,7 @@ static_assert(offsetof(PetConfig, request_permission) == 61,
 @property(nonatomic, assign) NSPoint gesturePanelOrigin;
 @property(nonatomic, assign) BOOL gestureMoved;
 @property(nonatomic, assign) uint64_t displayID;
+@property(nonatomic, assign) PetCaptureRegion captureRegion;
 @property(nonatomic, assign) BOOL observingScreenChanges;
 @property(nonatomic, assign) BOOL observingWorkspace;
 - (instancetype)initWithCallback:(PetCallback)callback
@@ -326,25 +327,25 @@ static PetRendererBackend ProductionRendererBackend() {
   [super layout];
   const CGRect bounds = self.bounds;
   [self updateDrawableSize];
-  const CGFloat effectDiameter =
+  const CGFloat panelSide =
       MIN(CGRectGetWidth(bounds), CGRectGetHeight(bounds));
-  const PetEventHorizonGeometry geometry =
-      PetEventHorizonGeometryForEffectDiameter(effectDiameter);
-  const CGFloat ringWidth = MAX(3.0, effectDiameter * 0.035);
+  const PetEffectGeometry geometry =
+      PetEffectGeometryForSize(panelSide);
+  const CGFloat ringWidth = MAX(3.0, panelSide * 0.035);
   const CGRect effectFrame =
       CGRectMake(CGRectGetMidX(bounds) -
-                     geometry.decorative_effect_diameter / 2.0,
+                     geometry.panel_side / 2.0,
                  CGRectGetMidY(bounds) -
-                     geometry.decorative_effect_diameter / 2.0,
-                 geometry.decorative_effect_diameter,
-                 geometry.decorative_effect_diameter);
-  const CGRect eventHorizonFrame =
+                     geometry.panel_side / 2.0,
+                 geometry.panel_side,
+                 geometry.panel_side);
+  const CGRect shadowFrame =
       CGRectMake(CGRectGetMidX(bounds) -
-                     geometry.event_horizon_diameter / 2.0,
+                     geometry.shadow_radius,
                  CGRectGetMidY(bounds) -
-                     geometry.event_horizon_diameter / 2.0,
-                 geometry.event_horizon_diameter,
-                 geometry.event_horizon_diameter);
+                     geometry.shadow_radius,
+                 geometry.shadow_radius * 2.0,
+                 geometry.shadow_radius * 2.0);
 
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
@@ -352,9 +353,8 @@ static PetRendererBackend ProductionRendererBackend() {
   _ringLayer.hidden = _metalAvailable;
   _pendingDotsLayer.hidden = _metalAvailable;
   _signalLayer.hidden = _metalAvailable;
-  _diskLayer.frame = eventHorizonFrame;
-  _diskLayer.cornerRadius =
-      geometry.event_horizon_diameter / 2.0;
+  _diskLayer.frame = shadowFrame;
+  _diskLayer.cornerRadius = geometry.shadow_radius;
   _ringLayer.frame = bounds;
   _ringMask.frame = bounds;
   _ringMask.lineWidth = ringWidth;
@@ -368,13 +368,13 @@ static PetRendererBackend ProductionRendererBackend() {
 
   _pendingDotsLayer.frame = bounds;
   const CGFloat dotDiameter =
-      MIN(8.0, MAX(4.0, effectDiameter * 0.032));
+      MIN(8.0, MAX(4.0, panelSide * 0.032));
   const uint32_t pendingCount = _visualState.pending_dot_count();
   for (uint32_t index = 0; index < pendingCount; ++index) {
     const PetPendingDotPlacement placement =
         PetPendingDotPlacementForIndex(index, pendingCount);
     const CGFloat orbitRadius =
-        effectDiameter * 0.5 * placement.normalized_radius;
+        panelSide * 0.5 * placement.normalized_radius;
     const CGFloat centerX =
         CGRectGetMidX(bounds) + cos(placement.angle_radians) * orbitRadius;
     const CGFloat centerY =
@@ -484,6 +484,18 @@ static PetRendererBackend ProductionRendererBackend() {
     return;
   }
   PetRenderUniforms uniforms = {};
+  IOSurfaceRef surface =
+      self.petHost == nil ? nullptr : [self.petHost copyLatestSurface];
+  PetCaptureRegion captureRegion = {};
+  captureRegion.panel_extent_uv[0] = 1.0f;
+  captureRegion.panel_extent_uv[1] = 1.0f;
+  if (_mode == 0 && surface != nullptr && self.petHost != nil) {
+    const PetCaptureRegion configuredRegion = self.petHost.captureRegion;
+    if (configuredRegion.source_width > 0.0 &&
+        configuredRegion.source_height > 0.0) {
+      captureRegion = configuredRegion;
+    }
+  }
   uniforms.viewport_px[0] = (float)metalLayer.drawableSize.width;
   uniforms.viewport_px[1] = (float)metalLayer.drawableSize.height;
   uniforms.time_seconds = (float)fmod(now - _renderEpoch, 4096.0);
@@ -495,9 +507,10 @@ static PetRendererBackend ProductionRendererBackend() {
   uniforms.pending_count = _visualState.pending_count();
   uniforms.mode = _mode;
   uniforms.reduce_motion = _reduceMotion ? 1 : 0;
-
-  IOSurfaceRef surface =
-      self.petHost == nil ? nullptr : [self.petHost copyLatestSurface];
+  uniforms.capture_origin_uv[0] = captureRegion.panel_origin_uv[0];
+  uniforms.capture_origin_uv[1] = captureRegion.panel_origin_uv[1];
+  uniforms.capture_extent_uv[0] = captureRegion.panel_extent_uv[0];
+  uniforms.capture_extent_uv[1] = captureRegion.panel_extent_uv[1];
   const PetRendererStep renderStep =
       _rendererDriver.draw(surface, uniforms);
   if (surface != nullptr) {
@@ -745,7 +758,9 @@ static PetRendererBackend ProductionRendererBackend() {
 
 @end
 
-@implementation BPCoreHitTargetView
+@implementation BPCoreHitTargetView {
+  BOOL _dragInsideCore;
+}
 
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
@@ -755,8 +770,29 @@ static PetRendererBackend ProductionRendererBackend() {
   return self;
 }
 
+- (BOOL)pointInsideCore:(NSPoint)point {
+  if (self.petHost == nil) {
+    return NO;
+  }
+  const PetEffectGeometry visualGeometry =
+      PetEffectGeometryForSize(NSWidth(self.petHost.panel.frame));
+  const PetEffectGeometry hitGeometry = {
+      NSWidth(self.bounds),
+      visualGeometry.shadow_radius,
+      visualGeometry.hit_radius,
+  };
+  return PetPointInsideCore(point.x, point.y, hitGeometry);
+}
+
+- (NSView *)hitTest:(NSPoint)point {
+  return [self pointInsideCore:point] ? [super hitTest:point] : nil;
+}
+
 - (void)mouseDown:(NSEvent *)event {
-  (void)event;
+  const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  if (![self pointInsideCore:point]) {
+    return;
+  }
   [self.petHost beginGestureAt:NSEvent.mouseLocation];
 }
 
@@ -771,17 +807,46 @@ static PetRendererBackend ProductionRendererBackend() {
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
-  (void)sender;
+  const NSPoint point =
+      [self convertPoint:sender.draggingLocation fromView:nil];
+  if (![self pointInsideCore:point]) {
+    _dragInsideCore = NO;
+    return NSDragOperationNone;
+  }
+  _dragInsideCore = YES;
   [self.petHost dragEntered];
   return NSDragOperationCopy;
 }
 
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
+  const NSPoint point =
+      [self convertPoint:sender.draggingLocation fromView:nil];
+  const BOOL insideCore = [self pointInsideCore:point];
+  if (insideCore != _dragInsideCore) {
+    _dragInsideCore = insideCore;
+    if (insideCore) {
+      [self.petHost dragEntered];
+    } else {
+      [self.petHost dragExited];
+    }
+  }
+  return insideCore ? NSDragOperationCopy : NSDragOperationNone;
+}
+
 - (void)draggingExited:(nullable id<NSDraggingInfo>)sender {
   (void)sender;
-  [self.petHost dragExited];
+  if (_dragInsideCore) {
+    _dragInsideCore = NO;
+    [self.petHost dragExited];
+  }
 }
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+  const NSPoint point =
+      [self convertPoint:sender.draggingLocation fromView:nil];
+  if (![self pointInsideCore:point]) {
+    return NO;
+  }
   NSPasteboard *pasteboard = sender.draggingPasteboard;
   NSArray *urls = [pasteboard
       readObjectsForClasses:@[ NSURL.class ]
@@ -821,6 +886,7 @@ static PetRendererBackend ProductionRendererBackend() {
 
 - (void)concludeDragOperation:(nullable id<NSDraggingInfo>)sender {
   (void)sender;
+  _dragInsideCore = NO;
   [self.petHost dropCompleted];
 }
 
@@ -869,9 +935,8 @@ static PetRendererBackend ProductionRendererBackend() {
     _petView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _panel.contentView = _petView;
 
-    const PetEventHorizonGeometry geometry =
-        PetEventHorizonGeometryForEffectDiameter(220.0);
-    const CGFloat coreHitTargetSide = (CGFloat)geometry.core_hit_target_side;
+    const PetEffectGeometry geometry = PetEffectGeometryForSize(220.0);
+    const CGFloat coreHitTargetSide = (CGFloat)(geometry.hit_radius * 2.0);
     const NSRect coreHitTargetFrame =
         NSMakeRect(0.0, 0.0, coreHitTargetSide, coreHitTargetSide);
     _coreHitTargetPanel = [[BPPetPanel alloc]
@@ -1116,9 +1181,9 @@ static PetRendererBackend ProductionRendererBackend() {
 
 - (void)syncCoreHitTargetFrame {
   const NSRect visualFrame = self.panel.frame;
-  const PetEventHorizonGeometry geometry =
-      PetEventHorizonGeometryForEffectDiameter(NSWidth(visualFrame));
-  const CGFloat side = (CGFloat)geometry.core_hit_target_side;
+  const PetEffectGeometry geometry =
+      PetEffectGeometryForSize(NSWidth(visualFrame));
+  const CGFloat side = (CGFloat)(geometry.hit_radius * 2.0);
   const NSRect coreHitTargetFrame =
       NSMakeRect(NSMidX(visualFrame) - side / 2.0,
                  NSMidY(visualFrame) - side / 2.0, side, side);
@@ -1241,6 +1306,7 @@ static PetRendererBackend ProductionRendererBackend() {
     const PetCaptureConfigurationKey key = {
         _config.mode, captureVisible != NO, emptyRegion};
     if (_captureConfiguration.should_configure(key, requestPermission)) {
+      self.captureRegion = emptyRegion;
       mac_capture_configure(_captureHandle, emptyRegion, _config.mode == 0,
                             captureVisible, requestPermission, _config.fps);
     }
@@ -1251,6 +1317,7 @@ static PetRendererBackend ProductionRendererBackend() {
     const PetCaptureRegion emptyRegion = {};
     const PetCaptureConfigurationKey key = {_config.mode, false, emptyRegion};
     if (_captureConfiguration.should_configure(key, requestPermission)) {
+      self.captureRegion = emptyRegion;
       mac_capture_configure(_captureHandle, emptyRegion, true, false,
                             requestPermission, _config.fps);
     }
@@ -1276,6 +1343,7 @@ static PetRendererBackend ProductionRendererBackend() {
   const PetCaptureRegion region = PetCaptureRegionForPanel(panel, display);
   const PetCaptureConfigurationKey key = {_config.mode, true, region};
   if (_captureConfiguration.should_configure(key, requestPermission)) {
+    self.captureRegion = region;
     mac_capture_configure(_captureHandle, region, true, true,
                           requestPermission, _config.fps);
   }

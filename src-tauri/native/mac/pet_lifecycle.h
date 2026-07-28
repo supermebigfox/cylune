@@ -183,7 +183,11 @@ inline bool PetCaptureRegionsEqual(PetCaptureRegion lhs,
          lhs.source_width == rhs.source_width &&
          lhs.source_height == rhs.source_height &&
          lhs.pixel_width == rhs.pixel_width &&
-         lhs.pixel_height == rhs.pixel_height;
+         lhs.pixel_height == rhs.pixel_height &&
+         lhs.panel_origin_uv[0] == rhs.panel_origin_uv[0] &&
+         lhs.panel_origin_uv[1] == rhs.panel_origin_uv[1] &&
+         lhs.panel_extent_uv[0] == rhs.panel_extent_uv[0] &&
+         lhs.panel_extent_uv[1] == rhs.panel_extent_uv[1];
 }
 
 inline bool PetCaptureConfigurationKeysEqual(
@@ -414,8 +418,7 @@ class PetPermissionLifecycle {
 
 inline PetCaptureRegion PetCaptureRegionForPanel(PetPanelFrame panel,
                                                  PetScreenFrame display) {
-  constexpr double kLensExpansionFactor = 1.24;
-  const double requested_side = std::floor(panel.width * kLensExpansionFactor);
+  const double requested_side = panel.width * 1.60;
   const double margin = (requested_side - panel.width) / 2.0;
   const double requested_x = panel.x - margin;
   const double requested_y = panel.y - margin;
@@ -431,34 +434,50 @@ inline PetCaptureRegion PetCaptureRegionForPanel(PetPanelFrame panel,
       std::clamp(requested_y + requested_side, display.y, display_top);
   const double width = std::max(0.0, capture_right - capture_x);
   const double height = std::max(0.0, capture_top - capture_y);
+  const double source_y = display_top - capture_top;
+  const double panel_top_y =
+      display_top - (panel.y + panel.height);
+  const float panel_origin_x =
+      width > 0.0 ? static_cast<float>((panel.x - capture_x) / width) : 0.0f;
+  const float panel_origin_y =
+      height > 0.0 ? static_cast<float>((panel_top_y - source_y) / height)
+                   : 0.0f;
+  const float panel_extent_x =
+      width > 0.0 ? static_cast<float>(panel.width / width) : 0.0f;
+  const float panel_extent_y =
+      height > 0.0 ? static_cast<float>(panel.height / height) : 0.0f;
 
   return {
       display.display_id,
       capture_x - display.x,
-      display_top - capture_top,
+      source_y,
       width,
       height,
       static_cast<uint32_t>(std::llround(width * display.scale)),
       static_cast<uint32_t>(std::llround(height * display.scale)),
+      {panel_origin_x, panel_origin_y},
+      {panel_extent_x, panel_extent_y},
   };
 }
 
-struct PetEventHorizonGeometry {
-  double decorative_effect_diameter;
-  double event_horizon_diameter;
-  double core_hit_target_side;
+struct PetEffectGeometry {
+  double panel_side;
+  double shadow_radius;
+  double hit_radius;
 };
 
-inline PetEventHorizonGeometry PetEventHorizonGeometryForEffectDiameter(
-    double effect_diameter) {
-  constexpr double kSquareRootOfTwo = 1.4142135623730950488;
-  constexpr double kCoreHitTargetInset = 1.0;
-  const double core_diameter =
-      effect_diameter / kSquareRootOfTwo - (2.0 * kCoreHitTargetInset);
-  const double clamped_core_diameter =
-      core_diameter > 0.0 ? core_diameter : 0.0;
-  return {effect_diameter > 0.0 ? effect_diameter : 0.0,
-          clamped_core_diameter, clamped_core_diameter};
+inline PetEffectGeometry PetEffectGeometryForSize(double size) {
+  const double side = std::max(0.0, size);
+  const double shadow = side * 0.075;
+  return {side, shadow, std::max(22.0, shadow * 1.15)};
+}
+
+inline bool PetPointInsideCore(double x, double y,
+                               PetEffectGeometry geometry) {
+  const double dx = x - geometry.panel_side * 0.5;
+  const double dy = y - geometry.panel_side * 0.5;
+  return std::isfinite(dx) && std::isfinite(dy) &&
+         std::hypot(dx, dy) <= geometry.hit_radius;
 }
 
 class PetWindowLifecycle {

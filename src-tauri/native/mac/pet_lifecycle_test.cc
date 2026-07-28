@@ -10,6 +10,10 @@
 #include <thread>
 #include <vector>
 
+static bool close_to(double lhs, double rhs, double epsilon = 1e-6) {
+  return fabs(lhs - rhs) <= epsilon;
+}
+
 struct FakeRendererBackend {
   bool create_success = true;
   std::vector<uint32_t> draw_results;
@@ -53,28 +57,73 @@ static PetRendererBackend fake_renderer_backend(FakeRendererBackend *fake) {
           fake_renderer_destroy};
 }
 
-static void event_horizon_circle_fits_inside_core_hit_target() {
-  for (const double effectDiameter : {120.0, 220.0, 360.0}) {
-    const PetEventHorizonGeometry geometry =
-        PetEventHorizonGeometryForEffectDiameter(effectDiameter);
-    const double eventHorizonRadius = geometry.event_horizon_diameter / 2.0;
-    const double hitTargetHalfSide = geometry.core_hit_target_side / 2.0;
-    assert(geometry.event_horizon_diameter > 0.0);
-    assert(geometry.event_horizon_diameter ==
-           geometry.core_hit_target_side);
-    assert(eventHorizonRadius <= hitTargetHalfSide);
-  }
+static void approved_geometry_uses_a_small_circular_core() {
+  const PetEffectGeometry small = PetEffectGeometryForSize(120.0);
+  const PetEffectGeometry medium = PetEffectGeometryForSize(220.0);
+  const PetEffectGeometry large = PetEffectGeometryForSize(360.0);
+  assert(close_to(small.shadow_radius, 9.0));
+  assert(close_to(medium.shadow_radius, 16.5));
+  assert(close_to(large.shadow_radius, 27.0));
+  assert(close_to(small.hit_radius, 22.0));
+  assert(close_to(medium.hit_radius, 22.0));
+  assert(close_to(large.hit_radius, 31.05));
+  assert(PetPointInsideCore(60.0, 60.0, small));
+  assert(PetPointInsideCore(81.9, 60.0, small));
+  assert(!PetPointInsideCore(82.1, 60.0, small));
+  assert(!PetPointInsideCore(0.0, 0.0, small));
 }
 
-static void core_hit_target_corners_stay_inside_decorative_effect_circle() {
-  for (const double effectDiameter : {120.0, 220.0, 360.0}) {
-    const PetEventHorizonGeometry geometry =
-        PetEventHorizonGeometryForEffectDiameter(effectDiameter);
-    const double hitTargetHalfSide = geometry.core_hit_target_side / 2.0;
-    const double cornerDistance = hypot(hitTargetHalfSide, hitTargetHalfSide);
-    assert(geometry.decorative_effect_diameter == effectDiameter);
-    assert(cornerDistance < geometry.decorative_effect_diameter / 2.0);
-  }
+static void centered_capture_maps_the_panel_into_the_middle_five_eighths() {
+  const PetPanelFrame panel = {100.0, 300.0, 220.0, 220.0};
+  const PetScreenFrame display = {0.0, 0.0, 1440.0, 900.0, 2.0, 42};
+  const PetCaptureRegion region = PetCaptureRegionForPanel(panel, display);
+  assert(close_to(region.source_x, 34.0));
+  assert(close_to(region.source_y, 314.0));
+  assert(close_to(region.source_width, 352.0));
+  assert(close_to(region.source_height, 352.0));
+  assert(region.pixel_width == 704);
+  assert(region.pixel_height == 704);
+  assert(close_to(region.panel_origin_uv[0], 0.1875));
+  assert(close_to(region.panel_origin_uv[1], 0.1875));
+  assert(close_to(region.panel_extent_uv[0], 0.625));
+  assert(close_to(region.panel_extent_uv[1], 0.625));
+}
+
+static void left_edge_capture_does_not_stretch_the_desktop() {
+  const PetPanelFrame panel = {0.0, 300.0, 220.0, 220.0};
+  const PetScreenFrame display = {0.0, 0.0, 1440.0, 900.0, 2.0, 42};
+  const PetCaptureRegion region = PetCaptureRegionForPanel(panel, display);
+  assert(close_to(region.source_x, 0.0));
+  assert(close_to(region.source_width, 286.0));
+  assert(close_to(region.panel_origin_uv[0], 0.0));
+  assert(close_to(region.panel_extent_uv[0], 220.0 / 286.0));
+  assert(close_to(region.panel_origin_uv[1], 66.0 / 352.0));
+  assert(close_to(region.panel_extent_uv[1], 220.0 / 352.0));
+}
+
+static void other_screen_edges_preserve_the_clipped_panel_mapping() {
+  const PetScreenFrame display = {0.0, 0.0, 1440.0, 900.0, 2.0, 42};
+
+  const PetCaptureRegion right = PetCaptureRegionForPanel(
+      {1220.0, 300.0, 220.0, 220.0}, display);
+  assert(close_to(right.source_x, 1154.0));
+  assert(close_to(right.source_width, 286.0));
+  assert(close_to(right.panel_origin_uv[0], 66.0 / 286.0));
+  assert(close_to(right.panel_extent_uv[0], 220.0 / 286.0));
+
+  const PetCaptureRegion top = PetCaptureRegionForPanel(
+      {610.0, 680.0, 220.0, 220.0}, display);
+  assert(close_to(top.source_y, 0.0));
+  assert(close_to(top.source_height, 286.0));
+  assert(close_to(top.panel_origin_uv[1], 0.0));
+  assert(close_to(top.panel_extent_uv[1], 220.0 / 286.0));
+
+  const PetCaptureRegion bottom = PetCaptureRegionForPanel(
+      {610.0, 0.0, 220.0, 220.0}, display);
+  assert(close_to(bottom.source_y, 614.0));
+  assert(close_to(bottom.source_height, 286.0));
+  assert(close_to(bottom.panel_origin_uv[1], 66.0 / 286.0));
+  assert(close_to(bottom.panel_extent_uv[1], 220.0 / 286.0));
 }
 
 static void pet_visual_and_core_hit_target_windows_share_lifecycle() {
@@ -109,12 +158,12 @@ static void capture_region_is_bounded_and_uses_retina_pixels() {
   const PetCaptureRegion region = PetCaptureRegionForPanel(panel, display);
 
   assert(region.display_id == 42);
-  assert(region.source_x == 154.0);
-  assert(region.source_y == 454.0);
-  assert(region.source_width == 272.0);
-  assert(region.source_height == 272.0);
-  assert(region.pixel_width == 544);
-  assert(region.pixel_height == 544);
+  assert(region.source_x == 114.0);
+  assert(region.source_y == 414.0);
+  assert(region.source_width == 352.0);
+  assert(region.source_height == 352.0);
+  assert(region.pixel_width == 704);
+  assert(region.pixel_height == 704);
 }
 
 static void greatest_intersection_selects_the_new_display() {
@@ -608,8 +657,10 @@ static void frame_dispatch_gate_is_initialized_before_the_first_callback() {
 }
 
 int main() {
-  event_horizon_circle_fits_inside_core_hit_target();
-  core_hit_target_corners_stay_inside_decorative_effect_circle();
+  approved_geometry_uses_a_small_circular_core();
+  centered_capture_maps_the_panel_into_the_middle_five_eighths();
+  left_edge_capture_does_not_stretch_the_desktop();
+  other_screen_edges_preserve_the_clipped_panel_mapping();
   pet_visual_and_core_hit_target_windows_share_lifecycle();
   capture_region_is_bounded_and_uses_retina_pixels();
   greatest_intersection_selects_the_new_display();

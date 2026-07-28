@@ -44,6 +44,8 @@ typedef struct {
   double source_height;
   uint32_t pixel_width;
   uint32_t pixel_height;
+  float panel_origin_uv[2];
+  float panel_extent_uv[2];
 } PetCaptureRegion;
 
 typedef struct {
@@ -58,6 +60,8 @@ typedef struct {
   uint32_t mode;
   uint32_t reduce_motion;
   uint32_t _padding;
+  float capture_origin_uv[2];
+  float capture_extent_uv[2];
 } PetRenderUniforms;
 
 typedef struct {
