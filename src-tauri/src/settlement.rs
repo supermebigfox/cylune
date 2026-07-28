@@ -749,19 +749,64 @@ mod tests {
             .expect("set BAMBU_SMOKE_3MF");
         let metadata_before = std::fs::metadata(&path).unwrap();
         let source_hash_before = crate::imports::sha256(&path).unwrap();
+        let probe = crate::parser::parse_3mf(&path).unwrap();
+        assert_eq!(probe.filaments.len(), 4);
+
         let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+        let expected_spools = probe
+            .filaments
+            .iter()
+            .map(|profile| {
+                let spool_id = inventory
+                    .create_spool(NewSpool {
+                        display_name: format!("Import baseline tool {}", profile.tool),
+                        preset_id: Some(profile.preset_id.clone()),
+                        brand: profile.brand.clone(),
+                        material: profile.material.clone(),
+                        series: profile.series.clone(),
+                        color_hex: profile.color_hex.clone(),
+                        remaining_grams: 100_000.0,
+                    })
+                    .unwrap();
+                (profile.tool, spool_id)
+            })
+            .collect::<Vec<_>>();
+        let database = inventory.into_database();
         let mut import_service = PrintService::with_stability_delay(database, Duration::ZERO);
         let balances_before = balance_rows(&import_service);
+        assert_eq!(balances_before.len(), probe.filaments.len());
+        assert!(balances_before
+            .iter()
+            .all(|(_, remaining_grams)| *remaining_grams > 0.0));
+        let ledger_count_before = ledger_event_count(&import_service);
+        assert_eq!(ledger_count_before as usize, probe.filaments.len());
+        let ledger_before = ledger_rows(&import_service);
+        assert_eq!(ledger_before.len(), probe.filaments.len());
+        let pending_before = import_service.pending_summary().unwrap();
+        assert_eq!(pending_before.count, 0);
+        assert_eq!(pending_before.newest_job_id, None);
+
         let preview = import_service.import_print_file(&path).unwrap();
         assert_eq!(balance_rows(&import_service), balances_before);
-        assert!(import_service.pending_summary().unwrap().count >= 1);
+        assert_eq!(ledger_event_count(&import_service), ledger_count_before);
+        assert_eq!(ledger_rows(&import_service), ledger_before);
+        let pending_after = import_service.pending_summary().unwrap();
+        assert_eq!(pending_after.count, 1);
+        assert_eq!(pending_after.newest_job_id, Some(preview.job_id));
+        for filament in &preview.filaments {
+            let expected_spool_id = expected_spools
+                .iter()
+                .find_map(|(tool, spool_id)| (*tool == filament.tool).then_some(*spool_id))
+                .unwrap();
+            assert_eq!(filament.candidate_spool_ids, vec![expected_spool_id]);
+            assert_eq!(filament.suggested_spool_id, Some(expected_spool_id));
+        }
         let metadata_after = std::fs::metadata(&path).unwrap();
         assert_eq!(metadata_before.len(), metadata_after.len());
         assert_eq!(source_hash_before, crate::imports::sha256(&path).unwrap());
 
-        let probe = crate::parser::parse_3mf(&path).unwrap();
         assert_eq!(preview.filaments.len(), probe.filaments.len());
-        assert_eq!(probe.filaments.len(), 4);
         let middle_layer = probe.gcode.max_layer.saturating_sub(1) / 2;
         println!("real_file_layers={}", probe.gcode.max_layer);
         for profile in &probe.filaments {
@@ -839,6 +884,55 @@ mod tests {
             .unwrap();
         statement
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
+
+    type SmokeLedgerRow = (
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<u32>,
+        String,
+        f64,
+        String,
+        Option<String>,
+        String,
+    );
+
+    fn ledger_event_count(service: &PrintService) -> u32 {
+        service
+            .database
+            .connection
+            .query_row("SELECT COUNT(*) FROM ledger_events", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    fn ledger_rows(service: &PrintService) -> Vec<SmokeLedgerRow> {
+        let mut statement = service
+            .database
+            .connection
+            .prepare(
+                "SELECT event_id, idempotency_key, spool_id, job_id, settlement_version, event_type, delta_grams, confidence, reverses_event_id, created_at FROM ledger_events ORDER BY event_id",
+            )
+            .unwrap();
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
+                ))
+            })
             .unwrap()
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap()

@@ -10,8 +10,8 @@
 | --- | --- | --- | --- | --- |
 | A01 | 前端测试与生产构建 | `npm test`、`npm run build` 全部成功 | 通过 | 11 个测试文件、71 项测试通过；Vite 生产构建转换 4,590 个模块 |
 | A02 | Rust 普通测试 | `cargo test` 全部成功，只有真实文件 smoke 按设计忽略 | 通过 | 124 项通过、0 失败、1 项真实文件 smoke 按设计忽略 |
-| A03 | 用户自有切片文件只读 smoke | 仅通过 `BAMBU_SMOKE_3MF` 读取；导入不改余额、待结算增加；4 个工具；成功/失败/取消/50% 均结算；重复成功幂等、反转恢复；前后长度与 SHA-256 不变；日志不含完整路径 | 通过 | `cargo test smoke_real_sliced_file_from_environment -- --ignored --nocapture`：14 层、4 工具、4 种结果通过；长度 `4662275`，SHA-256 `1f1614e6092de69de08cee99b7c45d9d59c37aead47a49e5754113c1433ee9d4` 前后相同 |
-| A04 | Release 构建和签名完整性 | 当前 Mac 架构的 `.app` 与 `.dmg` 存在；`codesign --verify --deep --strict` 成功 | 通过 | arm64 `.app` 通过本机 ad-hoc 严格签名验证；DMG `5,701,453` bytes，SHA-256 `93a39d5c7a2a5dae9f321fb39011729d52f5b0006ba7bbf4856623a14470f0f6`，`hdiutil verify` 有效 |
+| A03 | 用户自有切片文件只读 smoke | 仅通过 `BAMBU_SMOKE_3MF` 读取；先建立 4 个非零独立卷和 4 条创建流水，待处理为 0；导入后余额与流水逐项不变、待处理精确为 1；4 个工具；成功/失败/取消/50% 均结算；重复成功幂等、反转恢复；前后长度与 SHA-256 不变；日志不含完整路径 | 通过 | `cargo test smoke_real_sliced_file_from_environment -- --ignored --nocapture`：14 层、4 个唯一匹配实体卷、4 条未变创建流水、4 种结果通过；长度 `4662275`，SHA-256 `1f1614e6092de69de08cee99b7c45d9d59c37aead47a49e5754113c1433ee9d4` 前后相同 |
+| A04 | Release 构建和签名完整性 | 当前 Mac 架构的 `.app` 与 `.dmg` 存在；`codesign --verify --deep --strict` 成功 | 通过 | arm64 `.app` 通过本机 ad-hoc 严格签名验证；DMG `5,701,449` bytes，SHA-256 `b4637bc489a99ce9da558e4ca781e398c9e3544b9098cc780963b7596278a7be`，`hdiutil verify` 有效 |
 | A05 | Bundle 元数据 | 唯一 bundle identifier；配置最低系统 10.15；无 camera/microphone usage key；无 `menubar` WebView | 通过 | `CFBundleIdentifier=com.local.bambuspools`；`LSMinimumSystemVersion=10.15`；仅一个 bundle Info.plist；两项隐私键缺失；配置仅有 `main` WebView。当前交付仅适用于 Apple Silicon macOS 11+：Mach-O 为 arm64 且 `minos 11.0`；未安装 x86_64 target，未生成 universal 包。配置中的 10.15 只留给未来 Intel 构建 |
 
 ## Finder、导入与点击

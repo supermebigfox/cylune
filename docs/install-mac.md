@@ -67,7 +67,28 @@ npm run tauri dev
 npm run tauri build
 ```
 
-产物位于 `src-tauri/target/release/bundle/macos/`。
+构建成功后：
+
+- `.app` 位于 `src-tauri/target/release/bundle/macos/拓竹耗材管家.app`；
+- `.dmg` 位于 `src-tauri/target/release/bundle/dmg/拓竹耗材管家_0.1.0_aarch64.dmg`。
+
+若本机的 Finder AppleScript 长时间停在 `Running bundle_dmg.sh`，先确认 release `.app` 已成功生成并中止卡住的 DMG 美化步骤，再使用同一个 Tauri 生成脚本的无 GUI 模式：
+
+```bash
+cd src-tauri/target/release/bundle/macos
+../dmg/bundle_dmg.sh \
+  --skip-jenkins \
+  --volname '拓竹耗材管家' \
+  --icon '拓竹耗材管家.app' 180 170 \
+  --app-drop-link 480 170 \
+  --window-size 660 400 \
+  --hide-extension '拓竹耗材管家.app' \
+  --volicon '../dmg/icon.icns' \
+  '../dmg/拓竹耗材管家_0.1.0_aarch64.dmg' \
+  '拓竹耗材管家.app'
+```
+
+若目标 DMG 已存在，应先移走旧产物再执行。`--skip-jenkins` 只跳过 Finder 的图标位置/背景美化；应用内容、`Applications` 链接、卷图标、压缩和校验仍会生成。
 
 ## 迁移到树莓派
 
