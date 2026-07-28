@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <initializer_list>
 #include <math.h>
+#include <vector>
 
 static void event_horizon_circle_fits_inside_core_hit_target() {
   for (const double effectDiameter : {120.0, 220.0, 360.0}) {
@@ -80,6 +81,15 @@ static void capture_policy_excludes_media_and_retains_only_the_newest_frame() {
   assert(policy.maximum_retained_frames == 1);
 }
 
+static void metal_unavailable_disables_real_capture_and_requests_stop() {
+  const PetRendererDecision decision =
+      PetRendererDecisionForMetalAvailability(false);
+
+  assert(decision.state == PET_RENDERER_UNAVAILABLE);
+  assert(!decision.real_effect_available);
+  assert(decision.stop_capture);
+}
+
 static void stopped_capture_rejects_late_frame_delivery() {
   PetFrameRetention gate;
   assert(!gate.accepting());
@@ -89,6 +99,24 @@ static void stopped_capture_rejects_late_frame_delivery() {
 
   gate.stop();
   assert(!gate.accepting());
+}
+
+static void shutdown_stops_and_releases_capture_before_destroying_it() {
+  std::vector<int> actions;
+  bool frame_retained = true;
+
+  PetShutdownCapture(
+      [&] {
+        actions.push_back(1);
+        frame_retained = false;
+      },
+      [&] {
+        assert(!frame_retained);
+        actions.push_back(2);
+      });
+
+  assert((actions == std::vector<int>{1, 2}));
+  assert(!frame_retained);
 }
 
 static void permission_request_requires_one_explicit_real_mode_action() {
@@ -109,6 +137,33 @@ static void permission_request_requires_one_explicit_real_mode_action() {
   decision = permission.preflight(false, true);
   assert(decision.state == PET_CAPTURE_DENIED);
   assert(decision.action == PetPermissionAction::kNone);
+}
+
+static void hidden_explicit_real_selection_requests_once_without_streaming() {
+  PetPermissionLifecycle permission;
+  const PetApplyCapturePlan hidden =
+      PetApplyCapturePlanForVisibility(false, true);
+
+  assert(hidden.refresh_capture);
+  assert(hidden.request_permission);
+  PetPermissionDecision decision =
+      permission.preflight(false, hidden.request_permission);
+  assert(decision.action == PetPermissionAction::kRequestSystemPermission);
+  assert(!PetShouldStartCapture(decision, false));
+
+  const PetApplyCapturePlan shown =
+      PetApplyCapturePlanForVisibility(true, false);
+  decision = permission.preflight(false, shown.request_permission);
+  assert(decision.action == PetPermissionAction::kNone);
+  assert(!PetShouldStartCapture(decision, true));
+
+  PetPermissionLifecycle already_granted;
+  decision = already_granted.preflight(true, hidden.request_permission);
+  assert(decision.action == PetPermissionAction::kEnumerateCapture);
+  assert(!PetShouldStartCapture(decision, false));
+  decision = already_granted.preflight(true, shown.request_permission);
+  assert(decision.action == PetPermissionAction::kEnumerateCapture);
+  assert(PetShouldStartCapture(decision, true));
 }
 
 static void permission_change_after_denial_requires_a_clean_restart() {
@@ -194,8 +249,11 @@ int main() {
   pet_visual_and_core_hit_target_windows_share_lifecycle();
   capture_region_is_bounded_and_uses_retina_pixels();
   capture_policy_excludes_media_and_retains_only_the_newest_frame();
+  metal_unavailable_disables_real_capture_and_requests_stop();
   stopped_capture_rejects_late_frame_delivery();
+  shutdown_stops_and_releases_capture_before_destroying_it();
   permission_request_requires_one_explicit_real_mode_action();
+  hidden_explicit_real_selection_requests_once_without_streaming();
   permission_change_after_denial_requires_a_clean_restart();
   existing_permission_enumerates_without_requesting_again();
   revoked_existing_permission_falls_back_without_prompting();

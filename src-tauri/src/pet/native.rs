@@ -53,6 +53,25 @@ pub enum NativeCaptureState {
     Failed = 5,
 }
 
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeRendererState {
+    Unavailable = 0,
+    Ready = 1,
+}
+
+impl TryFrom<u32> for NativeRendererState {
+    type Error = ();
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Unavailable),
+            1 => Ok(Self::Ready),
+            _ => Err(()),
+        }
+    }
+}
+
 impl TryFrom<u32> for NativeCaptureState {
     type Error = ();
 
@@ -141,7 +160,10 @@ impl Error for NativePetError {}
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::{c_char, c_void, NativeCaptureState, NonNull, PetCallback, PetNativeConfig};
+    use super::{
+        c_char, c_void, NativeCaptureState, NativeRendererState, NonNull, PetCallback,
+        PetNativeConfig,
+    };
 
     extern "C" {
         fn pet_create(callback: PetCallback, metal_source: *const c_char) -> *mut c_void;
@@ -152,6 +174,7 @@ mod platform {
         fn pet_reset(handle: *mut c_void);
         fn pet_signal(handle: *mut c_void, signal: u32);
         fn pet_capture_state(handle: *mut c_void) -> u32;
+        fn pet_renderer_state(handle: *mut c_void) -> u32;
         fn pet_abi_version() -> u32;
     }
 
@@ -190,6 +213,11 @@ mod platform {
             NativeCaptureState::try_from(unsafe { pet_capture_state(self.0.as_ptr()) })
                 .unwrap_or(NativeCaptureState::Failed)
         }
+
+        pub fn renderer_state(&self) -> NativeRendererState {
+            NativeRendererState::try_from(unsafe { pet_renderer_state(self.0.as_ptr()) })
+                .unwrap_or(NativeRendererState::Unavailable)
+        }
     }
 
     unsafe impl Send for Handle {}
@@ -203,7 +231,7 @@ mod platform {
 
 #[cfg(not(target_os = "macos"))]
 mod platform {
-    use super::{NativeCaptureState, PetCallback, PetNativeConfig};
+    use super::{NativeCaptureState, NativeRendererState, PetCallback, PetNativeConfig};
 
     pub fn abi_version() -> u32 {
         super::ABI_VERSION
@@ -230,6 +258,10 @@ mod platform {
 
         pub fn capture_state(&self) -> NativeCaptureState {
             NativeCaptureState::Unavailable
+        }
+
+        pub fn renderer_state(&self) -> NativeRendererState {
+            NativeRendererState::Unavailable
         }
     }
 }
@@ -271,6 +303,10 @@ impl NativePet {
 
     pub fn capture_state(&self) -> NativeCaptureState {
         self.handle.capture_state()
+    }
+
+    pub fn renderer_state(&self) -> NativeRendererState {
+        self.handle.renderer_state()
     }
 }
 

@@ -206,6 +206,7 @@
     "permissionDenied": "未開啟螢幕錄製權限，目前使用輕量模式",
     "restartRequired": "權限已變更，請重新啟動應用程式",
     "captureFailed": "桌面擷取意外停止，輕量模式仍在運作",
+    "metalUnavailable": "Metal 目前無法使用，已維持輕量模式運作",
     "saveError": "無法儲存桌面黑洞設定"
   },
   "notifications": {

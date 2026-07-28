@@ -50,6 +50,11 @@ enum {
   PET_CAPTURE_FAILED = 5,
 };
 
+enum {
+  PET_RENDERER_UNAVAILABLE = 0,
+  PET_RENDERER_READY = 1,
+};
+
 void *pet_create(PetCallback callback, const char *metal_source);
 void pet_destroy(void *handle);
 bool pet_apply(void *handle, PetConfig config);
@@ -58,6 +63,7 @@ void pet_hide(void *handle);
 void pet_reset(void *handle);
 void pet_signal(void *handle, uint32_t signal);
 uint32_t pet_capture_state(void *handle);
+uint32_t pet_renderer_state(void *handle);
 uint32_t pet_abi_version(void);
 
 void *mac_capture_create(PetCallback callback);

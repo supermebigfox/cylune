@@ -2,7 +2,8 @@ use crate::{
     error::{AppError, Result},
     imports::{ImportState, PendingSummary, PrintService, PrintState},
     pet::native::{
-        NativeCaptureState, NativePet, NativePetError, PetCallbackKind, PetNativeConfig,
+        NativeCaptureState, NativePet, NativePetError, NativeRendererState, PetCallbackKind,
+        PetNativeConfig,
     },
     pet::{CapturePermission, PetMode, PetSettings, PetSettingsPatch, PetStatus, PetStore},
     tray::persist_pending_job,
@@ -114,6 +115,35 @@ impl From<NativeCaptureState> for CaptureEvent {
     }
 }
 
+fn capture_status(
+    mode: PetMode,
+    capture_state: NativeCaptureState,
+    renderer_state: NativeRendererState,
+) -> PetStatus {
+    if mode == PetMode::Lite {
+        return PetStatus {
+            effective_mode: PetMode::Lite,
+            permission: CapturePermission::Unavailable,
+            fallback_reason: None,
+        };
+    }
+
+    let snapshot = CaptureState::Requested.reduce(capture_state.into());
+    if renderer_state == NativeRendererState::Unavailable {
+        return PetStatus {
+            effective_mode: PetMode::Lite,
+            permission: snapshot.permission,
+            fallback_reason: Some("metal_unavailable".to_owned()),
+        };
+    }
+
+    PetStatus {
+        effective_mode: snapshot.effective_mode,
+        permission: snapshot.permission,
+        fallback_reason: snapshot.fallback_reason,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifeAction {
     StopCapture,
@@ -200,6 +230,7 @@ pub enum NativeEvent {
     DisplayChanged { x: f64, y: f64, display_id: u64 },
     PermissionChanged(NativeCaptureState),
     CaptureFailed,
+    RendererUnavailable,
     Sleep,
     Wake,
 }
@@ -258,11 +289,32 @@ impl InstanceRecall {
     }
 }
 
+struct NativeOwner<T> {
+    native: Option<T>,
+}
+
+impl<T> NativeOwner<T> {
+    fn new(native: T) -> Self {
+        Self {
+            native: Some(native),
+        }
+    }
+
+    fn as_ref(&self) -> Option<&T> {
+        self.native.as_ref()
+    }
+
+    fn take(&mut self) -> Option<T> {
+        self.native.take()
+    }
+}
+
 struct RuntimeState {
-    pet: NativePet,
+    pet: NativeOwner<NativePet>,
     settings: PetSettings,
     pending_count: u32,
     capture_state: NativeCaptureState,
+    renderer_state: NativeRendererState,
 }
 
 impl RuntimeState {
@@ -273,8 +325,12 @@ impl RuntimeState {
     }
 
     fn apply(&mut self, request_permission: bool) -> bool {
-        let applied = self.pet.apply(self.config(request_permission));
-        self.capture_state = self.pet.capture_state();
+        let Some(pet) = self.pet.as_ref() else {
+            return false;
+        };
+        let applied = pet.apply(self.config(request_permission));
+        self.capture_state = pet.capture_state();
+        self.renderer_state = pet.renderer_state();
         applied
     }
 
@@ -295,14 +351,7 @@ impl RuntimeState {
         };
 
         #[cfg(target_os = "macos")]
-        {
-            let snapshot = CaptureState::Requested.reduce(self.capture_state.into());
-            PetStatus {
-                effective_mode: snapshot.effective_mode,
-                permission: snapshot.permission,
-                fallback_reason: snapshot.fallback_reason,
-            }
-        }
+        return capture_status(self.settings.mode, self.capture_state, self.renderer_state);
     }
 }
 
@@ -324,10 +373,11 @@ impl PetRuntime {
 
         let pet = NativePet::new(native_callback)?;
         let state = Arc::new(Mutex::new(RuntimeState {
-            pet,
+            pet: NativeOwner::new(pet),
             settings,
             pending_count: pending.count,
             capture_state: NativeCaptureState::Unavailable,
+            renderer_state: NativeRendererState::Unavailable,
         }));
         state
             .lock()
@@ -421,11 +471,13 @@ impl PetRuntime {
         match saved {
             Ok(settings) => {
                 self.apply(settings);
-                self.state
+                let state = self
+                    .state
                     .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .pet
-                    .reset();
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if let Some(pet) = state.pet.as_ref() {
+                    pet.reset();
+                }
             }
             Err(error) => eprintln!("pet reset failed: {}", error.code()),
         }
@@ -445,6 +497,16 @@ impl PetRuntime {
 
     pub fn shutdown(&self) {
         self.callback.clear();
+        let native = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pet
+            .take();
+        // Drop outside the state lock. Native destruction synchronizes with
+        // AppKit's main thread and must never wait while the main thread could
+        // be waiting for this mutex.
+        drop(native);
         if let Some(worker) = self
             .worker
             .lock()
@@ -481,10 +543,12 @@ impl PetRuntime {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 state.settings.visible = visible;
-                if visible {
-                    state.pet.show();
-                } else {
-                    state.pet.hide();
+                if let Some(pet) = state.pet.as_ref() {
+                    if visible {
+                        pet.show();
+                    } else {
+                        pet.hide();
+                    }
                 }
                 crate::tray::sync_pet_visibility(&self.app, visible);
             }
@@ -527,6 +591,12 @@ fn handle_native_event(app: &AppHandle, state: &Arc<Mutex<RuntimeState>>, event:
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .capture_state = NativeCaptureState::Failed;
+        }
+        NativeEvent::RendererUnavailable => {
+            state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .renderer_state = NativeRendererState::Unavailable;
         }
         NativeEvent::Sleep | NativeEvent::Wake => {}
     }
@@ -614,8 +684,8 @@ fn refresh_pending_state(
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     state.pending_count = summary.count;
     state.apply(false);
-    if let Some(signal) = signal {
-        state.pet.signal(match signal {
+    if let (Some(signal), Some(pet)) = (signal, state.pet.as_ref()) {
+        pet.signal(match signal {
             PetSignal::ImportSucceeded { .. } => SIGNAL_IMPORT_SUCCEEDED,
             PetSignal::ImportFailed { .. } => SIGNAL_IMPORT_FAILED,
             PetSignal::SettlementCompleted { .. } => SIGNAL_SETTLEMENT_COMPLETED,
@@ -726,7 +796,15 @@ fn copy_native_event(
             };
             Some(NativeEvent::PermissionChanged(state))
         }
-        PetCallbackKind::CaptureFailed => Some(NativeEvent::CaptureFailed),
+        PetCallbackKind::CaptureFailed => {
+            if !payload.is_null()
+                && unsafe { CStr::from_ptr(payload) }.to_bytes() == b"metal_unavailable"
+            {
+                Some(NativeEvent::RendererUnavailable)
+            } else {
+                Some(NativeEvent::CaptureFailed)
+            }
+        }
         PetCallbackKind::Sleep => Some(NativeEvent::Sleep),
         PetCallbackKind::Wake => Some(NativeEvent::Wake),
     }
@@ -735,10 +813,12 @@ fn copy_native_event(
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_native_event, handle_file_drop, pending_transition, persist_native_position,
-        second_launch_actions, CallbackRegistration, CaptureEvent, CaptureState, InstanceAction,
-        InstanceRecall, LifeAction, LifeEvent, LifeState, NativeEvent, PetSignal,
+        capture_status, copy_native_event, handle_file_drop, pending_transition,
+        persist_native_position, second_launch_actions, CallbackRegistration, CaptureEvent,
+        CaptureState, InstanceAction, InstanceRecall, LifeAction, LifeEvent, LifeState,
+        NativeEvent, NativeOwner, PetSignal,
     };
+    use crate::pet::native::{NativeCaptureState, NativeRendererState};
     use crate::pet::{PetMode, PetStore};
     use crate::{
         db::AppDatabase,
@@ -749,7 +829,10 @@ mod tests {
     use std::{
         ffi::CString,
         path::{Path, PathBuf},
-        sync::mpsc,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc, Arc,
+        },
         time::Duration,
     };
 
@@ -911,8 +994,6 @@ mod tests {
 
     #[test]
     fn callback_copies_stable_permission_state_before_native_storage_expires() {
-        use crate::pet::native::NativeCaptureState;
-
         let payload = CString::new("restart_required").unwrap();
 
         let event = copy_native_event(7, payload.as_ptr(), 0.0, 0.0, 0).unwrap();
@@ -922,6 +1003,15 @@ mod tests {
             event,
             NativeEvent::PermissionChanged(NativeCaptureState::RestartRequired)
         );
+    }
+
+    #[test]
+    fn callback_decodes_the_stable_metal_unavailable_failure() {
+        let payload = CString::new("metal_unavailable").unwrap();
+
+        let event = copy_native_event(8, payload.as_ptr(), 0.0, 0.0, 0).unwrap();
+
+        assert_eq!(event, NativeEvent::RendererUnavailable);
     }
 
     #[test]
@@ -935,6 +1025,26 @@ mod tests {
             receiver.recv_timeout(Duration::from_millis(10)),
             Err(mpsc::RecvTimeoutError::Disconnected)
         ));
+    }
+
+    #[test]
+    fn native_owner_is_destroyed_before_shutdown_returns() {
+        struct DropProbe(Arc<AtomicBool>);
+
+        impl Drop for DropProbe {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let destroyed = Arc::new(AtomicBool::new(false));
+        let mut owner = NativeOwner::new(DropProbe(Arc::clone(&destroyed)));
+
+        let native = owner.take();
+        assert!(owner.as_ref().is_none());
+        drop(native);
+
+        assert!(destroyed.load(Ordering::Acquire));
     }
 
     #[test]
@@ -978,6 +1088,19 @@ mod tests {
         assert_eq!(status.effective_mode, PetMode::Lite);
         assert_eq!(status.fallback_reason.as_deref(), Some("permission_denied"));
         assert!(status.pet_visible);
+    }
+
+    #[test]
+    fn ready_capture_without_metal_keeps_the_visible_lite_fallback() {
+        let status = capture_status(
+            PetMode::Real,
+            NativeCaptureState::Ready,
+            NativeRendererState::Unavailable,
+        );
+
+        assert_eq!(status.effective_mode, PetMode::Lite);
+        assert_eq!(status.permission, crate::pet::CapturePermission::Granted);
+        assert_eq!(status.fallback_reason.as_deref(), Some("metal_unavailable"));
     }
 
     #[test]

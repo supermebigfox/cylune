@@ -206,6 +206,7 @@
     "permissionDenied": "Screen recording permission is off; lightweight mode is active",
     "restartRequired": "Permission changed. Restart the app.",
     "captureFailed": "Desktop capture stopped unexpectedly; lightweight mode is still active",
+    "metalUnavailable": "Metal is unavailable; lightweight mode is active",
     "saveError": "Could not save desktop black hole settings"
   },
   "notifications": {

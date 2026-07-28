@@ -17,6 +17,7 @@ static const uint32_t kPetCallbackDropEntered = 3;
 static const uint32_t kPetCallbackDropExited = 4;
 static const uint32_t kPetCallbackFileDropped = 5;
 static const uint32_t kPetCallbackDisplayChanged = 6;
+static const uint32_t kPetCallbackCaptureFailed = 8;
 static const uint32_t kPetCallbackSleep = 9;
 static const uint32_t kPetCallbackWake = 10;
 static const CGFloat kPetMinimumSize = 120.0;
@@ -49,6 +50,8 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 @end
 
 @interface BPPetView : NSView
+@property(nonatomic, weak) BPPetHost *petHost;
+- (BOOL)metalAvailable;
 - (void)setReduceMotion:(BOOL)reduceMotion;
 - (void)setAnimating:(BOOL)animating;
 - (void)setPendingCount:(uint32_t)pendingCount;
@@ -76,6 +79,7 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 - (instancetype)initWithCallback:(PetCallback)callback;
 - (void)applyConfig:(PetConfig)config;
 - (void)show;
+- (void)showWithPermissionRequest:(BOOL)requestPermission;
 - (void)hide;
 - (void)reset;
 - (void)signal:(uint32_t)signal;
@@ -91,7 +95,9 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 - (void)workspaceWillSleep:(NSNotification *)notification;
 - (void)workspaceDidWake:(NSNotification *)notification;
 - (void)refreshCaptureWithPermissionRequest:(BOOL)requestPermission;
+- (void)rendererBecameUnavailable;
 - (uint32_t)captureState;
+- (uint32_t)rendererState;
 - (void)shutdown;
 @end
 
@@ -126,6 +132,7 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   PetVisualState _visualState;
   BOOL _reduceMotion;
   BOOL _animating;
+  BOOL _metalAvailable;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -169,14 +176,20 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 
 - (CALayer *)makeBackingLayer {
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-  if (device != nil) {
+  _metalAvailable = device != nil;
+  if (_metalAvailable) {
     CAMetalLayer *metalLayer = [CAMetalLayer layer];
     metalLayer.device = device;
     metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     metalLayer.framebufferOnly = YES;
     return metalLayer;
   }
+  [self.petHost rendererBecameUnavailable];
   return [CALayer layer];
+}
+
+- (BOOL)metalAvailable {
+  return _metalAvailable;
 }
 
 - (BOOL)isFlipped {
@@ -575,6 +588,7 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
         NSWindowCollectionBehaviorFullScreenAuxiliary;
 
     _petView = [[BPPetView alloc] initWithFrame:frame];
+    _petView.petHost = self;
     _petView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _panel.contentView = _petView;
 
@@ -659,18 +673,25 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   [self.petView setReduceMotion:config.reduce_motion != 0];
   [self.petView setPendingCount:config.pending_count];
 
+  const PetApplyCapturePlan capturePlan =
+      PetApplyCapturePlanForVisibility(config.visible != 0,
+                                       config.request_permission != 0);
   if (config.visible != 0) {
-    [self show];
+    [self showWithPermissionRequest:capturePlan.request_permission];
   } else {
     [self hide];
-  }
-  if (config.visible != 0 && config.request_permission != 0) {
-    [self refreshCaptureWithPermissionRequest:config.request_permission != 0];
+    if (capturePlan.refresh_capture) {
+      [self refreshCaptureWithPermissionRequest:capturePlan.request_permission];
+    }
   }
   _config.request_permission = 0;
 }
 
 - (void)show {
+  [self showWithPermissionRequest:NO];
+}
+
+- (void)showWithPermissionRequest:(BOOL)requestPermission {
   if (_windowLifecycle.destroyed()) {
     return;
   }
@@ -679,7 +700,7 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   [self.petView setAnimating:YES];
   [self.panel orderFrontRegardless];
   [self.coreHitTargetPanel orderFrontRegardless];
-  [self refreshCaptureWithPermissionRequest:NO];
+  [self refreshCaptureWithPermissionRequest:requestPermission];
 }
 
 - (void)hide {
@@ -905,10 +926,15 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   if (!_hasConfig || _captureHandle == nullptr) {
     return;
   }
+  const PetRendererDecision renderer =
+      PetRendererDecisionForMetalAvailability(self.petView.metalAvailable);
   const BOOL visible = _windowLifecycle.visual_visible();
-  if (_sleeping || !visible || _config.mode != 0) {
+  const BOOL captureVisible = visible && !_sleeping &&
+                              renderer.real_effect_available &&
+                              !renderer.stop_capture;
+  if (!captureVisible || _config.mode != 0) {
     mac_capture_configure(_captureHandle, {}, _config.mode == 0,
-                          visible && !_sleeping, requestPermission,
+                          captureVisible, requestPermission,
                           _config.fps);
     return;
   }
@@ -940,12 +966,33 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
                         _config.fps);
 }
 
+- (void)rendererBecameUnavailable {
+  mac_capture_stop(_captureHandle);
+  if (_callback != nullptr) {
+    _callback(kPetCallbackCaptureFailed, "metal_unavailable", 0.0, 0.0,
+              self.displayID);
+  }
+}
+
 - (uint32_t)captureState {
   return mac_capture_state(_captureHandle);
 }
 
+- (uint32_t)rendererState {
+  return PetRendererDecisionForMetalAvailability(self.petView.metalAvailable)
+      .state;
+}
+
 - (void)shutdown {
-  [self hide];
+  PetShutdownCapture(
+      [&] {
+        // hide synchronously stops the stream and releases the retained frame.
+        [self hide];
+      },
+      [&] {
+        mac_capture_destroy(_captureHandle);
+        _captureHandle = nullptr;
+      });
   _windowLifecycle.destroy();
   if (self.observingScreenChanges) {
     [NSNotificationCenter.defaultCenter removeObserver:self];
@@ -955,11 +1002,10 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
     self.observingWorkspace = NO;
   }
-  mac_capture_destroy(_captureHandle);
-  _captureHandle = nullptr;
   [self.coreHitTargetView unregisterDraggedTypes];
   self.coreHitTargetView.petHost = nil;
   self.coreHitTargetView.callback = nullptr;
+  self.petView.petHost = nil;
   [self.panel removeChildWindow:self.coreHitTargetPanel];
   [self.coreHitTargetPanel close];
   self.coreHitTargetPanel.contentView = nil;
@@ -1023,6 +1069,14 @@ static void RunOnMainAndWait(dispatch_block_t block) {
   }
 }
 
+static void RunOnMainForShutdownAndWait(dispatch_block_t block) {
+  if (NSThread.isMainThread || NSApp == nil) {
+    block();
+  } else {
+    dispatch_sync(dispatch_get_main_queue(), block);
+  }
+}
+
 static bool IsValidConfig(PetConfig config) {
   const bool validFps =
       config.fps == 0 || config.fps == 30 || config.fps == 60;
@@ -1048,7 +1102,7 @@ extern "C" void pet_destroy(void *handle) {
     return;
   }
   BPPetBridge *bridge = (__bridge_transfer BPPetBridge *)handle;
-  RunOnMain(^{
+  RunOnMainForShutdownAndWait(^{
     [bridge shutdown];
   });
 }
@@ -1131,6 +1185,24 @@ extern "C" uint32_t pet_capture_state(void *handle) {
     if (!bridge.destroyed) {
       [bridge ensureHost];
       state = [bridge.host captureState];
+    }
+  });
+  return state;
+}
+
+extern "C" uint32_t pet_renderer_state(void *handle) {
+  if (handle == nullptr) {
+    return PET_RENDERER_UNAVAILABLE;
+  }
+  if (!NSThread.isMainThread && NSApp == nil) {
+    return PET_RENDERER_UNAVAILABLE;
+  }
+  BPPetBridge *bridge = (__bridge BPPetBridge *)handle;
+  __block uint32_t state = PET_RENDERER_UNAVAILABLE;
+  RunOnMainAndWait(^{
+    if (!bridge.destroyed) {
+      [bridge ensureHost];
+      state = [bridge.host rendererState];
     }
   });
   return state;

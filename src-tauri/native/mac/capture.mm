@@ -161,15 +161,6 @@ API_AVAILABLE(macos(12.3))
     [self setCaptureState:PET_CAPTURE_UNAVAILABLE];
     return;
   }
-  if (!visible) {
-    [self stopStreamAndReleaseFrame];
-    return;
-  }
-  if (region.source_width <= 0.0 || region.source_height <= 0.0 ||
-      region.pixel_width == 0 || region.pixel_height == 0) {
-    [self failCapture];
-    return;
-  }
 
   if (@available(macOS 12.3, *)) {
     const BOOL preflightGranted = CGPreflightScreenCaptureAccess();
@@ -184,8 +175,13 @@ API_AVAILABLE(macos(12.3))
       [self setCaptureState:result.state];
       return;
     }
-    if (decision.action != PetPermissionAction::kEnumerateCapture) {
+    if (!PetShouldStartCapture(decision, visible)) {
       [self stopStreamAndReleaseFrame];
+      return;
+    }
+    if (region.source_width <= 0.0 || region.source_height <= 0.0 ||
+        region.pixel_width == 0 || region.pixel_height == 0) {
+      [self failCapture];
       return;
     }
 

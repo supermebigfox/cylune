@@ -113,6 +113,7 @@ it.each([
   ["permission_denied", "denied", "Screen recording permission is off; lightweight mode is active"],
   ["permission_restart_required", "restart_required", "Permission changed. Restart the app."],
   ["capture_failed", "granted", "Desktop capture stopped unexpectedly; lightweight mode is still active"],
+  ["metal_unavailable", "granted", "Metal is unavailable; lightweight mode is active"],
 ] as const)("localizes stable fallback %s instead of rendering its raw code", async (
   fallbackReason,
   permission,

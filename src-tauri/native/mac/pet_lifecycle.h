@@ -37,6 +37,26 @@ inline constexpr PetCapturePolicy PetSafeCapturePolicy() {
   return {false, false, false, true, 1, 1};
 }
 
+struct PetRendererDecision {
+  uint32_t state;
+  bool real_effect_available;
+  bool stop_capture;
+};
+
+inline constexpr PetRendererDecision
+PetRendererDecisionForMetalAvailability(bool metal_available) {
+  return metal_available
+             ? PetRendererDecision{PET_RENDERER_READY, true, false}
+             : PetRendererDecision{PET_RENDERER_UNAVAILABLE, false, true};
+}
+
+template <typename StopAndRelease, typename Destroy>
+inline void PetShutdownCapture(StopAndRelease stop_and_release,
+                               Destroy destroy) {
+  stop_and_release();
+  destroy();
+}
+
 class PetFrameRetention {
  public:
   void start() {
@@ -65,6 +85,22 @@ struct PetPermissionDecision {
   uint32_t state;
   PetPermissionAction action;
 };
+
+struct PetApplyCapturePlan {
+  bool refresh_capture;
+  bool request_permission;
+};
+
+inline constexpr PetApplyCapturePlan PetApplyCapturePlanForVisibility(
+    bool visible, bool explicit_real_mode_action) {
+  return {visible || explicit_real_mode_action, explicit_real_mode_action};
+}
+
+inline constexpr bool PetShouldStartCapture(PetPermissionDecision decision,
+                                            bool visible) {
+  return visible &&
+         decision.action == PetPermissionAction::kEnumerateCapture;
+}
 
 class PetPermissionLifecycle {
  public:
