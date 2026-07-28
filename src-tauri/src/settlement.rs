@@ -747,7 +747,21 @@ mod tests {
         let path = std::env::var_os("BAMBU_SMOKE_3MF")
             .map(PathBuf::from)
             .expect("set BAMBU_SMOKE_3MF");
+        let metadata_before = std::fs::metadata(&path).unwrap();
+        let source_hash_before = crate::imports::sha256(&path).unwrap();
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut import_service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let balances_before = balance_rows(&import_service);
+        let preview = import_service.import_print_file(&path).unwrap();
+        assert_eq!(balance_rows(&import_service), balances_before);
+        assert!(import_service.pending_summary().unwrap().count >= 1);
+        let metadata_after = std::fs::metadata(&path).unwrap();
+        assert_eq!(metadata_before.len(), metadata_after.len());
+        assert_eq!(source_hash_before, crate::imports::sha256(&path).unwrap());
+
         let probe = crate::parser::parse_3mf(&path).unwrap();
+        assert_eq!(preview.filaments.len(), probe.filaments.len());
+        assert_eq!(probe.filaments.len(), 4);
         let middle_layer = probe.gcode.max_layer.saturating_sub(1) / 2;
         println!("real_file_layers={}", probe.gcode.max_layer);
         for profile in &probe.filaments {
@@ -788,7 +802,12 @@ mod tests {
             ),
         ] {
             let (mut service, job_id) = real_file_service(&path);
+            let balances_before_settlement = balance_rows(&service);
             let result = service.settle_job(job_id, outcome.clone()).unwrap();
+            let balances_after_settlement = balance_rows(&service);
+            assert_eq!(result.consumption.len(), 4);
+            assert!(result.consumption.iter().all(|item| item.grams > 0.0));
+            assert_ne!(balances_after_settlement, balances_before_settlement);
             println!(
                 "{label}: selected_layer={:?}, confidence={:?}, consumption={:?}",
                 result.selected_layer, result.confidence, result.consumption
@@ -797,16 +816,32 @@ mod tests {
             if matches!(outcome, JobOutcome::Success) {
                 let repeated = service.settle_job(job_id, outcome).unwrap();
                 assert_eq!(repeated, result);
+                assert_eq!(balance_rows(&service), balances_after_settlement);
                 let reversal = service.reverse_settlement(job_id).unwrap();
                 let second_reversal = service.reverse_settlement(job_id).unwrap();
                 assert!(!reversal.already_reversed);
+                assert_eq!(reversal.restored, result.consumption);
                 assert!(second_reversal.already_reversed);
+                assert_eq!(balance_rows(&service), balances_before_settlement);
                 println!(
                     "success_idempotent=true, reversal_restored={:?}, second_reversal_already_reversed={}",
                     reversal.restored, second_reversal.already_reversed
                 );
             }
         }
+    }
+
+    fn balance_rows(service: &PrintService) -> Vec<(String, f64)> {
+        let mut statement = service
+            .database
+            .connection
+            .prepare("SELECT spool_id, remaining_grams FROM spools ORDER BY spool_id")
+            .unwrap();
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
     }
 
     fn real_file_service(path: &std::path::Path) -> (PrintService, Uuid) {

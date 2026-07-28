@@ -826,7 +826,7 @@ fn validate_profiles(parsed: &ParsedPrintFile) -> Result<()> {
     }
 }
 
-fn sha256(path: &Path) -> Result<String> {
+pub(crate) fn sha256(path: &Path) -> Result<String> {
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
