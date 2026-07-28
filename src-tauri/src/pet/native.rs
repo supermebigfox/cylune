@@ -845,8 +845,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[derive(Debug)]
     struct EmissionMetrics {
-        coverage: usize,
-        saturated: usize,
+        frame_pixels: usize,
+        emission_pixels: usize,
+        saturated_pixels: usize,
         variance_x: f64,
         variance_y: f64,
         red: f64,
@@ -855,9 +856,10 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
-    fn emission_metrics(pixels: &[u8], width: usize, height: usize) -> EmissionMetrics {
-        let mut coverage = 0;
-        let mut saturated = 0;
+    fn whole_frame_emission_metrics(pixels: &[u8], width: usize, height: usize) -> EmissionMetrics {
+        const VISIBLE_EMISSION_THRESHOLD: u8 = 8;
+        let mut emission_pixels = 0;
+        let mut saturated_pixels = 0;
         let mut total_weight = 0.0;
         let mut weighted_x = 0.0;
         let mut weighted_y = 0.0;
@@ -870,15 +872,11 @@ mod tests {
                 let pixel = rgba_at(pixels, width, x, y);
                 let normalized_x = ((x as f64 + 0.5) / width as f64) * 2.0 - 1.0;
                 let normalized_y = ((y as f64 + 0.5) / height as f64) * 2.0 - 1.0;
-                // The shared photon ring is intentionally circular and is checked
-                // separately. Measure the visible outer accretion annulus here.
-                if normalized_x.hypot(normalized_y) < 0.24
-                    || pixel[..3].iter().copied().max().unwrap() <= 8
-                {
+                if pixel[..3].iter().copied().max().unwrap() <= VISIBLE_EMISSION_THRESHOLD {
                     continue;
                 }
-                coverage += 1;
-                saturated += usize::from(pixel[..3].iter().any(|&channel| channel >= 250));
+                emission_pixels += 1;
+                saturated_pixels += usize::from(pixel[..3].iter().any(|&channel| channel >= 250));
                 red += f64::from(pixel[0]);
                 green += f64::from(pixel[1]);
                 blue += f64::from(pixel[2]);
@@ -901,8 +899,9 @@ mod tests {
                     )
                 });
         EmissionMetrics {
-            coverage,
-            saturated,
+            frame_pixels: width * height,
+            emission_pixels,
+            saturated_pixels,
             variance_x: variance_x / total_weight,
             variance_y: variance_y / total_weight,
             red,
@@ -983,13 +982,15 @@ mod tests {
             TestVisualStyle::Gargantua,
         );
         let fusion = render_style(&[], 256, 256, TestRenderMode::Lite, TestVisualStyle::Fusion);
-        let gargantua_metrics = emission_metrics(&gargantua, 256, 256);
-        let fusion_metrics = emission_metrics(&fusion, 256, 256);
+        let gargantua_metrics = whole_frame_emission_metrics(&gargantua, 256, 256);
+        let fusion_metrics = whole_frame_emission_metrics(&fusion, 256, 256);
         let variance_ratio = fusion_metrics.variance_x / fusion_metrics.variance_y;
         let green_ratio = fusion_metrics.green / fusion_metrics.red;
         let blue_ratio = fusion_metrics.blue / fusion_metrics.red;
-        let coverage_ratio = fusion_metrics.coverage as f64 / gargantua_metrics.coverage as f64;
-        let saturated_ratio = fusion_metrics.saturated as f64 / (256.0 * 256.0);
+        let coverage_ratio =
+            fusion_metrics.emission_pixels as f64 / gargantua_metrics.emission_pixels as f64;
+        let saturated_ratio =
+            fusion_metrics.saturated_pixels as f64 / fusion_metrics.frame_pixels as f64;
 
         assert!(
             variance_ratio >= 2.2,
@@ -998,7 +999,7 @@ mod tests {
         );
         assert!(
             fusion_metrics.red > fusion_metrics.green && fusion_metrics.green > fusion_metrics.blue,
-            "Fusion annulus was not warm: {fusion_metrics:?}"
+            "Fusion whole-frame emission was not warm: {fusion_metrics:?}"
         );
         assert!(
             (0.78..=0.96).contains(&green_ratio),
@@ -1012,8 +1013,8 @@ mod tests {
             (1.15..=1.80).contains(&coverage_ratio),
             "Fusion/Gargantua coverage was {coverage_ratio:.3}: \
              Fusion={}, Gargantua={}",
-            fusion_metrics.coverage,
-            gargantua_metrics.coverage
+            fusion_metrics.emission_pixels,
+            gargantua_metrics.emission_pixels
         );
         assert!(
             saturated_ratio < 0.12,

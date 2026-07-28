@@ -261,10 +261,15 @@ float4 shade_crossing(float3 position, float3 velocity,
   if (fusion) {
     density = band * (0.62f + 0.58f * streaks);
   }
+  const float fusion_emissivity =
+      fusion
+          ? mix(0.10f, 1.0f,
+                abs(position.x) / max(radius, 1e-4f))
+          : 1.0f;
   const float3 emission =
       transmittance * thermal *
       (uniforms.gain * 2.2f * density * temperature_profile *
-       temperature_profile * boost);
+       temperature_profile * boost * fusion_emissivity);
   return float4(emission, density);
 }
 
