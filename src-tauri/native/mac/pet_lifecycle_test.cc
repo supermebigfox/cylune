@@ -16,6 +16,57 @@ static bool close_to(double lhs, double rhs, double epsilon = 1e-6) {
   return fabs(lhs - rhs) <= epsilon;
 }
 
+static void center_selects_display_and_maps_negative_coordinates() {
+  const PetScreenFrame displays[] = {
+      {0.0, 0.0, 1440.0, 900.0, 2.0, 10},
+      {-1920.0, 0.0, 1920.0, 1080.0, 1.0, 20},
+  };
+  assert(PetDisplayIndexForPoint({720.0, 450.0}, displays, 2, 1) == 0);
+  assert(PetDisplayIndexForPoint({-960.0, 540.0}, displays, 2, 0) == 1);
+  const PetScreenPoint uv =
+      PetCenterUVForDisplay({-960.0, 540.0}, displays[1]);
+  assert(close_to(uv.x, 0.5));
+  assert(close_to(uv.y, 0.5));
+}
+
+static void exact_display_seam_keeps_current_display() {
+  const PetScreenFrame displays[] = {
+      {0.0, 0.0, 1440.0, 900.0, 2.0, 10},
+      {1440.0, 0.0, 1920.0, 1080.0, 1.0, 20},
+  };
+  assert(PetDisplayIndexForPoint({1440.0, 400.0}, displays, 2, 0) == 0);
+  assert(PetDisplayIndexForPoint({1440.0, 400.0}, displays, 2, 1) == 1);
+  assert(PetDisplayIndexForPoint({1440.1, 400.0}, displays, 2, 0) == 1);
+}
+
+static void full_display_capture_never_changes_with_center() {
+  const PetScreenFrame display = {-1920.0, 0.0, 1920.0, 1080.0, 2.0, 20};
+  const PetCaptureRegion region = PetFullDisplayCaptureRegion(display);
+  assert(region.display_id == 20);
+  assert(close_to(region.source_x, 0.0));
+  assert(close_to(region.source_y, 0.0));
+  assert(close_to(region.source_width, 1920.0));
+  assert(close_to(region.source_height, 1080.0));
+  assert(region.pixel_width == 3840);
+  assert(region.pixel_height == 2160);
+  assert(close_to(region.panel_origin_uv[0], 0.0));
+  assert(close_to(region.panel_origin_uv[1], 0.0));
+  assert(close_to(region.panel_extent_uv[0], 1.0));
+  assert(close_to(region.panel_extent_uv[1], 1.0));
+}
+
+static void disconnected_center_recovers_only_when_off_every_display() {
+  const PetScreenFrame display = {0.0, 0.0, 1440.0, 900.0, 2.0, 10};
+  const PetScreenPoint retained =
+      PetRecoverCenter({0.0, 900.0}, &display, 1);
+  assert(close_to(retained.x, 0.0));
+  assert(close_to(retained.y, 900.0));
+  const PetScreenPoint recovered =
+      PetRecoverCenter({4000.0, 3000.0}, &display, 1);
+  assert(close_to(recovered.x, 720.0));
+  assert(close_to(recovered.y, 450.0));
+}
+
 struct FakeRendererBackend {
   bool create_success = true;
   std::vector<uint32_t> draw_results;
@@ -87,24 +138,23 @@ static void approved_geometry_uses_a_small_circular_core() {
 }
 
 static void large_sizes_keep_logical_geometry_but_cap_the_drawable() {
-  const PetEffectGeometry six = PetEffectGeometryForSize(600.0);
-  const PetEffectGeometry nine = PetEffectGeometryForSize(900.0);
-  assert(close_to(six.panel_side, 600.0));
-  assert(close_to(six.shadow_radius, 45.0));
-  assert(close_to(nine.panel_side, 900.0));
-  assert(close_to(nine.shadow_radius, 67.5));
   assert(close_to(PetDrawableLogicalSide(300.0), 300.0));
   assert(close_to(PetDrawableLogicalSide(360.0), 360.0));
-  assert(close_to(PetDrawableLogicalSide(600.0), 360.0));
-  assert(close_to(PetDrawableLogicalSide(900.0), 360.0));
 
   const PetScreenFrame display = {0.0, 0.0, 2560.0, 1600.0, 2.0, 42};
-  const PetCaptureRegion capture =
-      PetCaptureRegionForPanel({800.0, 350.0, 900.0, 900.0}, display);
-  assert(close_to(capture.source_width, 1440.0));
-  assert(close_to(capture.source_height, 1440.0));
-  assert(close_to(capture.panel_extent_uv[0], 0.625));
-  assert(close_to(capture.panel_extent_uv[1], 0.625));
+  for (const double size : {600.0, 900.0}) {
+    const PetEffectGeometry geometry = PetEffectGeometryForSize(size);
+    assert(close_to(geometry.panel_side, size));
+    assert(close_to(geometry.shadow_radius, size * 0.075));
+    assert(close_to(PetDrawableLogicalSide(size), 360.0));
+
+    const PetCaptureRegion capture =
+        PetCaptureRegionForPanel({800.0, 350.0, size, size}, display);
+    assert(close_to(capture.source_width, size * 1.60));
+    assert(close_to(capture.source_height, size * 1.60));
+    assert(close_to(capture.panel_extent_uv[0], 0.625));
+    assert(close_to(capture.panel_extent_uv[1], 0.625));
+  }
 }
 
 static void centered_capture_maps_the_panel_into_the_middle_five_eighths() {
@@ -318,6 +368,73 @@ static void live_capture_reconfiguration_ignores_fps_and_pending_only_updates() 
   PetCaptureConfigurationKey hidden = resized;
   hidden.visible = false;
   assert(gate.should_configure(hidden, false));
+}
+
+static void same_display_drag_reaims_without_restarting_capture() {
+  const PetCaptureRegion start = {
+      42, 154.0, 454.0, 352.0, 352.0, 704, 704,
+      {0.1875f, 0.1875f}, {0.625f, 0.625f}};
+  PetCaptureRegion moved = start;
+  moved.source_x += 180.0;
+  moved.source_y += 90.0;
+
+  assert(PetCaptureUpdateActionFor(start, start, true, true) ==
+         PetCaptureUpdateAction::kNone);
+  assert(PetCaptureUpdateActionFor(start, moved, true, true) ==
+         PetCaptureUpdateAction::kReaim);
+  assert(PetCaptureUpdateActionFor(start, moved, true, false) ==
+         PetCaptureUpdateAction::kRestart);
+
+  PetCaptureRegion other_display = moved;
+  other_display.display_id = 77;
+  assert(PetCaptureUpdateActionFor(start, other_display, true, true) ==
+         PetCaptureUpdateAction::kRestart);
+  assert(PetCaptureUpdateActionFor(start, moved, false, true) ==
+         PetCaptureUpdateAction::kRestart);
+}
+
+static void missing_live_frame_falls_back_without_a_black_capture_disc() {
+  assert(PetEffectiveRenderMode(0, true) == 0);
+  assert(PetEffectiveRenderMode(0, false) == 1);
+  assert(PetEffectiveRenderMode(1, true) == 1);
+  assert(PetEffectiveRenderMode(1, false) == 1);
+}
+
+static void capture_restart_coalesces_to_the_latest_drag_target() {
+  PetCaptureRestartGate gate;
+  PetCaptureRegion first = {42, 100.0, 100.0, 352.0, 352.0, 704, 704};
+  PetCaptureRegion latest = first;
+  latest.display_id = 77;
+  latest.source_x = 240.0;
+
+  assert(gate.request(first, 30));
+  assert(gate.in_flight());
+  assert(!gate.request(latest, 60));
+  assert(gate.desired_region().display_id == 77);
+  assert(gate.desired_region().source_x == 240.0);
+  assert(gate.desired_fps() == 60);
+
+  gate.complete();
+  assert(!gate.in_flight());
+  assert(gate.request(latest, 60));
+  gate.cancel();
+  assert(!gate.in_flight());
+}
+
+static void stale_reaim_token_cannot_clear_a_new_generation() {
+  PetCaptureReaimGate gate;
+  const uint64_t old_token = gate.begin();
+  assert(old_token != 0);
+  assert(gate.pending());
+  assert(gate.begin() == 0);
+
+  gate.cancel();
+  const uint64_t new_token = gate.begin();
+  assert(new_token != 0 && new_token != old_token);
+  assert(!gate.complete(old_token));
+  assert(gate.pending());
+  assert(gate.complete(new_token));
+  assert(!gate.pending());
 }
 
 static void native_failure_reason_is_published_once_until_an_allowed_retry() {
@@ -717,12 +834,16 @@ static void accepted_import_runs_the_complete_reference_timing() {
   PetDropState state;
   assert(state.begin_wait(7, {0.72f, 0.44f}, PET_FILE_3MF, 10.0));
   assert(state.finish(7, PET_DROP_ACCEPTED, 20.0));
+  assert(state.sample(22.069, false).fragment_count == 0);
+  assert(state.sample(22.071, false).fragment_count == 12);
   assert(state.sample(22.30, false).faller_progress > 0.49f);
   assert(state.sample(22.30, false).faller_progress < 0.51f);
   const PetDropSnapshot crossing = state.sample(23.772, false);
   assert(crossing.deliver_once);
   assert(crossing.absorption_progress == 0.0f);
   assert(!state.sample(23.773, false).deliver_once);
+  assert(state.sample(24.047, false).fragment_count == 12);
+  assert(state.sample(24.049, false).fragment_count == 0);
   const PetDropSnapshot jet_mid = state.sample(24.222, false);
   assert(jet_mid.absorption_progress > 0.49f);
   assert(jet_mid.absorption_progress < 0.51f);
@@ -750,8 +871,17 @@ static void rejected_import_recoils_without_delivery() {
   const PetDropSnapshot recoil = state.sample(2.18, false);
   assert(recoil.phase == PetDropPhase::kImportRejected);
   assert(recoil.error_progress > 0.42f && recoil.error_progress < 0.44f);
+  assert(recoil.fragment_count == 0);
   assert(!recoil.deliver_once);
   assert(recoil.absorption_progress == 0.0f);
+  PetImpactState impact;
+  if (recoil.deliver_once) {
+    impact.strike(2.18, recoil.origin, recoil.file_kind);
+  }
+  const PetImpactSnapshot no_impact = impact.sample(2.18);
+  assert(!no_impact.active);
+  assert(no_impact.impact_level == 0.0f);
+  assert(no_impact.feed_strength == 0.0f);
   assert(state.sample(2.421, false).phase == PetDropPhase::kIdle);
 }
 
@@ -764,6 +894,14 @@ static void cancellation_clears_every_visual_without_delivery() {
   assert(cancelled.fragment_count == 0);
   assert(cancelled.absorption_progress == 0.0f);
   assert(!cancelled.deliver_once);
+  PetImpactState impact;
+  if (cancelled.deliver_once) {
+    impact.strike(100.0, cancelled.origin, cancelled.file_kind);
+  }
+  const PetImpactSnapshot no_impact = impact.sample(100.0);
+  assert(!no_impact.active);
+  assert(no_impact.impact_level == 0.0f);
+  assert(no_impact.feed_strength == 0.0f);
   assert(!state.finish(8, PET_DROP_ACCEPTED, 101.0));
 }
 
@@ -890,6 +1028,10 @@ static void external_file_states_keep_auto_fps_at_sixty() {
 }
 
 int main() {
+  center_selects_display_and_maps_negative_coordinates();
+  exact_display_seam_keeps_current_display();
+  full_display_capture_never_changes_with_center();
+  disconnected_center_recovers_only_when_off_every_display();
   visual_style_values_stay_within_stable_native_contract();
   approved_geometry_uses_a_small_circular_core();
   large_sizes_keep_logical_geometry_but_cap_the_drawable();
@@ -905,6 +1047,10 @@ int main() {
   reverse_main_queue_delivery_discards_the_older_apply();
   drag_persistence_is_emitted_only_once_on_mouse_up();
   live_capture_reconfiguration_ignores_fps_and_pending_only_updates();
+  same_display_drag_reaims_without_restarting_capture();
+  missing_live_frame_falls_back_without_a_black_capture_disc();
+  capture_restart_coalesces_to_the_latest_drag_target();
+  stale_reaim_token_cannot_clear_a_new_generation();
   native_failure_reason_is_published_once_until_an_allowed_retry();
   capture_policy_excludes_media_and_retains_only_the_newest_frame();
   metal_unavailable_disables_real_capture_and_requests_stop();

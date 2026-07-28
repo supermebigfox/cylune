@@ -28,6 +28,82 @@ struct PetScreenFrame {
   uint32_t display_id;
 };
 
+struct PetScreenPoint {
+  double x;
+  double y;
+};
+
+inline bool PetDisplayContainsPoint(PetScreenFrame display,
+                                    PetScreenPoint point) {
+  return std::isfinite(point.x) && std::isfinite(point.y) &&
+         point.x >= display.x && point.x <= display.x + display.width &&
+         point.y >= display.y && point.y <= display.y + display.height;
+}
+
+inline size_t PetDisplayIndexForPoint(PetScreenPoint point,
+                                      const PetScreenFrame *displays,
+                                      size_t count, size_t current_index) {
+  if (displays == nullptr || count == 0) {
+    return 0;
+  }
+  if (current_index < count &&
+      PetDisplayContainsPoint(displays[current_index], point)) {
+    return current_index;
+  }
+  for (size_t index = 0; index < count; ++index) {
+    if (PetDisplayContainsPoint(displays[index], point)) {
+      return index;
+    }
+  }
+  return current_index < count ? current_index : 0;
+}
+
+inline PetScreenPoint PetCenterUVForDisplay(PetScreenPoint center,
+                                            PetScreenFrame display) {
+  const double width = std::max(display.width, 1.0);
+  const double height = std::max(display.height, 1.0);
+  return {
+      (center.x - display.x) / width,
+      1.0 - (center.y - display.y) / height,
+  };
+}
+
+inline PetCaptureRegion PetFullDisplayCaptureRegion(PetScreenFrame display) {
+  const double scale =
+      std::isfinite(display.scale) && display.scale > 0.0 ? display.scale
+                                                          : 1.0;
+  const double width = std::max(display.width, 0.0);
+  const double height = std::max(display.height, 0.0);
+  return {
+      display.display_id,
+      0.0,
+      0.0,
+      width,
+      height,
+      static_cast<uint32_t>(std::llround(width * scale)),
+      static_cast<uint32_t>(std::llround(height * scale)),
+      {0.0f, 0.0f},
+      {1.0f, 1.0f},
+  };
+}
+
+inline PetScreenPoint PetRecoverCenter(PetScreenPoint center,
+                                       const PetScreenFrame *displays,
+                                       size_t count) {
+  if (displays == nullptr || count == 0) {
+    return center;
+  }
+  for (size_t index = 0; index < count; ++index) {
+    if (PetDisplayContainsPoint(displays[index], center)) {
+      return center;
+    }
+  }
+  return {
+      displays[0].x + displays[0].width * 0.5,
+      displays[0].y + displays[0].height * 0.5,
+  };
+}
+
 struct PetDrawableMetrics {
   double logical_width;
   double logical_height;
@@ -195,6 +271,92 @@ inline bool PetCaptureConfigurationKeysEqual(
   return lhs.mode == rhs.mode && lhs.visible == rhs.visible &&
          PetCaptureRegionsEqual(lhs.region, rhs.region);
 }
+
+enum class PetCaptureUpdateAction {
+  kNone,
+  kReaim,
+  kRestart,
+};
+
+inline PetCaptureUpdateAction PetCaptureUpdateActionFor(
+    PetCaptureRegion active, PetCaptureRegion desired,
+    bool stream_running, bool supports_reaim) {
+  if (PetCaptureRegionsEqual(active, desired)) {
+    return PetCaptureUpdateAction::kNone;
+  }
+  if (stream_running && supports_reaim &&
+      active.display_id == desired.display_id) {
+    return PetCaptureUpdateAction::kReaim;
+  }
+  return PetCaptureUpdateAction::kRestart;
+}
+
+inline uint32_t PetEffectiveRenderMode(uint32_t requested_mode,
+                                       bool capture_ready) {
+  return requested_mode == 0 && capture_ready ? 0 : 1;
+}
+
+class PetCaptureRestartGate {
+ public:
+  bool request(PetCaptureRegion region, uint32_t fps) {
+    desired_region_ = region;
+    desired_fps_ = fps;
+    if (in_flight_) {
+      return false;
+    }
+    in_flight_ = true;
+    return true;
+  }
+
+  void complete() { in_flight_ = false; }
+
+  void cancel() { in_flight_ = false; }
+
+  bool in_flight() const { return in_flight_; }
+
+  PetCaptureRegion desired_region() const { return desired_region_; }
+
+  uint32_t desired_fps() const { return desired_fps_; }
+
+ private:
+  bool in_flight_ = false;
+  PetCaptureRegion desired_region_ = {};
+  uint32_t desired_fps_ = 30;
+};
+
+class PetCaptureReaimGate {
+ public:
+  uint64_t begin() {
+    if (pending_) {
+      return 0;
+    }
+    pending_ = true;
+    return ++token_;
+  }
+
+  bool complete(uint64_t token) {
+    if (!pending_ || token == 0 || token != token_) {
+      return false;
+    }
+    pending_ = false;
+    return true;
+  }
+
+  void cancel() {
+    pending_ = false;
+    ++token_;
+  }
+
+  bool pending() const { return pending_; }
+
+  bool owns(uint64_t token) const {
+    return pending_ && token != 0 && token == token_;
+  }
+
+ private:
+  bool pending_ = false;
+  uint64_t token_ = 0;
+};
 
 class PetCaptureConfigurationGate {
  public:
