@@ -1,13 +1,13 @@
 {
   "app": {
-    "name": "拓竹耗材管家",
+    "name": "CYLUNE",
     "localMode": "本機模式",
     "tagline": "每一卷耗材，都有自己的帳本",
     "demoMode": "介面預覽",
     "privateNote": "所有檔案與帳本都留在這台電腦"
   },
   "brand": {
-    "mark": "拓竹耗材管家圖示"
+    "mark": "CYLUNE 圖示"
   },
   "common": {
     "confirm": "確認",

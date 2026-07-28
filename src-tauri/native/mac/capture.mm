@@ -45,7 +45,8 @@ static const char *CaptureStateName(uint32_t state) {
 - (void)stop;
 - (uint32_t)shutdown;
 - (uint32_t)captureState;
-- (IOSurfaceRef)copyLatestSurface CF_RETURNS_RETAINED;
+- (IOSurfaceRef)copyLatestSurfaceRegion:(PetCaptureRegion *)regionOut
+    CF_RETURNS_RETAINED;
 @end
 
 @interface BPUnavailableCaptureService : NSObject <BPCaptureControlling>
@@ -90,7 +91,10 @@ static const char *CaptureStateName(uint32_t state) {
   return PET_CAPTURE_UNAVAILABLE;
 }
 
-- (IOSurfaceRef)copyLatestSurface {
+- (IOSurfaceRef)copyLatestSurfaceRegion:(PetCaptureRegion *)regionOut {
+  if (regionOut != nullptr) {
+    *regionOut = {};
+  }
   return nullptr;
 }
 
@@ -108,10 +112,19 @@ API_AVAILABLE(macos(12.3))
   dispatch_queue_t _frameQueue;
   os_unfair_lock _surfaceLock;
   IOSurfaceRef _latestSurface;
+  PetCaptureRegion _latestSurfaceRegion;
+  PetCaptureRegion _frameRegion;
+  BOOL _hasFrameRegion;
   void *_activeStreamIdentity;
   PetFrameRetention _frameRetention;
   NSUInteger _generation;
   uint32_t _captureState;
+  PetCaptureRegion _activeRegion;
+  PetCaptureRegion _desiredRegion;
+  uint32_t _desiredFps;
+  BOOL _hasActiveRegion;
+  PetCaptureRestartGate _restartGate;
+  PetCaptureReaimGate _reaimGate;
   PetPermissionLifecycle _permission;
   BOOL _shuttingDown;
   dispatch_queue_t _shutdownQueue;
@@ -195,22 +208,174 @@ API_AVAILABLE(macos(12.3))
       [self failCapture];
       return;
     }
+    _desiredRegion = region;
+    _desiredFps = fps;
+    if (_restartGate.in_flight()) {
+      (void)_restartGate.request(region, fps);
+      return;
+    }
+
+    BOOL supportsReaim = NO;
+    if (@available(macOS 14.0, *)) {
+      supportsReaim = YES;
+    }
+    const PetCaptureUpdateAction updateAction =
+        _hasActiveRegion
+            ? PetCaptureUpdateActionFor(
+                  _activeRegion, region, _stream != nil,
+                  supportsReaim != NO)
+            : PetCaptureUpdateAction::kRestart;
+    if (updateAction == PetCaptureUpdateAction::kNone) {
+      return;
+    }
+
+    // Same-display drags keep the running stream and its newest valid frame.
+    // Restarting here would briefly replace the lens with a transparent
+    // texture, which reads as a large black ring when the mouse is released.
+    if (updateAction == PetCaptureUpdateAction::kReaim) {
+      if (@available(macOS 14.0, *)) {
+        [self scheduleReaimRegion:region fps:fps];
+        return;
+      }
+    }
 
     // BPPetHost calls this only for mode/visibility/display/region changes,
     // explicit user permission actions, wake, or display reconfiguration.
     // Those are the bounded retry points; ordinary FPS/pending updates never
     // reach this service.
     _failure.reset();
-    [self enumerateAndStartRegion:region fps:fps];
+    [self requestRestartRegion:region fps:fps];
   } else {
     [self stopStreamAndReleaseFrame];
     [self setCaptureState:PET_CAPTURE_UNAVAILABLE];
   }
 }
 
-- (void)enumerateAndStartRegion:(PetCaptureRegion)region fps:(uint32_t)fps {
+- (SCStreamConfiguration *)configurationForRegion:
+                               (PetCaptureRegion)region
+                                                fps:(uint32_t)fps
+    API_AVAILABLE(macos(12.3)) {
+  SCStreamConfiguration *configuration =
+      [[SCStreamConfiguration alloc] init];
+  configuration.sourceRect =
+      CGRectMake(region.source_x, region.source_y, region.source_width,
+                 region.source_height);
+  configuration.width = region.pixel_width;
+  configuration.height = region.pixel_height;
+  configuration.pixelFormat = kCVPixelFormatType_32BGRA;
+  configuration.queueDepth = PetSafeCapturePolicy().queue_depth;
+  configuration.showsCursor = PetSafeCapturePolicy().shows_cursor;
+  configuration.minimumFrameInterval =
+      CMTimeMake(1, fps == 60 ? 60 : 30);
+  if (@available(macOS 13.0, *)) {
+    configuration.capturesAudio =
+        PetSafeCapturePolicy().captures_audio;
+    configuration.excludesCurrentProcessAudio = YES;
+  }
+  if (@available(macOS 15.0, *)) {
+    configuration.captureMicrophone =
+        PetSafeCapturePolicy().captures_microphone;
+  }
+  return configuration;
+}
+
+- (void)scheduleReaimRegion:(PetCaptureRegion)region
+                        fps:(uint32_t)fps
+    API_AVAILABLE(macos(14.0)) {
+  _desiredRegion = region;
+  _desiredFps = fps;
+  const uint64_t token = _reaimGate.begin();
+  if (token == 0) {
+    return;
+  }
+  const NSUInteger generation = _generation;
+  __weak BPScreenCaptureService *weakSelf = self;
+  dispatch_after(
+      dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC),
+      dispatch_get_main_queue(), ^{
+        BPScreenCaptureService *strongSelf = weakSelf;
+        if (strongSelf == nil || strongSelf->_shuttingDown ||
+            generation != strongSelf->_generation ||
+            strongSelf->_stream == nil ||
+            !strongSelf->_reaimGate.owns(token)) {
+          if (strongSelf != nil &&
+              strongSelf->_reaimGate.owns(token)) {
+            (void)strongSelf->_reaimGate.complete(token);
+          }
+          return;
+        }
+        SCStream *stream = strongSelf->_stream;
+        const PetCaptureRegion appliedRegion =
+            strongSelf->_desiredRegion;
+        const uint32_t appliedFps = strongSelf->_desiredFps;
+        SCStreamConfiguration *configuration =
+            [strongSelf configurationForRegion:appliedRegion
+                                           fps:appliedFps];
+        [stream
+            updateConfiguration:configuration
+              completionHandler:^(NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                  BPScreenCaptureService *completedSelf = weakSelf;
+                  if (completedSelf == nil ||
+                      completedSelf->_shuttingDown ||
+                      generation != completedSelf->_generation ||
+                      stream != completedSelf->_stream ||
+                      !completedSelf->_reaimGate.owns(token)) {
+                    return;
+                  }
+                  if (error != nil) {
+                    const PetCaptureRegion latest =
+                        completedSelf->_desiredRegion;
+                    const uint32_t latestFps =
+                        completedSelf->_desiredFps;
+                    (void)completedSelf->_reaimGate.complete(token);
+                    [completedSelf requestRestartRegion:latest
+                                                    fps:latestFps];
+                    return;
+                  }
+                  dispatch_async(completedSelf->_frameQueue, ^{
+                    BPScreenCaptureService *frameSelf = weakSelf;
+                    if (frameSelf == nil) {
+                      return;
+                    }
+                    frameSelf->_frameRegion = appliedRegion;
+                    frameSelf->_hasFrameRegion = YES;
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                      BPScreenCaptureService *finishedSelf = weakSelf;
+                      if (finishedSelf == nil ||
+                          finishedSelf->_shuttingDown ||
+                          generation != finishedSelf->_generation ||
+                          stream != finishedSelf->_stream ||
+                          !finishedSelf->_reaimGate.complete(token)) {
+                        return;
+                      }
+                      finishedSelf->_activeRegion = appliedRegion;
+                      finishedSelf->_hasActiveRegion = YES;
+                      if (!PetCaptureRegionsEqual(
+                              appliedRegion,
+                              finishedSelf->_desiredRegion)) {
+                        [finishedSelf
+                            scheduleReaimRegion:
+                                finishedSelf->_desiredRegion
+                                              fps:
+                                finishedSelf->_desiredFps];
+                      }
+                    });
+                  });
+                });
+              }];
+      });
+}
+
+- (void)requestRestartRegion:(PetCaptureRegion)region
+                          fps:(uint32_t)fps {
   if (@available(macOS 12.3, *)) {
     [self stopStreamAndReleaseFrame];
+    if (!_restartGate.request(region, fps)) {
+      return;
+    }
+    _desiredRegion = region;
+    _desiredFps = fps;
     const NSUInteger generation = _generation;
     __weak BPScreenCaptureService *weakSelf = self;
     [SCShareableContent
@@ -226,14 +391,33 @@ API_AVAILABLE(macos(12.3))
           return;
         }
         if (error != nil || content == nil) {
+          strongSelf->_restartGate.complete();
           [strongSelf failCapture];
           return;
         }
-        [strongSelf startWithContent:content region:region fps:fps
+        const PetCaptureRegion latestRegion =
+            strongSelf->_restartGate.desired_region();
+        const uint32_t latestFps =
+            strongSelf->_restartGate.desired_fps();
+        [strongSelf startWithContent:content region:latestRegion fps:latestFps
                          generation:generation];
       });
     }];
   }
+}
+
+- (void)reconcileDesiredCapture API_AVAILABLE(macos(12.3)) {
+  if (_stream == nil || !_hasActiveRegion ||
+      PetCaptureRegionsEqual(_activeRegion, _desiredRegion)) {
+    return;
+  }
+  if (@available(macOS 14.0, *)) {
+    if (_activeRegion.display_id == _desiredRegion.display_id) {
+      [self scheduleReaimRegion:_desiredRegion fps:_desiredFps];
+      return;
+    }
+  }
+  [self requestRestartRegion:_desiredRegion fps:_desiredFps];
 }
 
 - (void)startWithContent:(SCShareableContent *)content
@@ -260,6 +444,7 @@ API_AVAILABLE(macos(12.3))
     }
     if (selectedDisplay == nil ||
         (policy.excludes_own_process && ownApplication == nil)) {
+      _restartGate.complete();
       [self failCapture];
       return;
     }
@@ -271,24 +456,7 @@ API_AVAILABLE(macos(12.3))
         excludingApplications:excludedApplications
              exceptingWindows:@[]];
     SCStreamConfiguration *configuration =
-        [[SCStreamConfiguration alloc] init];
-    configuration.sourceRect =
-        CGRectMake(region.source_x, region.source_y, region.source_width,
-                   region.source_height);
-    configuration.width = region.pixel_width;
-    configuration.height = region.pixel_height;
-    configuration.pixelFormat = kCVPixelFormatType_32BGRA;
-    configuration.queueDepth = policy.queue_depth;
-    configuration.showsCursor = policy.shows_cursor;
-    configuration.minimumFrameInterval =
-        CMTimeMake(1, fps == 60 ? 60 : 30);
-    if (@available(macOS 13.0, *)) {
-      configuration.capturesAudio = policy.captures_audio;
-      configuration.excludesCurrentProcessAudio = YES;
-    }
-    if (@available(macOS 15.0, *)) {
-      configuration.captureMicrophone = policy.captures_microphone;
-    }
+        [self configurationForRegion:region fps:fps];
 
     SCStream *stream = [[SCStream alloc] initWithFilter:filter
                                           configuration:configuration
@@ -299,11 +467,18 @@ API_AVAILABLE(macos(12.3))
               sampleHandlerQueue:_frameQueue
                            error:&outputError] ||
         outputError != nil) {
+      _restartGate.complete();
       [self failCapture];
       return;
     }
 
+    dispatch_sync(_frameQueue, ^{
+      self->_frameRegion = region;
+      self->_hasFrameRegion = YES;
+    });
     _stream = stream;
+    _activeRegion = region;
+    _hasActiveRegion = YES;
     os_unfair_lock_lock(&_surfaceLock);
     _activeStreamIdentity = (__bridge void *)stream;
     _frameRetention.start();
@@ -318,10 +493,13 @@ API_AVAILABLE(macos(12.3))
           return;
         }
         if (startError != nil) {
+          strongSelf->_restartGate.complete();
           [strongSelf failCapture];
           return;
         }
+        strongSelf->_restartGate.complete();
         [strongSelf setCaptureState:PET_CAPTURE_READY];
+        [strongSelf reconcileDesiredCapture];
       });
     }];
   }
@@ -345,15 +523,21 @@ API_AVAILABLE(macos(12.3))
     if (surface == nullptr) {
       return;
     }
+    const BOOL dimensionsMatch =
+        _hasFrameRegion &&
+        IOSurfaceGetWidth(surface) == _frameRegion.pixel_width &&
+        IOSurfaceGetHeight(surface) == _frameRegion.pixel_height;
 
     CFRetain(surface);
     os_unfair_lock_lock(&_surfaceLock);
     const BOOL acceptFrame =
         _frameRetention.accepting() &&
-        _activeStreamIdentity == (__bridge void *)stream;
+        _activeStreamIdentity == (__bridge void *)stream &&
+        dimensionsMatch;
     IOSurfaceRef previous = acceptFrame ? _latestSurface : nullptr;
     if (acceptFrame) {
       _latestSurface = surface;
+      _latestSurfaceRegion = _frameRegion;
     }
     os_unfair_lock_unlock(&_surfaceLock);
     if (!acceptFrame) {
@@ -381,6 +565,12 @@ API_AVAILABLE(macos(12.3))
 
 - (void)stopStreamAndReleaseFrame {
   ++_generation;
+  _reaimGate.cancel();
+  _restartGate.cancel();
+  _hasActiveRegion = NO;
+  dispatch_async(_frameQueue, ^{
+    self->_hasFrameRegion = NO;
+  });
   [self releaseLatestSurface];
   if (@available(macOS 12.3, *)) {
     SCStream *stream = _stream;
@@ -406,6 +596,7 @@ API_AVAILABLE(macos(12.3))
   os_unfair_lock_lock(&_surfaceLock);
   IOSurfaceRef previous = _latestSurface;
   _latestSurface = nullptr;
+  _latestSurfaceRegion = {};
   _activeStreamIdentity = nullptr;
   os_unfair_lock_unlock(&_surfaceLock);
   if (previous != nullptr) {
@@ -424,6 +615,9 @@ API_AVAILABLE(macos(12.3))
   _shuttingDown = YES;
   _callback = nullptr;
   ++_generation;
+  _reaimGate.cancel();
+  _restartGate.cancel();
+  _hasActiveRegion = NO;
 
   _frameRetention.stop();
   os_unfair_lock_lock(&_surfaceLock);
@@ -483,11 +677,17 @@ API_AVAILABLE(macos(12.3))
   return _captureState;
 }
 
-- (IOSurfaceRef)copyLatestSurface {
+- (IOSurfaceRef)copyLatestSurfaceRegion:(PetCaptureRegion *)regionOut {
+  if (regionOut != nullptr) {
+    *regionOut = {};
+  }
   os_unfair_lock_lock(&_surfaceLock);
   IOSurfaceRef surface = _latestSurface;
   if (surface != nullptr) {
     CFRetain(surface);
+    if (regionOut != nullptr) {
+      *regionOut = _latestSurfaceRegion;
+    }
   }
   os_unfair_lock_unlock(&_surfaceLock);
   return surface;
@@ -543,9 +743,14 @@ extern "C" uint32_t mac_capture_state(void *handle) {
   return [(__bridge id<BPCaptureControlling>)handle captureState];
 }
 
-extern "C" IOSurfaceRef mac_capture_copy_latest_surface(void *handle) {
+extern "C" IOSurfaceRef mac_capture_copy_latest_surface(
+    void *handle, PetCaptureRegion *region_out) {
+  if (region_out != nullptr) {
+    *region_out = {};
+  }
   if (handle == nullptr) {
     return nullptr;
   }
-  return [(__bridge id<BPCaptureControlling>)handle copyLatestSurface];
+  return [(__bridge id<BPCaptureControlling>)handle
+      copyLatestSurfaceRegion:region_out];
 }

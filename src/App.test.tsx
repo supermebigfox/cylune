@@ -54,10 +54,10 @@ describe("App localization", () => {
   it("shows the localized prototype shell", () => {
     render(<App />);
     expect(
-      screen.getByRole("img", { name: "拓竹耗材管家图标" }),
+      screen.getByRole("img", { name: "CYLUNE 图标" }),
     ).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "拓竹耗材管家" }),
+      screen.getByRole("heading", { name: "CYLUNE" }),
     ).toBeVisible();
     expect(screen.getByText("本地模式")).toBeVisible();
   });
@@ -67,14 +67,14 @@ describe("App localization", () => {
 
     await act(() => setLocale("en"));
     expect(
-      screen.getByRole("heading", { name: "Bambu Spool Keeper" }),
+      screen.getByRole("heading", { name: "CYLUNE" }),
     ).toBeVisible();
     expect(screen.getByText("Local mode")).toBeVisible();
     expect(document.documentElement.lang).toBe("en");
 
     await act(() => setLocale("zh-TW"));
     expect(
-      screen.getByRole("img", { name: "拓竹耗材管家圖示" }),
+      screen.getByRole("img", { name: "CYLUNE 圖示" }),
     ).toBeVisible();
     expect(screen.getByText("本機模式")).toBeVisible();
     expect(document.documentElement.lang).toBe("zh-TW");
@@ -89,7 +89,7 @@ describe("App localization", () => {
     await act(() => setLocale("en"));
 
     expect(
-      screen.getByRole("heading", { name: "Bambu Spool Keeper" }),
+      screen.getByRole("heading", { name: "CYLUNE" }),
     ).toBeVisible();
     expect(document.documentElement.lang).toBe("en");
   });

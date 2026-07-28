@@ -179,6 +179,7 @@ pub enum TestVisualStyle {
 pub struct TestRenderOptions {
     pub mode: TestRenderMode,
     pub visual_style: TestVisualStyle,
+    pub center_uv: [f32; 2],
     pub time_seconds: f32,
     pub drop_origin_uv: [f32; 2],
     pub drop_progress: f32,
@@ -201,6 +202,7 @@ impl Default for TestRenderOptions {
         Self {
             mode: TestRenderMode::Lite,
             visual_style: TestVisualStyle::Gargantua,
+            center_uv: [0.5, 0.5],
             time_seconds: 0.0,
             drop_origin_uv: [0.5, 0.5],
             drop_progress: 0.0,
@@ -226,6 +228,7 @@ struct TestNativeRenderUniforms {
     viewport_px: [f32; 2],
     capture_origin_uv: [f32; 2],
     capture_extent_uv: [f32; 2],
+    center_uv: [f32; 2],
     time_seconds: f32,
     hole_radius_uv: f32,
     temperature: f32,
@@ -265,6 +268,7 @@ impl From<TestRenderOptions> for TestNativeRenderUniforms {
         let mut uniforms = Self {
             capture_origin_uv: options.capture_origin_uv,
             capture_extent_uv: options.capture_extent_uv,
+            center_uv: options.center_uv,
             time_seconds: options.time_seconds,
             hole_radius_uv: 0.075,
             spin_phase: 0.0,
@@ -285,19 +289,19 @@ impl From<TestRenderOptions> for TestNativeRenderUniforms {
         };
         match options.visual_style {
             TestVisualStyle::Gargantua => {
-                uniforms.temperature = 4500.0;
-                uniforms.inclination = 1.52;
-                uniforms.roll = 0.10;
-                uniforms.disk_inner = 2.2;
-                uniforms.disk_outer = 7.0;
-                uniforms.disk_opacity = 0.85;
-                uniforms.doppler = 0.35;
-                uniforms.beaming = 2.0;
-                uniforms.gain = 1.4;
-                uniforms.contrast = 0.5;
-                uniforms.wind = 7.0;
-                uniforms.speed = 5.0;
-                uniforms.exposure = 1.20;
+                uniforms.temperature = 8500.0;
+                uniforms.inclination = 1.45;
+                uniforms.roll = 0.15;
+                uniforms.disk_inner = 3.0;
+                uniforms.disk_outer = 9.0;
+                uniforms.disk_opacity = 0.65;
+                uniforms.doppler = 1.0;
+                uniforms.beaming = 3.0;
+                uniforms.gain = 1.0;
+                uniforms.contrast = 0.9;
+                uniforms.wind = 5.0;
+                uniforms.speed = 3.6;
+                uniforms.exposure = 1.0;
                 uniforms.stars = 0.0;
                 uniforms.spin = 0.0;
             }
@@ -768,6 +772,71 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
+    fn opaque_horizon_centroid_x(pixels: &[u8], width: usize) -> f64 {
+        let mut weighted_x = 0.0;
+        let mut count = 0_u64;
+        for (index, pixel) in pixels.chunks_exact(4).enumerate() {
+            if pixel[3] > 240 && pixel[0] < 8 && pixel[1] < 8 && pixel[2] < 8 {
+                weighted_x += (index % width) as f64 + 0.5;
+                count += 1;
+            }
+        }
+        assert!(count > 0, "renderer produced no opaque horizon pixels");
+        weighted_x / count as f64
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn cpu_center_uniform_moves_the_horizon_without_moving_the_capture() {
+        let input = vec![255_u8; 256 * 256 * 4];
+        let left = super::test_render_with_options(
+            &input,
+            256,
+            256,
+            TestRenderOptions {
+                mode: TestRenderMode::Real,
+                center_uv: [0.30, 0.50],
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .pixels;
+        let right = super::test_render_with_options(
+            &input,
+            256,
+            256,
+            TestRenderOptions {
+                mode: TestRenderMode::Real,
+                center_uv: [0.70, 0.50],
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .pixels;
+        assert!(opaque_horizon_centroid_x(&left, 256) < 110.0);
+        assert!(opaque_horizon_centroid_x(&right, 256) > 146.0);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn approved_renderer_uses_the_upstream_effect_boundary() {
+        let input = vec![255_u8; 256 * 256 * 4];
+        let pixels = super::test_render_with_options(
+            &input,
+            256,
+            256,
+            TestRenderOptions {
+                mode: TestRenderMode::Real,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .pixels;
+
+        assert_eq!(rgba_at(&pixels, 256, 230, 128)[3], 0);
+    }
+
+    #[cfg(target_os = "macos")]
     fn warm(pixel: [u8; 4]) -> bool {
         pixel[0] > pixel[2] && pixel[0] > 80 && pixel[1] > 45 && pixel[3] > 20
     }
@@ -898,74 +967,6 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
-    #[derive(Debug)]
-    struct EmissionMetrics {
-        frame_pixels: usize,
-        emission_pixels: usize,
-        saturated_pixels: usize,
-        variance_x: f64,
-        variance_y: f64,
-        red: f64,
-        green: f64,
-        blue: f64,
-    }
-
-    #[cfg(target_os = "macos")]
-    fn whole_frame_emission_metrics(pixels: &[u8], width: usize, height: usize) -> EmissionMetrics {
-        const VISIBLE_EMISSION_THRESHOLD: u8 = 8;
-        let mut emission_pixels = 0;
-        let mut saturated_pixels = 0;
-        let mut total_weight = 0.0;
-        let mut weighted_x = 0.0;
-        let mut weighted_y = 0.0;
-        let mut red = 0.0;
-        let mut green = 0.0;
-        let mut blue = 0.0;
-        let mut samples = Vec::new();
-        for y in 0..height {
-            for x in 0..width {
-                let pixel = rgba_at(pixels, width, x, y);
-                let normalized_x = ((x as f64 + 0.5) / width as f64) * 2.0 - 1.0;
-                let normalized_y = ((y as f64 + 0.5) / height as f64) * 2.0 - 1.0;
-                if pixel[..3].iter().copied().max().unwrap() <= VISIBLE_EMISSION_THRESHOLD {
-                    continue;
-                }
-                emission_pixels += 1;
-                saturated_pixels += usize::from(pixel[..3].iter().any(|&channel| channel >= 250));
-                red += f64::from(pixel[0]);
-                green += f64::from(pixel[1]);
-                blue += f64::from(pixel[2]);
-                let weight = f64::from(pixel[0]) + f64::from(pixel[1]) + f64::from(pixel[2]);
-                total_weight += weight;
-                weighted_x += normalized_x * weight;
-                weighted_y += normalized_y * weight;
-                samples.push((normalized_x, normalized_y, weight));
-            }
-        }
-        let mean_x = weighted_x / total_weight;
-        let mean_y = weighted_y / total_weight;
-        let (variance_x, variance_y) =
-            samples
-                .into_iter()
-                .fold((0.0, 0.0), |(variance_x, variance_y), (x, y, weight)| {
-                    (
-                        variance_x + (x - mean_x).powi(2) * weight,
-                        variance_y + (y - mean_y).powi(2) * weight,
-                    )
-                });
-        EmissionMetrics {
-            frame_pixels: width * height,
-            emission_pixels,
-            saturated_pixels,
-            variance_x: variance_x / total_weight,
-            variance_y: variance_y / total_weight,
-            red,
-            green,
-            blue,
-        }
-    }
-
-    #[cfg(target_os = "macos")]
     #[test]
     fn switching_styles_preserves_gargantua_and_the_shared_event_horizon() {
         let input = checkerboard_rgba(256, 256);
@@ -1028,87 +1029,28 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn fusion_emission_is_wider_warmer_and_not_clipped() {
-        let gargantua = render_style(
-            &[],
-            256,
-            256,
-            TestRenderMode::Lite,
-            TestVisualStyle::Gargantua,
-        );
-        let fusion = render_style(&[], 256, 256, TestRenderMode::Lite, TestVisualStyle::Fusion);
-        let gargantua_metrics = whole_frame_emission_metrics(&gargantua, 256, 256);
-        let fusion_metrics = whole_frame_emission_metrics(&fusion, 256, 256);
-        let variance_ratio = fusion_metrics.variance_x / fusion_metrics.variance_y;
-        let green_ratio = fusion_metrics.green / fusion_metrics.red;
-        let blue_ratio = fusion_metrics.blue / fusion_metrics.red;
-        let coverage_ratio =
-            fusion_metrics.emission_pixels as f64 / gargantua_metrics.emission_pixels as f64;
-        let saturated_ratio =
-            fusion_metrics.saturated_pixels as f64 / fusion_metrics.frame_pixels as f64;
-
-        assert!(
-            variance_ratio >= 2.2,
-            "Fusion variance_x / variance_y was {variance_ratio:.3}: \
-             {fusion_metrics:?}"
-        );
-        assert!(
-            fusion_metrics.red > fusion_metrics.green && fusion_metrics.green > fusion_metrics.blue,
-            "Fusion whole-frame emission was not warm: {fusion_metrics:?}"
-        );
-        assert!(
-            (0.78..=0.96).contains(&green_ratio),
-            "Fusion G/R was {green_ratio:.3}"
-        );
-        assert!(
-            (0.45..=0.82).contains(&blue_ratio),
-            "Fusion B/R was {blue_ratio:.3}"
-        );
-        assert!(
-            (1.15..=1.80).contains(&coverage_ratio),
-            "Fusion/Gargantua coverage was {coverage_ratio:.3}: \
-             Fusion={}, Gargantua={}",
-            fusion_metrics.emission_pixels,
-            gargantua_metrics.emission_pixels
-        );
-        assert!(
-            saturated_ratio < 0.12,
-            "Fusion saturated pixel ratio was {saturated_ratio:.3}"
-        );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn fusion_outer_alpha_feather_starts_at_point_42_and_is_monotonic() {
+    fn approved_renderer_animates_inside_its_transparent_boundary() {
         let input = checkerboard_rgba(256, 256);
-        let output = render_style(
-            &input,
-            256,
-            256,
-            TestRenderMode::Real,
-            TestVisualStyle::Fusion,
-        );
-        let samples = (0..=15)
-            .map(|index| {
-                let radius = 0.42 + 0.075 * f64::from(index) / 15.0;
-                let x = ((radius + 0.5) * 256.0 - 0.5).round().clamp(0.0, 255.0) as usize;
-                rgba_at(&output, 256, x, 128)[3]
-            })
-            .collect::<Vec<_>>();
+        let render_at = |time_seconds| {
+            super::test_render_with_options(
+                &input,
+                256,
+                256,
+                TestRenderOptions {
+                    mode: TestRenderMode::Real,
+                    time_seconds,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .pixels
+        };
+        let first = render_at(0.0);
+        let later = render_at(1.5);
 
-        assert!(
-            samples[6] < samples[0],
-            "Fusion alpha did not begin feathering after 0.42: {samples:?}"
-        );
-        assert!(
-            samples
-                .windows(2)
-                .all(|pair| u16::from(pair[1]) <= u16::from(pair[0]) + 1),
-            "Fusion alpha feather was not monotonic: {samples:?}"
-        );
-        for (x, y) in [(0, 0), (255, 0), (0, 255), (255, 255)] {
-            assert_eq!(rgba_at(&output, 256, x, y)[3], 0);
-        }
+        assert!(different_pixel_count(&first, &later) > 400);
+        assert_preview_corners_are_transparent(&first, 256, "approved renderer");
+        assert_preview_corners_are_transparent(&later, 256, "approved renderer later");
     }
 
     #[cfg(target_os = "macos")]
@@ -1142,45 +1084,6 @@ mod tests {
         for (x, y) in [(0, 0), (127, 0), (0, 127), (127, 127)] {
             assert_eq!(rgba_at(&output, 128, x, y), [0, 0, 0, 0]);
         }
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn capture_mapping_preserves_the_lensing_margin_around_the_panel() {
-        let mut input = vec![0_u8; 256 * 256 * 4];
-        for y in 0..256 {
-            for x in 0..256 {
-                let offset = (y * 256 + x) * 4;
-                let in_panel = (48..208).contains(&x) && (48..208).contains(&y);
-                input[offset..offset + 4].copy_from_slice(if in_panel {
-                    &[0, 0, 0, 255]
-                } else {
-                    &[0, 0, 255, 255]
-                });
-            }
-        }
-        let output = super::test_render_with_options(
-            &input,
-            256,
-            256,
-            TestRenderOptions {
-                mode: TestRenderMode::Real,
-                capture_origin_uv: [0.1875, 0.1875],
-                capture_extent_uv: [0.625, 0.625],
-                ..Default::default()
-            },
-        )
-        .unwrap()
-        .pixels;
-        let blue_margin_samples = output
-            .chunks_exact(4)
-            .filter(|pixel| pixel[2] > 180 && pixel[0] < 40 && pixel[1] < 40 && pixel[3] > 20)
-            .count();
-
-        assert!(
-            blue_margin_samples > 20,
-            "lensed rays never reached the capture margin: {blue_margin_samples}"
-        );
     }
 
     #[cfg(target_os = "macos")]
@@ -1337,106 +1240,296 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
+    fn preview_side(size: u32) -> u32 {
+        size.min(360)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn preview_input(mode: TestRenderMode, side: u32) -> Vec<u8> {
+        match mode {
+            TestRenderMode::Real => checkerboard_rgba(side as usize, side as usize),
+            TestRenderMode::Lite => Vec::new(),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn preview_options(visual_style: TestVisualStyle, mode: TestRenderMode) -> TestRenderOptions {
+        TestRenderOptions {
+            mode,
+            visual_style,
+            ..TestRenderOptions::default()
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn assert_preview_corners_are_transparent(pixels: &[u8], side: u32, label: &str) {
+        let last = side as usize - 1;
+        for (x, y) in [(0, 0), (last, 0), (0, last), (last, last)] {
+            assert_eq!(
+                rgba_at(pixels, side as usize, x, y)[3],
+                0,
+                "{label} clipped visible content into corner ({x}, {y})"
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn verify_idle_distortion_or_transparency(
+        visual_style: TestVisualStyle,
+        mode: TestRenderMode,
+        size: u32,
+    ) {
+        let side = preview_side(size);
+        let input = checkerboard_rgba(side as usize, side as usize);
+        let inverted = input
+            .chunks_exact(4)
+            .flat_map(|pixel| [255 - pixel[0], 255 - pixel[1], 255 - pixel[2], 255])
+            .collect::<Vec<_>>();
+        let options = preview_options(visual_style, mode);
+        let output = render_drop_cell(&input, side, side, options);
+        let inverted_output = render_drop_cell(&inverted, side, side, options);
+        let label = format!("{visual_style:?}/{mode:?}/{size}/idle");
+
+        match mode {
+            TestRenderMode::Real => assert_ne!(
+                checksum_annulus(&output, side as usize, side as usize, 0.20, 0.96,),
+                checksum_annulus(&inverted_output, side as usize, side as usize, 0.20, 0.96,),
+                "{label} stopped responding to inverted checkerboard capture"
+            ),
+            TestRenderMode::Lite => assert_eq!(
+                different_pixel_count(&output, &inverted_output),
+                0,
+                "{label} unexpectedly depended on capture input"
+            ),
+        }
+        assert_preview_corners_are_transparent(&output, side, &label);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn verify_standard_success(
+        visual_style: TestVisualStyle,
+        mode: TestRenderMode,
+        size: u32,
+        faller_seconds: f32,
+        jet_seconds: f32,
+    ) {
+        let side = preview_side(size);
+        let input = preview_input(mode, side);
+        let base = preview_options(visual_style, mode);
+        let baseline = render_drop_cell(&input, side, side, base);
+        let render_at = |elapsed: f32, absorption_progress: f32| {
+            render_drop_cell(
+                &input,
+                side,
+                side,
+                TestRenderOptions {
+                    drop_origin_uv: [0.72, 0.44],
+                    drop_progress: (elapsed / faller_seconds).clamp(0.0, 1.0),
+                    absorption_progress,
+                    drop_phase: 3,
+                    file_kind: 1,
+                    ..base
+                },
+            )
+        };
+        let label = format!("{visual_style:?}/{mode:?}/{size}/success");
+
+        let phase_samples = [
+            render_at(0.0, 0.0),
+            render_at(1.15, 0.0),
+            render_at(2.07, 0.0),
+            render_at(3.312, 0.0),
+            render_at(3.772, 0.0),
+            render_at(4.048, 0.0),
+        ];
+        for (index, pair) in phase_samples.windows(2).enumerate() {
+            assert!(
+                different_pixel_count(&pair[0], &pair[1]) > 24,
+                "{label} did not visibly cross phase boundary {index}"
+            );
+        }
+        assert_eq!(
+            different_pixel_count(&render_at(faller_seconds, 0.0), &baseline),
+            0,
+            "{label} retained the delivered card after the 4.6-second faller"
+        );
+
+        let jet_mid_elapsed = 3.772 + jet_seconds * 0.5;
+        assert!(
+            different_pixel_count(
+                &render_at(jet_mid_elapsed, 0.0),
+                &render_at(jet_mid_elapsed, 0.5),
+            ) > 24,
+            "{label} did not draw the 0.90-second jet midpoint"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    fn verify_rejection_has_no_delivery_or_jet(
+        visual_style: TestVisualStyle,
+        mode: TestRenderMode,
+        size: u32,
+        recoil_seconds: f32,
+    ) {
+        let side = preview_side(size);
+        let input = preview_input(mode, side);
+        let base = preview_options(visual_style, mode);
+        let baseline = render_drop_cell(&input, side, side, base);
+        let rejected = TestRenderOptions {
+            drop_origin_uv: [0.72, 0.44],
+            drop_progress: 0.60,
+            absorption_progress: 0.5,
+            error_progress: 0.21 / recoil_seconds,
+            drop_phase: 4,
+            file_kind: 2,
+            ..base
+        };
+        let rendered = render_drop_cell(&input, side, side, rejected);
+        let label = format!("{visual_style:?}/{mode:?}/{size}/reject");
+
+        assert!(
+            different_pixel_count(&baseline, &rendered) > 24,
+            "{label} did not draw the 0.42-second recoil"
+        );
+        assert_eq!(
+            different_pixel_count(
+                &rendered,
+                &render_drop_cell(
+                    &input,
+                    side,
+                    side,
+                    TestRenderOptions {
+                        drop_progress: 0.0,
+                        absorption_progress: 0.0,
+                        ..rejected
+                    },
+                ),
+            ),
+            0,
+            "{label} rendered delivery fragments or a stale jet"
+        );
+        assert_eq!(
+            different_pixel_count(
+                &render_drop_cell(
+                    &input,
+                    side,
+                    side,
+                    TestRenderOptions {
+                        error_progress: 0.42 / recoil_seconds,
+                        absorption_progress: 0.0,
+                        ..rejected
+                    },
+                ),
+                &baseline,
+            ),
+            0,
+            "{label} remained visible after the 0.42-second recoil"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    fn verify_cancellation_is_idle_and_empty(
+        visual_style: TestVisualStyle,
+        mode: TestRenderMode,
+        size: u32,
+    ) {
+        let side = preview_side(size);
+        let input = preview_input(mode, side);
+        let base = preview_options(visual_style, mode);
+        let baseline = render_drop_cell(&input, side, side, base);
+        let cancelled = render_drop_cell(
+            &input,
+            side,
+            side,
+            TestRenderOptions {
+                drop_progress: 0.72,
+                absorption_progress: 0.5,
+                drop_phase: 0,
+                file_kind: 0,
+                ..base
+            },
+        );
+
+        assert_eq!(
+            different_pixel_count(&cancelled, &baseline),
+            0,
+            "{visual_style:?}/{mode:?}/{size}/cancel retained a card, fragment, impact, or jet"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    fn verify_reduced_motion_has_no_fragments_or_jet(
+        visual_style: TestVisualStyle,
+        mode: TestRenderMode,
+        size: u32,
+        reduced_seconds: f32,
+    ) {
+        let side = preview_side(size);
+        let input = preview_input(mode, side);
+        let base = preview_options(visual_style, mode);
+        let baseline = render_drop_cell(&input, side, side, base);
+        let midpoint = TestRenderOptions {
+            drop_origin_uv: [0.72, 0.44],
+            drop_progress: 0.075 / reduced_seconds,
+            absorption_progress: 0.5,
+            reduce_motion: true,
+            drop_phase: 3,
+            file_kind: 1,
+            ..base
+        };
+        let rendered = render_drop_cell(&input, side, side, midpoint);
+        let label = format!("{visual_style:?}/{mode:?}/{size}/reduced");
+
+        assert!(
+            different_pixel_count(&baseline, &rendered) > 24,
+            "{label} did not draw the 0.15-second fade"
+        );
+        assert_eq!(
+            different_pixel_count(
+                &rendered,
+                &render_drop_cell(
+                    &input,
+                    side,
+                    side,
+                    TestRenderOptions {
+                        absorption_progress: 0.0,
+                        ..midpoint
+                    },
+                ),
+            ),
+            0,
+            "{label} drew a jet during Reduce Motion"
+        );
+        assert_eq!(
+            different_pixel_count(
+                &render_drop_cell(
+                    &input,
+                    side,
+                    side,
+                    TestRenderOptions {
+                        drop_progress: 0.15 / reduced_seconds,
+                        absorption_progress: 0.0,
+                        ..midpoint
+                    },
+                ),
+                &baseline,
+            ),
+            0,
+            "{label} retained the card or fragments after 0.15 seconds"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
     #[test]
-    fn synthetic_drop_matrix_covers_styles_modes_motion_and_outcomes() {
-        const SIDE: u32 = 96;
+    fn complete_synthetic_preview_matrix_covers_every_style_mode_size_and_state() {
         for visual_style in [TestVisualStyle::Gargantua, TestVisualStyle::Fusion] {
             for mode in [TestRenderMode::Real, TestRenderMode::Lite] {
-                let input = match mode {
-                    TestRenderMode::Real => checkerboard_rgba(SIDE as usize, SIDE as usize),
-                    TestRenderMode::Lite => Vec::new(),
-                };
-                for reduce_motion in [false, true] {
-                    let baseline_options = TestRenderOptions {
-                        mode,
-                        visual_style,
-                        reduce_motion,
-                        ..TestRenderOptions::default()
-                    };
-                    let baseline = render_drop_cell(&input, SIDE, SIDE, baseline_options);
-
-                    for outcome in ["pending", "success", "reject", "cancel"] {
-                        let mut options = TestRenderOptions {
-                            mode,
-                            visual_style,
-                            reduce_motion,
-                            drop_origin_uv: [0.72, 0.44],
-                            file_kind: 1,
-                            ..TestRenderOptions::default()
-                        };
-                        match outcome {
-                            "pending" => {
-                                options.drop_phase = 2;
-                            }
-                            "success" => {
-                                options.drop_phase = 3;
-                                options.drop_progress = if reduce_motion { 0.5 } else { 0.60 };
-                            }
-                            "reject" => {
-                                options.drop_phase = 4;
-                                options.file_kind = 2;
-                                options.drop_progress = 0.43;
-                                options.error_progress = 0.43;
-                                // A stale jet value must remain invisible outside success.
-                                options.absorption_progress = 0.5;
-                            }
-                            "cancel" => {
-                                // PetDropState cancellation clears every external-file field.
-                                options.drop_phase = 0;
-                                options.file_kind = 0;
-                            }
-                            _ => unreachable!(),
-                        }
-                        let rendered = render_drop_cell(&input, SIDE, SIDE, options);
-                        let label = format!("{visual_style:?}/{mode:?}/{reduce_motion}/{outcome}");
-
-                        match outcome {
-                            "pending" | "success" | "reject" => assert!(
-                                different_pixel_count(&baseline, &rendered) > 24,
-                                "{label} did not draw its external-file state"
-                            ),
-                            "cancel" => assert_eq!(
-                                rendered, baseline,
-                                "{label} retained a card, fragments, jet, or error overlay"
-                            ),
-                            _ => unreachable!(),
-                        }
-
-                        if outcome == "success" {
-                            if reduce_motion {
-                                let mut without_jet = options;
-                                without_jet.absorption_progress = 0.0;
-                                assert_eq!(
-                                    rendered,
-                                    render_drop_cell(&input, SIDE, SIDE, without_jet),
-                                    "{label} drew a jet during Reduce Motion"
-                                );
-                            } else {
-                                let mut jet_mid = options;
-                                jet_mid.drop_progress = 4.222 / 4.6;
-                                jet_mid.absorption_progress = 0.5;
-                                let mut without_jet = jet_mid;
-                                without_jet.absorption_progress = 0.0;
-                                assert!(
-                                    different_pixel_count(
-                                        &render_drop_cell(&input, SIDE, SIDE, without_jet),
-                                        &render_drop_cell(&input, SIDE, SIDE, jet_mid),
-                                    ) > 24,
-                                    "{label} did not draw the 0.90-second jet midpoint"
-                                );
-                            }
-                        }
-
-                        if outcome == "reject" {
-                            let mut without_jet = options;
-                            without_jet.absorption_progress = 0.0;
-                            assert_eq!(
-                                rendered,
-                                render_drop_cell(&input, SIDE, SIDE, without_jet),
-                                "{label} drew a jet for rejection"
-                            );
-                        }
-                    }
+                for size in [300_u32, 600, 900] {
+                    verify_idle_distortion_or_transparency(visual_style, mode, size);
+                    verify_standard_success(visual_style, mode, size, 4.6, 0.90);
+                    verify_rejection_has_no_delivery_or_jet(visual_style, mode, size, 0.42);
+                    verify_cancellation_is_idle_and_empty(visual_style, mode, size);
+                    verify_reduced_motion_has_no_fragments_or_jet(visual_style, mode, size, 0.15);
                 }
             }
         }
@@ -1567,36 +1660,64 @@ mod tests {
         assert_eq!(offset_of!(PetNativeConfig, reduce_motion), 60);
         assert_eq!(offset_of!(PetNativeConfig, request_permission), 61);
         assert_eq!(offset_of!(PetNativeConfig, visual_style), 62);
-        assert_eq!(size_of::<super::TestNativeRenderUniforms>(), 152);
+        assert_eq!(size_of::<super::TestNativeRenderUniforms>(), 160);
         assert_eq!(
             offset_of!(super::TestNativeRenderUniforms, capture_origin_uv),
             8
         );
-        assert_eq!(offset_of!(super::TestNativeRenderUniforms, temperature), 32);
+        assert_eq!(offset_of!(super::TestNativeRenderUniforms, center_uv), 24);
+        assert_eq!(offset_of!(super::TestNativeRenderUniforms, temperature), 40);
         assert_eq!(
             offset_of!(super::TestNativeRenderUniforms, drop_origin_uv),
-            96
+            104
         );
         assert_eq!(
             offset_of!(super::TestNativeRenderUniforms, pending_count),
-            120
+            128
         );
         assert_eq!(
             offset_of!(super::TestNativeRenderUniforms, visual_style),
-            140
+            148
         );
         assert_eq!(
             offset_of!(super::TestNativeRenderUniforms, impact_level),
-            144
+            152
         );
         assert_eq!(
             offset_of!(super::TestNativeRenderUniforms, feed_strength),
-            148
+            156
         );
 
         let pet = NativePet::new(test_callback).unwrap();
         assert!(pet.apply(PetNativeConfig::lite(220.0, PetFps::Auto, true)));
         drop(pet);
+    }
+
+    #[test]
+    fn approved_default_uses_the_pinned_tiyda_material() {
+        let uniforms = super::TestNativeRenderUniforms::from(TestRenderOptions::default());
+
+        assert_eq!(uniforms.visual_style, 0);
+        assert_eq!(
+            [
+                uniforms.temperature,
+                uniforms.inclination,
+                uniforms.roll,
+                uniforms.disk_inner,
+                uniforms.disk_outer,
+                uniforms.disk_opacity,
+                uniforms.doppler,
+                uniforms.beaming,
+                uniforms.gain,
+                uniforms.contrast,
+                uniforms.wind,
+                uniforms.speed,
+                uniforms.exposure,
+                uniforms.stars,
+                uniforms.spin,
+            ],
+            [8500.0, 1.45, 0.15, 3.0, 9.0, 0.65, 1.0, 3.0, 1.0, 0.9, 5.0, 3.6, 1.0, 0.0, 0.0,]
+        );
     }
 
     #[test]

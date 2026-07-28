@@ -34,7 +34,6 @@ static const uint32_t kPetCallbackWake = 10;
 static const CGFloat kPetMinimumSize = 120.0;
 static const CGFloat kPetMaximumSize = 900.0;
 static const CGFloat kPetDragThreshold = 4.0;
-static const CGFloat kPetSafeInset = 16.0;
 
 typedef struct {
   BOOL valid;
@@ -73,6 +72,7 @@ static_assert(offsetof(PetConfig, visual_style) == 62,
               "PetConfig visual_style offset changed");
 
 @class BPPetHost;
+@class BPDisplayPane;
 
 @interface BPPetPanel : NSPanel
 @end
@@ -99,6 +99,10 @@ static_assert(offsetof(PetConfig, visual_style) == 62,
 - (void)displayLinkTick:(const CVTimeStamp *)outputTime;
 - (void)renderFrame;
 - (void)updateDrawableSize;
+- (void)setCenterUVX:(CGFloat)x
+                   y:(CGFloat)y
+          effectSize:(CGFloat)effectSize
+       displayHeight:(CGFloat)displayHeight;
 @end
 
 @interface BPCoreHitTargetView : NSView
@@ -111,12 +115,13 @@ static_assert(offsetof(PetConfig, visual_style) == 62,
 @property(nonatomic, strong) BPPetPanel *coreHitTargetPanel;
 @property(nonatomic, strong) BPPetView *petView;
 @property(nonatomic, strong) BPCoreHitTargetView *coreHitTargetView;
+@property(nonatomic, assign) NSPoint centerScreenPoint;
+@property(nonatomic, assign) CGFloat effectSize;
 @property(nonatomic, assign) BOOL gestureActive;
 @property(nonatomic, assign) NSPoint gestureMouseOrigin;
 @property(nonatomic, assign) NSPoint gesturePanelOrigin;
 @property(nonatomic, assign) BOOL gestureMoved;
 @property(nonatomic, assign) uint64_t displayID;
-@property(nonatomic, assign) PetCaptureRegion captureRegion;
 @property(nonatomic, assign) BOOL observingScreenChanges;
 @property(nonatomic, assign) BOOL observingWorkspace;
 - (instancetype)initWithCallback:(PetCallback)callback
@@ -134,6 +139,8 @@ static_assert(offsetof(PetConfig, visual_style) == 62,
 - (void)dragExited;
 - (void)dropCompleted;
 - (void)syncCoreHitTargetFrame;
+- (void)rebuildDisplayPanes;
+- (void)updatePaneGeometry;
 - (NSScreen *)screenForPanel;
 - (void)updateDisplaySelectionAndEmit:(BOOL)emit;
 - (void)screenParametersChanged:(NSNotification *)notification;
@@ -141,10 +148,21 @@ static_assert(offsetof(PetConfig, visual_style) == 62,
 - (void)workspaceDidWake:(NSNotification *)notification;
 - (void)refreshCaptureWithPermissionRequest:(BOOL)requestPermission;
 - (void)rendererBecameUnavailable;
-- (IOSurfaceRef)copyLatestSurface CF_RETURNS_RETAINED;
+- (IOSurfaceRef)copyLatestSurfaceForView:(BPPetView *)view
+                                  region:(PetCaptureRegion *)regionOut
+    CF_RETURNS_RETAINED;
 - (uint32_t)captureState;
 - (uint32_t)rendererState;
 - (uint32_t)shutdown;
+@end
+
+@interface BPDisplayPane : NSObject
+@property(nonatomic, strong) BPPetPanel *panel;
+@property(nonatomic, strong) BPPetView *petView;
+@property(nonatomic, assign) void *captureHandle;
+@property(nonatomic, assign) uint64_t displayID;
+@property(nonatomic, assign) NSRect screenFrame;
+@property(nonatomic, assign) PetCaptureRegion captureRegion;
 @end
 
 @interface BPPetBridge : NSObject
@@ -171,6 +189,9 @@ static_assert(offsetof(PetConfig, visual_style) == 62,
   return NO;
 }
 
+@end
+
+@implementation BPDisplayPane
 @end
 
 static CVReturn PetDisplayLinkCallback(CVDisplayLinkRef displayLink,
@@ -235,6 +256,10 @@ static PetRendererBackend ProductionRendererBackend() {
   uint32_t _mode;
   uint32_t _visualStyle;
   uint32_t _fps;
+  CGFloat _centerUVX;
+  CGFloat _centerUVY;
+  CGFloat _effectSize;
+  CGFloat _displayHeight;
   PetRenderAnimationState _renderAnimation;
   PetDropState _dropState;
   PetImpactState _impactState;
@@ -251,6 +276,10 @@ static PetRendererBackend ProductionRendererBackend() {
     _fps = 0;
     _mode = 1;
     _visualStyle = 0;
+    _centerUVX = 0.5;
+    _centerUVY = 0.5;
+    _effectSize = 220.0;
+    _displayHeight = MAX(NSHeight(frame), 1.0);
     _renderEpoch = CACurrentMediaTime();
     self.wantsLayer = YES;
     self.layer.backgroundColor = NSColor.clearColor.CGColor;
@@ -360,22 +389,21 @@ static PetRendererBackend ProductionRendererBackend() {
   [super layout];
   const CGRect bounds = self.bounds;
   [self updateDrawableSize];
-  const CGFloat panelSide =
-      MIN(CGRectGetWidth(bounds), CGRectGetHeight(bounds));
+  const CGFloat panelSide = _effectSize;
   const PetEffectGeometry geometry =
       PetEffectGeometryForSize(panelSide);
   const CGFloat ringWidth = MAX(3.0, panelSide * 0.035);
   const CGRect effectFrame =
-      CGRectMake(CGRectGetMidX(bounds) -
+      CGRectMake(CGRectGetWidth(bounds) * _centerUVX -
                      geometry.panel_side / 2.0,
-                 CGRectGetMidY(bounds) -
+                 CGRectGetHeight(bounds) * _centerUVY -
                      geometry.panel_side / 2.0,
                  geometry.panel_side,
                  geometry.panel_side);
   const CGRect shadowFrame =
-      CGRectMake(CGRectGetMidX(bounds) -
+      CGRectMake(CGRectGetWidth(bounds) * _centerUVX -
                      geometry.shadow_radius,
-                 CGRectGetMidY(bounds) -
+                 CGRectGetHeight(bounds) * _centerUVY -
                      geometry.shadow_radius,
                  geometry.shadow_radius * 2.0,
                  geometry.shadow_radius * 2.0);
@@ -410,9 +438,11 @@ static PetRendererBackend ProductionRendererBackend() {
     const CGFloat orbitRadius =
         panelSide * 0.5 * placement.normalized_radius;
     const CGFloat centerX =
-        CGRectGetMidX(bounds) + cos(placement.angle_radians) * orbitRadius;
+        CGRectGetWidth(bounds) * _centerUVX +
+        cos(placement.angle_radians) * orbitRadius;
     const CGFloat centerY =
-        CGRectGetMidY(bounds) + sin(placement.angle_radians) * orbitRadius;
+        CGRectGetHeight(bounds) * _centerUVY +
+        sin(placement.angle_radians) * orbitRadius;
     CALayer *dot = _pendingDotLayers[index];
     dot.frame =
         CGRectMake(centerX - dotDiameter / 2.0,
@@ -458,15 +488,23 @@ static PetRendererBackend ProductionRendererBackend() {
     scale = primary == nil ? 1.0 : primary.backingScaleFactor;
   }
   const CGRect bounds = self.bounds;
-  const CGFloat visualSide =
-      MIN(CGRectGetWidth(bounds), CGRectGetHeight(bounds));
-  const CGFloat drawableLogicalSide =
-      (CGFloat)PetDrawableLogicalSide(visualSide);
   const PetDrawableMetrics metrics = PetDrawableMetricsForLogicalSize(
-      drawableLogicalSide, drawableLogicalSide, scale);
+      CGRectGetWidth(bounds), CGRectGetHeight(bounds), scale);
   metalLayer.contentsScale = metrics.contents_scale;
   metalLayer.drawableSize =
       CGSizeMake(metrics.pixel_width, metrics.pixel_height);
+}
+
+- (void)setCenterUVX:(CGFloat)x
+                   y:(CGFloat)y
+          effectSize:(CGFloat)effectSize
+       displayHeight:(CGFloat)displayHeight {
+  _centerUVX = x;
+  _centerUVY = y;
+  _effectSize = effectSize;
+  _displayHeight = MAX(displayHeight, 1.0);
+  _lastRenderedAt = 0.0;
+  [self setNeedsLayout:YES];
 }
 
 - (void)setMode:(uint32_t)mode {
@@ -605,7 +643,8 @@ static PetRendererBackend ProductionRendererBackend() {
   const NSPoint origin = [self pointForDropOrigin:waiting.origin];
   const NSRect bounds = self.bounds;
   const NSPoint center =
-      NSMakePoint(NSMidX(bounds), NSMidY(bounds));
+      NSMakePoint(NSWidth(bounds) * _centerUVX,
+                  NSHeight(bounds) * _centerUVY);
   [_dropCardLayer removeAllAnimations];
   if (result == PET_DROP_ACCEPTED && _reduceMotion) {
     CABasicAnimation *reduced =
@@ -769,26 +808,27 @@ static PetRendererBackend ProductionRendererBackend() {
     return;
   }
   PetRenderUniforms uniforms = {};
-  IOSurfaceRef surface =
-      self.petHost == nil ? nullptr : [self.petHost copyLatestSurface];
   PetCaptureRegion captureRegion = {};
   captureRegion.panel_extent_uv[0] = 1.0f;
   captureRegion.panel_extent_uv[1] = 1.0f;
-  if (_mode == 0 && surface != nullptr && self.petHost != nil) {
-    const PetCaptureRegion configuredRegion = self.petHost.captureRegion;
-    if (configuredRegion.source_width > 0.0 &&
-        configuredRegion.source_height > 0.0) {
-      captureRegion = configuredRegion;
-    }
-  }
+  IOSurfaceRef surface =
+      self.petHost == nil
+          ? nullptr
+          : [self.petHost copyLatestSurfaceForView:self
+                                           region:&captureRegion];
   uniforms.viewport_px[0] = (float)metalLayer.drawableSize.width;
   uniforms.viewport_px[1] = (float)metalLayer.drawableSize.height;
   uniforms.capture_origin_uv[0] = captureRegion.panel_origin_uv[0];
   uniforms.capture_origin_uv[1] = captureRegion.panel_origin_uv[1];
   uniforms.capture_extent_uv[0] = captureRegion.panel_extent_uv[0];
   uniforms.capture_extent_uv[1] = captureRegion.panel_extent_uv[1];
+  uniforms.center_uv[0] = (float)_centerUVX;
+  uniforms.center_uv[1] = (float)_centerUVY;
   uniforms.time_seconds = (float)fmod(now - _renderEpoch, 4096.0);
-  uniforms.hole_radius_uv = 0.075f;
+  const PetEffectGeometry effectGeometry =
+      PetEffectGeometryForSize(_effectSize);
+  uniforms.hole_radius_uv =
+      (float)(effectGeometry.shadow_radius / _displayHeight);
   if (_visualStyle == 1) {
     uniforms.temperature = 5200.0f;
     uniforms.inclination = 1.535f;
@@ -806,19 +846,19 @@ static PetRendererBackend ProductionRendererBackend() {
     uniforms.stars = 0.0f;
     uniforms.spin = 0.0f;
   } else {
-    uniforms.temperature = 4500.0f;
-    uniforms.inclination = 1.52f;
-    uniforms.roll = 0.10f;
-    uniforms.disk_inner = 2.2f;
-    uniforms.disk_outer = 7.0f;
-    uniforms.disk_opacity = 0.85f;
-    uniforms.doppler = 0.35f;
-    uniforms.beaming = 2.0f;
-    uniforms.gain = 1.4f;
-    uniforms.contrast = 0.5f;
-    uniforms.wind = 7.0f;
-    uniforms.speed = 5.0f;
-    uniforms.exposure = 1.20f;
+    uniforms.temperature = 8500.0f;
+    uniforms.inclination = 1.45f;
+    uniforms.roll = 0.15f;
+    uniforms.disk_inner = 3.0f;
+    uniforms.disk_outer = 9.0f;
+    uniforms.disk_opacity = 0.65f;
+    uniforms.doppler = 1.0f;
+    uniforms.beaming = 3.0f;
+    uniforms.gain = 1.0f;
+    uniforms.contrast = 0.9f;
+    uniforms.wind = 5.0f;
+    uniforms.speed = 3.6f;
+    uniforms.exposure = 1.0f;
     uniforms.stars = 0.0f;
     uniforms.spin = 0.0f;
   }
@@ -837,7 +877,8 @@ static PetRendererBackend ProductionRendererBackend() {
   uniforms.error_progress =
       MAX(animation.error_progress, drop.error_progress);
   uniforms.pending_count = _visualState.pending_count();
-  uniforms.mode = _mode;
+  uniforms.mode =
+      PetEffectiveRenderMode(_mode, surface != nullptr);
   uniforms.drop_phase = (uint32_t)drop.phase;
   uniforms.file_kind =
       dropActive ? drop.file_kind : impact.file_kind;
@@ -1109,7 +1150,7 @@ static PetRendererBackend ProductionRendererBackend() {
     return NO;
   }
   const PetEffectGeometry visualGeometry =
-      PetEffectGeometryForSize(NSWidth(self.petHost.panel.frame));
+      PetEffectGeometryForSize(self.petHost.effectSize);
   const PetEffectGeometry hitGeometry = {
       NSWidth(self.bounds),
       visualGeometry.shadow_radius,
@@ -1296,12 +1337,12 @@ static PetRendererBackend ProductionRendererBackend() {
 @implementation BPPetHost {
   PetCallback _callback;
   PetWindowLifecycle _windowLifecycle;
-  void *_captureHandle;
+  NSString *_metalSource;
+  NSMutableArray<BPDisplayPane *> *_panes;
   PetConfig _config;
   BOOL _hasConfig;
   BOOL _sleeping;
   PetDragPersistenceGate _dragPersistence;
-  PetCaptureConfigurationGate _captureConfiguration;
 }
 
 - (instancetype)initWithCallback:(PetCallback)callback
@@ -1309,34 +1350,18 @@ static PetRendererBackend ProductionRendererBackend() {
   self = [super init];
   if (self) {
     _callback = callback;
-    _captureHandle = mac_capture_create(callback);
-    const NSRect frame = NSMakeRect(0.0, 0.0, 220.0, 220.0);
-    _panel = [[BPPetPanel alloc]
-        initWithContentRect:frame
-                  styleMask:(NSWindowStyleMaskBorderless |
-                             NSWindowStyleMaskNonactivatingPanel)
-                    backing:NSBackingStoreBuffered
-                      defer:NO];
-    _panel.opaque = NO;
-    _panel.backgroundColor = NSColor.clearColor;
-    _panel.hasShadow = NO;
-    _panel.level = NSFloatingWindowLevel;
-    _panel.hidesOnDeactivate = NO;
-    _panel.releasedWhenClosed = NO;
-    _panel.restorable = NO;
-    // The lens/accretion effect never participates in hit testing.
-    _panel.ignoresMouseEvents = YES;
-    _panel.collectionBehavior =
-        NSWindowCollectionBehaviorCanJoinAllSpaces |
-        NSWindowCollectionBehaviorFullScreenAuxiliary;
+    _metalSource = [metalSource copy];
+    _panes = [NSMutableArray array];
+    _effectSize = 220.0;
+    NSScreen *primary = NSScreen.screens.firstObject;
+    const NSRect primaryFrame =
+        primary == nil ? NSMakeRect(0.0, 0.0, 1440.0, 900.0)
+                       : primary.frame;
+    _centerScreenPoint =
+        NSMakePoint(NSMidX(primaryFrame), NSMidY(primaryFrame));
 
-    _petView = [[BPPetView alloc] initWithFrame:frame
-                                    metalSource:metalSource];
-    _petView.petHost = self;
-    _petView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    _panel.contentView = _petView;
-
-    const PetEffectGeometry geometry = PetEffectGeometryForSize(220.0);
+    const PetEffectGeometry geometry =
+        PetEffectGeometryForSize(_effectSize);
     const CGFloat coreHitTargetSide = (CGFloat)(geometry.hit_radius * 2.0);
     const NSRect coreHitTargetFrame =
         NSMakeRect(0.0, 0.0, coreHitTargetSide, coreHitTargetSide);
@@ -1365,8 +1390,8 @@ static PetRendererBackend ProductionRendererBackend() {
     _coreHitTargetView.petHost = self;
     _coreHitTargetView.callback = callback;
     _coreHitTargetPanel.contentView = _coreHitTargetView;
-    [_panel addChildWindow:_coreHitTargetPanel ordered:NSWindowAbove];
-    [self reset];
+    [self rebuildDisplayPanes];
+    [self syncCoreHitTargetFrame];
     [NSNotificationCenter.defaultCenter
         addObserver:self
            selector:@selector(screenParametersChanged:)
@@ -1391,15 +1416,11 @@ static PetRendererBackend ProductionRendererBackend() {
 - (void)applyConfig:(PetConfig)config {
   _config = config;
   _hasConfig = YES;
-  const NSRect oldFrame = self.panel.frame;
-  const NSPoint center = NSMakePoint(NSMidX(oldFrame), NSMidY(oldFrame));
-  const CGFloat size = (CGFloat)config.size;
+  const CGFloat size =
+      std::clamp((CGFloat)config.size, kPetMinimumSize, kPetMaximumSize);
+  self.effectSize = size;
   const BOOL applyPersistedPosition =
       config.has_position != 0 && !self.gestureActive;
-  NSRect frame = NSMakeRect(
-      applyPersistedPosition ? config.x : center.x - size / 2.0,
-      applyPersistedPosition ? config.y : center.y - size / 2.0, size, size);
-  NSScreen *screen = nil;
   if (applyPersistedPosition) {
     NSArray<NSScreen *> *screens = NSScreen.screens;
     std::vector<PetScreenFrame> frames;
@@ -1414,30 +1435,23 @@ static PetRendererBackend ProductionRendererBackend() {
                         number.unsignedIntValue});
     }
     if (!frames.empty()) {
-      const size_t selected = PetSavedDisplayOrPrimaryIndex(
-          config.display_id, frames.data(), frames.size());
-      screen = screens[selected];
+      const PetScreenPoint recovered = PetRecoverCenter(
+          {config.x + size / 2.0, config.y + size / 2.0},
+          frames.data(), frames.size());
+      self.centerScreenPoint =
+          NSMakePoint(recovered.x, recovered.y);
     }
-  } else {
-    screen = [self screenForPanel];
   }
-  if (screen != nil) {
-    const NSRect safeFrame = screen.visibleFrame;
-    const PetPanelFrame clamped = PetClampPanelToDisplay(
-        {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height},
-        {safeFrame.origin.x, safeFrame.origin.y, safeFrame.size.width,
-         safeFrame.size.height, screen.backingScaleFactor, 0},
-        kPetSafeInset);
-    frame.origin = NSMakePoint(clamped.x, clamped.y);
-  }
-  [self.panel setFrame:frame display:YES animate:NO];
+  [self updatePaneGeometry];
   [self syncCoreHitTargetFrame];
   [self updateDisplaySelectionAndEmit:NO];
-  [self.petView setReduceMotion:config.reduce_motion != 0];
-  [self.petView setMode:config.effective_mode];
-  [self.petView setVisualStyle:config.visual_style];
-  [self.petView setFps:config.fps];
-  [self.petView setPendingCount:config.pending_count];
+  for (BPDisplayPane *pane in _panes) {
+    [pane.petView setReduceMotion:config.reduce_motion != 0];
+    [pane.petView setMode:config.effective_mode];
+    [pane.petView setVisualStyle:config.visual_style];
+    [pane.petView setFps:config.fps];
+    [pane.petView setPendingCount:config.pending_count];
+  }
 
   const PetApplyCapturePlan capturePlan =
       PetApplyCapturePlanForVisibility(config.visible != 0,
@@ -1463,8 +1477,10 @@ static PetRendererBackend ProductionRendererBackend() {
   }
   _windowLifecycle.show();
   [self syncCoreHitTargetFrame];
-  [self.petView setAnimating:YES];
-  [self.panel orderFrontRegardless];
+  for (BPDisplayPane *pane in _panes) {
+    [pane.petView setAnimating:YES];
+    [pane.panel orderFrontRegardless];
+  }
   [self.coreHitTargetPanel orderFrontRegardless];
   [self refreshCaptureWithPermissionRequest:requestPermission];
 }
@@ -1472,12 +1488,15 @@ static PetRendererBackend ProductionRendererBackend() {
 - (void)hide {
   self.gestureActive = NO;
   _windowLifecycle.hide();
-  [self.petView cancelImport];
-  [self.petView setAnimating:NO];
-  mac_capture_stop(_captureHandle);
-  _captureConfiguration.invalidate();
+  for (BPDisplayPane *pane in _panes) {
+    [pane.petView cancelImport];
+    [pane.petView setAnimating:NO];
+    mac_capture_stop(pane.captureHandle);
+  }
   [self.coreHitTargetPanel orderOut:nil];
-  [self.panel orderOut:nil];
+  for (BPDisplayPane *pane in _panes) {
+    [pane.panel orderOut:nil];
+  }
 }
 
 - (void)reset {
@@ -1485,19 +1504,19 @@ static PetRendererBackend ProductionRendererBackend() {
   if (screen == nil) {
     return;
   }
-  const NSRect visibleFrame = screen.visibleFrame;
-  NSRect frame = self.panel.frame;
-  frame.origin =
-      NSMakePoint(NSMidX(visibleFrame) - NSWidth(frame) / 2.0,
-                  NSMidY(visibleFrame) - NSHeight(frame) / 2.0);
-  [self.panel setFrame:frame display:NO];
+  const NSRect frame = screen.frame;
+  self.centerScreenPoint =
+      NSMakePoint(NSMidX(frame), NSMidY(frame));
+  [self updatePaneGeometry];
   [self syncCoreHitTargetFrame];
   [self updateDisplaySelectionAndEmit:NO];
   [self refreshCaptureWithPermissionRequest:NO];
 }
 
 - (void)signal:(uint32_t)signal {
-  [self.petView signal:signal];
+  for (BPDisplayPane *pane in _panes) {
+    [pane.petView signal:signal];
+  }
 }
 
 - (void)beginGestureAt:(NSPoint)screenPoint {
@@ -1505,7 +1524,7 @@ static PetRendererBackend ProductionRendererBackend() {
   self.gestureMoved = NO;
   _dragPersistence.begin();
   self.gestureMouseOrigin = screenPoint;
-  self.gesturePanelOrigin = self.panel.frame.origin;
+  self.gesturePanelOrigin = self.centerScreenPoint;
 }
 
 - (void)continueGestureAt:(NSPoint)screenPoint {
@@ -1521,9 +1540,10 @@ static PetRendererBackend ProductionRendererBackend() {
   }
   self.gestureMoved = YES;
   _dragPersistence.mark_dragged();
-  [self.panel
-      setFrameOrigin:NSMakePoint(self.gesturePanelOrigin.x + delta.x,
-                                 self.gesturePanelOrigin.y + delta.y)];
+  self.centerScreenPoint =
+      NSMakePoint(self.gesturePanelOrigin.x + delta.x,
+                  self.gesturePanelOrigin.y + delta.y);
+  [self updatePaneGeometry];
   [self syncCoreHitTargetFrame];
   [self updateDisplaySelectionAndEmit:NO];
 }
@@ -1543,23 +1563,11 @@ static PetRendererBackend ProductionRendererBackend() {
     return;
   }
 
-  NSScreen *screen = [self screenForPanel];
-  if (screen != nil) {
-    NSRect frame = self.panel.frame;
-    const NSRect safeFrame = screen.visibleFrame;
-    const PetPanelFrame clamped = PetClampPanelToDisplay(
-        {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height},
-        {safeFrame.origin.x, safeFrame.origin.y, safeFrame.size.width,
-         safeFrame.size.height, screen.backingScaleFactor, 0},
-        kPetSafeInset);
-    frame.origin = NSMakePoint(clamped.x, clamped.y);
-    [self.panel setFrameOrigin:frame.origin];
-    [self syncCoreHitTargetFrame];
-  }
   [self updateDisplaySelectionAndEmit:NO];
-  [self refreshCaptureWithPermissionRequest:NO];
   if (shouldPersist && _callback != nullptr) {
-    const NSPoint origin = self.panel.frame.origin;
+    const NSPoint origin =
+        NSMakePoint(self.centerScreenPoint.x - self.effectSize / 2.0,
+                    self.centerScreenPoint.y - self.effectSize / 2.0);
     _callback(kPetCallbackMoved, nullptr, origin.x, origin.y, self.displayID);
   }
 }
@@ -1583,14 +1591,107 @@ static PetRendererBackend ProductionRendererBackend() {
   [self.petView completeDrop];
 }
 
+- (void)rebuildDisplayPanes {
+  const BOOL wasVisible =
+      _windowLifecycle.visual_visible() && !_windowLifecycle.destroyed();
+  for (BPDisplayPane *pane in _panes) {
+    [pane.petView cancelImport];
+    [pane.petView setAnimating:NO];
+    if (pane.captureHandle != nullptr) {
+      mac_capture_destroy(pane.captureHandle);
+      pane.captureHandle = nullptr;
+    }
+    pane.petView.petHost = nil;
+    [pane.panel orderOut:nil];
+    [pane.panel close];
+    pane.panel.contentView = nil;
+  }
+  [_panes removeAllObjects];
+  self.panel = nil;
+  self.petView = nil;
+
+  for (NSScreen *screen in NSScreen.screens) {
+    const NSRect frame = screen.frame;
+    NSNumber *screenNumber =
+        screen.deviceDescription[@"NSScreenNumber"];
+    BPDisplayPane *pane = [[BPDisplayPane alloc] init];
+    pane.displayID = screenNumber.unsignedLongLongValue;
+    pane.screenFrame = frame;
+    pane.captureHandle = mac_capture_create(_callback);
+    pane.captureRegion = PetFullDisplayCaptureRegion(
+        {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height,
+         screen.backingScaleFactor, screenNumber.unsignedIntValue});
+
+    pane.panel = [[BPPetPanel alloc]
+        initWithContentRect:frame
+                  styleMask:(NSWindowStyleMaskBorderless |
+                             NSWindowStyleMaskNonactivatingPanel)
+                    backing:NSBackingStoreBuffered
+                      defer:NO];
+    pane.panel.opaque = NO;
+    pane.panel.backgroundColor = NSColor.clearColor;
+    pane.panel.hasShadow = NO;
+    pane.panel.level = NSFloatingWindowLevel;
+    pane.panel.hidesOnDeactivate = NO;
+    pane.panel.releasedWhenClosed = NO;
+    pane.panel.restorable = NO;
+    pane.panel.ignoresMouseEvents = YES;
+    pane.panel.collectionBehavior =
+        NSWindowCollectionBehaviorCanJoinAllSpaces |
+        NSWindowCollectionBehaviorFullScreenAuxiliary |
+        NSWindowCollectionBehaviorStationary;
+
+    pane.petView =
+        [[BPPetView alloc] initWithFrame:NSMakeRect(
+                                         0.0, 0.0, NSWidth(frame),
+                                         NSHeight(frame))
+                              metalSource:_metalSource];
+    pane.petView.petHost = self;
+    pane.petView.autoresizingMask =
+        NSViewWidthSizable | NSViewHeightSizable;
+    pane.panel.contentView = pane.petView;
+    [_panes addObject:pane];
+
+    if (_hasConfig) {
+      [pane.petView setReduceMotion:_config.reduce_motion != 0];
+      [pane.petView setMode:_config.effective_mode];
+      [pane.petView setVisualStyle:_config.visual_style];
+      [pane.petView setFps:_config.fps];
+      [pane.petView setPendingCount:_config.pending_count];
+    }
+    if (wasVisible) {
+      [pane.petView setAnimating:YES];
+      [pane.panel orderFrontRegardless];
+    }
+  }
+  [self updatePaneGeometry];
+  [self updateDisplaySelectionAndEmit:NO];
+  if (wasVisible) {
+    [self.coreHitTargetPanel orderFrontRegardless];
+  }
+}
+
+- (void)updatePaneGeometry {
+  for (BPDisplayPane *pane in _panes) {
+    const PetScreenPoint centerUV = PetCenterUVForDisplay(
+        {self.centerScreenPoint.x, self.centerScreenPoint.y},
+        {pane.screenFrame.origin.x, pane.screenFrame.origin.y,
+         pane.screenFrame.size.width, pane.screenFrame.size.height, 1.0,
+         (uint32_t)pane.displayID});
+    [pane.petView setCenterUVX:centerUV.x
+                            y:centerUV.y
+                   effectSize:self.effectSize
+                displayHeight:NSHeight(pane.screenFrame)];
+  }
+}
+
 - (void)syncCoreHitTargetFrame {
-  const NSRect visualFrame = self.panel.frame;
   const PetEffectGeometry geometry =
-      PetEffectGeometryForSize(NSWidth(visualFrame));
+      PetEffectGeometryForSize(self.effectSize);
   const CGFloat side = (CGFloat)(geometry.hit_radius * 2.0);
   const NSRect coreHitTargetFrame =
-      NSMakeRect(NSMidX(visualFrame) - side / 2.0,
-                 NSMidY(visualFrame) - side / 2.0, side, side);
+      NSMakeRect(self.centerScreenPoint.x - side / 2.0,
+                 self.centerScreenPoint.y - side / 2.0, side, side);
   [self.coreHitTargetPanel setFrame:coreHitTargetFrame display:NO];
 }
 
@@ -1599,7 +1700,6 @@ static PetRendererBackend ProductionRendererBackend() {
   if (screens.count == 0) {
     return nil;
   }
-  const NSRect petFrame = self.panel.frame;
   std::vector<PetScreenFrame> frames;
   frames.reserve(screens.count);
   for (NSScreen *screen in screens) {
@@ -1610,10 +1710,16 @@ static PetRendererBackend ProductionRendererBackend() {
                       screen.backingScaleFactor,
                       screenNumber.unsignedIntValue});
   }
-  const PetPanelFrame panel = {petFrame.origin.x, petFrame.origin.y,
-                               petFrame.size.width, petFrame.size.height};
-  const size_t selected =
-      PetGreatestIntersectionDisplayIndex(panel, frames.data(), frames.size());
+  size_t currentIndex = 0;
+  for (size_t index = 0; index < frames.size(); ++index) {
+    if (frames[index].display_id == self.displayID) {
+      currentIndex = index;
+      break;
+    }
+  }
+  const size_t selected = PetDisplayIndexForPoint(
+      {self.centerScreenPoint.x, self.centerScreenPoint.y},
+      frames.data(), frames.size(), currentIndex);
   return screens[selected];
 }
 
@@ -1625,11 +1731,27 @@ static PetRendererBackend ProductionRendererBackend() {
   NSNumber *screenNumber = screen.deviceDescription[@"NSScreenNumber"];
   const uint64_t displayID = screenNumber.unsignedLongLongValue;
   if (displayID == self.displayID) {
+    for (BPDisplayPane *pane in _panes) {
+      if (pane.displayID == displayID) {
+        self.panel = pane.panel;
+        self.petView = pane.petView;
+        break;
+      }
+    }
     return;
   }
   self.displayID = displayID;
+  for (BPDisplayPane *pane in _panes) {
+    if (pane.displayID == displayID) {
+      self.panel = pane.panel;
+      self.petView = pane.petView;
+      break;
+    }
+  }
   if (emit && _callback != nullptr) {
-    const NSPoint origin = self.panel.frame.origin;
+    const NSPoint origin =
+        NSMakePoint(self.centerScreenPoint.x - self.effectSize / 2.0,
+                    self.centerScreenPoint.y - self.effectSize / 2.0);
     _callback(kPetCallbackDisplayChanged, nullptr, origin.x, origin.y,
               displayID);
   }
@@ -1640,27 +1762,37 @@ static PetRendererBackend ProductionRendererBackend() {
   if (_windowLifecycle.destroyed()) {
     return;
   }
-  NSScreen *screen = [self screenForPanel];
-  if (screen == nil) {
-    mac_capture_stop(_captureHandle);
+  NSArray<NSScreen *> *screens = NSScreen.screens;
+  if (screens.count == 0) {
+    for (BPDisplayPane *pane in _panes) {
+      mac_capture_stop(pane.captureHandle);
+    }
     return;
   }
-  NSRect frame = self.panel.frame;
-  const NSRect safeFrame = screen.visibleFrame;
-  const PetPanelFrame clamped = PetClampPanelToDisplay(
-      {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height},
-      {safeFrame.origin.x, safeFrame.origin.y, safeFrame.size.width,
-       safeFrame.size.height, screen.backingScaleFactor, 0},
-      kPetSafeInset);
-  frame.origin = NSMakePoint(clamped.x, clamped.y);
-  [self.panel setFrameOrigin:frame.origin];
+  std::vector<PetScreenFrame> frames;
+  frames.reserve(screens.count);
+  for (NSScreen *screen in screens) {
+    const NSRect frame = screen.frame;
+    NSNumber *screenNumber =
+        screen.deviceDescription[@"NSScreenNumber"];
+    frames.push_back(
+        {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height,
+         screen.backingScaleFactor, screenNumber.unsignedIntValue});
+  }
+  const PetScreenPoint recovered = PetRecoverCenter(
+      {self.centerScreenPoint.x, self.centerScreenPoint.y},
+      frames.data(), frames.size());
+  self.centerScreenPoint = NSMakePoint(recovered.x, recovered.y);
+  [self rebuildDisplayPanes];
   [self syncCoreHitTargetFrame];
   [self updateDisplaySelectionAndEmit:NO];
-  _captureConfiguration.invalidate();
   [self refreshCaptureWithPermissionRequest:NO];
   if (_callback != nullptr) {
-    _callback(kPetCallbackDisplayChanged, nullptr, frame.origin.x,
-              frame.origin.y, self.displayID);
+    const NSPoint origin =
+        NSMakePoint(self.centerScreenPoint.x - self.effectSize / 2.0,
+                    self.centerScreenPoint.y - self.effectSize / 2.0);
+    _callback(kPetCallbackDisplayChanged, nullptr, origin.x,
+              origin.y, self.displayID);
   }
 }
 
@@ -1670,10 +1802,11 @@ static PetRendererBackend ProductionRendererBackend() {
     return;
   }
   _sleeping = YES;
-  mac_capture_stop(_captureHandle);
-  _captureConfiguration.invalidate();
-  [self.petView cancelImport];
-  [self.petView setAnimating:NO];
+  for (BPDisplayPane *pane in _panes) {
+    mac_capture_stop(pane.captureHandle);
+    [pane.petView cancelImport];
+    [pane.petView setAnimating:NO];
+  }
   if (_callback != nullptr) {
     _callback(kPetCallbackSleep, nullptr, 0.0, 0.0, self.displayID);
   }
@@ -1689,7 +1822,9 @@ static PetRendererBackend ProductionRendererBackend() {
   // capture restart performed by refreshCaptureWithPermissionRequest:.
   [self screenParametersChanged:nil];
   if (_hasConfig && _windowLifecycle.visual_visible()) {
-    [self.petView setAnimating:YES];
+    for (BPDisplayPane *pane in _panes) {
+      [pane.petView setAnimating:YES];
+    }
   }
   if (_callback != nullptr) {
     _callback(kPetCallbackWake, nullptr, 0.0, 0.0, self.displayID);
@@ -1697,91 +1832,98 @@ static PetRendererBackend ProductionRendererBackend() {
 }
 
 - (void)refreshCaptureWithPermissionRequest:(BOOL)requestPermission {
-  if (!_hasConfig || _captureHandle == nullptr) {
+  if (!_hasConfig) {
     return;
   }
-  const PetRendererDecision renderer =
-      PetRendererDecisionForMetalAvailability(self.petView.metalAvailable);
   const BOOL visible = _windowLifecycle.visual_visible();
-  const BOOL captureVisible = visible && !_sleeping &&
-                              renderer.real_effect_available &&
-                              !renderer.stop_capture;
-  if (!captureVisible || _config.mode != 0) {
-    const PetCaptureRegion emptyRegion = {};
-    const PetCaptureConfigurationKey key = {
-        _config.mode, captureVisible != NO, emptyRegion};
-    if (_captureConfiguration.should_configure(key, requestPermission)) {
-      self.captureRegion = emptyRegion;
-      mac_capture_configure(_captureHandle, emptyRegion, _config.mode == 0,
-                            captureVisible, requestPermission, _config.fps);
+  for (BPDisplayPane *pane in _panes) {
+    if (pane.captureHandle == nullptr) {
+      continue;
     }
-    return;
-  }
-  NSScreen *screen = [self screenForPanel];
-  if (screen == nil) {
+    const PetRendererDecision renderer =
+        PetRendererDecisionForMetalAvailability(
+            pane.petView.metalAvailable);
+    const BOOL captureVisible =
+        visible && !_sleeping && renderer.real_effect_available &&
+        !renderer.stop_capture;
     const PetCaptureRegion emptyRegion = {};
-    const PetCaptureConfigurationKey key = {_config.mode, false, emptyRegion};
-    if (_captureConfiguration.should_configure(key, requestPermission)) {
-      self.captureRegion = emptyRegion;
-      mac_capture_configure(_captureHandle, emptyRegion, true, false,
+    if (!captureVisible || _config.mode != 0) {
+      mac_capture_configure(pane.captureHandle, emptyRegion,
+                            _config.mode == 0, captureVisible,
                             requestPermission, _config.fps);
+      continue;
     }
-    return;
-  }
-  NSNumber *screenNumber = screen.deviceDescription[@"NSScreenNumber"];
-  const NSRect panelFrame = self.panel.frame;
-  const NSRect screenFrame = screen.frame;
-  const PetPanelFrame panel = {
-      panelFrame.origin.x,
-      panelFrame.origin.y,
-      panelFrame.size.width,
-      panelFrame.size.height,
-  };
-  const PetScreenFrame display = {
-      screenFrame.origin.x,
-      screenFrame.origin.y,
-      screenFrame.size.width,
-      screenFrame.size.height,
-      screen.backingScaleFactor,
-      screenNumber.unsignedIntValue,
-  };
-  const PetCaptureRegion region = PetCaptureRegionForPanel(panel, display);
-  const PetCaptureConfigurationKey key = {_config.mode, true, region};
-  if (_captureConfiguration.should_configure(key, requestPermission)) {
-    self.captureRegion = region;
-    mac_capture_configure(_captureHandle, region, true, true,
+    mac_capture_configure(pane.captureHandle, pane.captureRegion, true, true,
                           requestPermission, _config.fps);
   }
 }
 
 - (void)rendererBecameUnavailable {
-  mac_capture_stop(_captureHandle);
+  for (BPDisplayPane *pane in _panes) {
+    if (!pane.petView.metalAvailable) {
+      mac_capture_stop(pane.captureHandle);
+    }
+  }
   if (_callback != nullptr) {
     _callback(kPetCallbackCaptureFailed, "metal_unavailable", 0.0, 0.0,
               self.displayID);
   }
 }
 
-- (IOSurfaceRef)copyLatestSurface {
-  return mac_capture_copy_latest_surface(_captureHandle);
+- (IOSurfaceRef)copyLatestSurfaceForView:(BPPetView *)view
+                                  region:(PetCaptureRegion *)regionOut {
+  for (BPDisplayPane *pane in _panes) {
+    if (pane.petView == view) {
+      return mac_capture_copy_latest_surface(pane.captureHandle, regionOut);
+    }
+  }
+  if (regionOut != nullptr) {
+    *regionOut = {};
+    regionOut->panel_extent_uv[0] = 1.0f;
+    regionOut->panel_extent_uv[1] = 1.0f;
+  }
+  return nullptr;
 }
 
 - (uint32_t)captureState {
-  return mac_capture_state(_captureHandle);
+  uint32_t state = PET_CAPTURE_UNAVAILABLE;
+  for (BPDisplayPane *pane in _panes) {
+    const uint32_t paneState = mac_capture_state(pane.captureHandle);
+    if (paneState == PET_CAPTURE_FAILED) {
+      return paneState;
+    }
+    if (paneState == PET_CAPTURE_READY) {
+      state = paneState;
+    } else if (state != PET_CAPTURE_READY) {
+      state = paneState;
+    }
+  }
+  return state;
 }
 
 - (uint32_t)rendererState {
-  return PetRendererDecisionForMetalAvailability(self.petView.metalAvailable)
-      .state;
+  for (BPDisplayPane *pane in _panes) {
+    if (!pane.petView.metalAvailable) {
+      return PET_RENDERER_UNAVAILABLE;
+    }
+  }
+  return _panes.count == 0 ? PET_RENDERER_UNAVAILABLE
+                           : PET_RENDERER_READY;
 }
 
 - (uint32_t)shutdown {
   uint32_t shutdownState = PET_SHUTDOWN_COMPLETE;
-  [self.petView cancelImport];
-  [self.petView setAnimating:NO];
-  if (_captureHandle != nullptr) {
-    shutdownState = mac_capture_destroy(_captureHandle);
-    _captureHandle = nullptr;
+  for (BPDisplayPane *pane in _panes) {
+    [pane.petView cancelImport];
+    [pane.petView setAnimating:NO];
+    if (pane.captureHandle != nullptr) {
+      const uint32_t paneShutdown =
+          mac_capture_destroy(pane.captureHandle);
+      if (paneShutdown != PET_SHUTDOWN_COMPLETE) {
+        shutdownState = paneShutdown;
+      }
+      pane.captureHandle = nullptr;
+    }
   }
   _windowLifecycle.destroy();
   if (self.observingScreenChanges) {
@@ -1795,12 +1937,14 @@ static PetRendererBackend ProductionRendererBackend() {
   [self.coreHitTargetView unregisterDraggedTypes];
   self.coreHitTargetView.petHost = nil;
   self.coreHitTargetView.callback = nullptr;
-  self.petView.petHost = nil;
-  [self.panel removeChildWindow:self.coreHitTargetPanel];
   [self.coreHitTargetPanel close];
   self.coreHitTargetPanel.contentView = nil;
-  [self.panel close];
-  self.panel.contentView = nil;
+  for (BPDisplayPane *pane in _panes) {
+    pane.petView.petHost = nil;
+    [pane.panel close];
+    pane.panel.contentView = nil;
+  }
+  [_panes removeAllObjects];
   self.coreHitTargetView = nil;
   self.coreHitTargetPanel = nil;
   self.petView = nil;

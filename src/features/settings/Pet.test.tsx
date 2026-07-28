@@ -63,8 +63,14 @@ it("offers the exact scalable size presets and both visual styles", async () => 
   expect(slider).toHaveAttribute("min", "120");
   expect(slider).toHaveAttribute("max", "900");
   expect(screen.getByRole("button", { name: "Gargantua" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "300 px" }));
+  fireEvent.click(screen.getByRole("button", { name: "600 px" }));
+  fireEvent.click(screen.getByRole("button", { name: "900 px" }));
   fireEvent.click(screen.getByRole("button", { name: "Fusion" }));
   await waitFor(() => {
+    expect(api.setPetSettings).toHaveBeenNthCalledWith(1, { size: 300 });
+    expect(api.setPetSettings).toHaveBeenNthCalledWith(2, { size: 600 });
+    expect(api.setPetSettings).toHaveBeenNthCalledWith(3, { size: 900 });
     expect(api.setPetSettings).toHaveBeenLastCalledWith({ visual_style: "fusion" });
   });
 });
@@ -141,4 +147,34 @@ it.each([
 
   expect(await screen.findByText(expected)).toBeVisible();
   expect(screen.queryByText(fallbackReason)).not.toBeInTheDocument();
+});
+
+it.each([
+  [
+    "denied",
+    "permission_denied",
+    "Screen recording permission is off; lightweight mode is active",
+  ],
+  [
+    "restart_required",
+    "permission_restart_required",
+    "Permission changed. Restart the app.",
+  ],
+] as const)("keeps Real requested while %s capture uses the explicit Lite fallback", async (
+  permission,
+  fallbackReason,
+  instruction,
+) => {
+  renderPet(petApi({
+    mode: "real",
+    effective_mode: "lite",
+    permission,
+    fallback_reason: fallbackReason,
+  }));
+
+  expect(await screen.findByText(instruction)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Real distortion" }))
+    .toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Lightweight mode" }))
+    .toHaveAttribute("aria-pressed", "false");
 });

@@ -10,21 +10,23 @@
 #include <stddef.h>
 #include <vector>
 
-static_assert(sizeof(PetRenderUniforms) == 152,
+static_assert(sizeof(PetRenderUniforms) == 160,
               "PetRenderUniforms ABI size changed");
 static_assert(offsetof(PetRenderUniforms, capture_origin_uv) == 8,
               "PetRenderUniforms capture origin offset changed");
-static_assert(offsetof(PetRenderUniforms, temperature) == 32,
+static_assert(offsetof(PetRenderUniforms, center_uv) == 24,
+              "PetRenderUniforms center offset changed");
+static_assert(offsetof(PetRenderUniforms, temperature) == 40,
               "PetRenderUniforms temperature offset changed");
-static_assert(offsetof(PetRenderUniforms, drop_origin_uv) == 96,
+static_assert(offsetof(PetRenderUniforms, drop_origin_uv) == 104,
               "PetRenderUniforms drop origin offset changed");
-static_assert(offsetof(PetRenderUniforms, pending_count) == 120,
+static_assert(offsetof(PetRenderUniforms, pending_count) == 128,
               "PetRenderUniforms pending offset changed");
-static_assert(offsetof(PetRenderUniforms, visual_style) == 140,
+static_assert(offsetof(PetRenderUniforms, visual_style) == 148,
               "PetRenderUniforms visual style offset changed");
-static_assert(offsetof(PetRenderUniforms, impact_level) == 144,
+static_assert(offsetof(PetRenderUniforms, impact_level) == 152,
               "PetRenderUniforms impact offset changed");
-static_assert(offsetof(PetRenderUniforms, feed_strength) == 148,
+static_assert(offsetof(PetRenderUniforms, feed_strength) == 156,
               "PetRenderUniforms feed offset changed");
 static_assert(sizeof(PetRenderStats) == 16,
               "PetRenderStats ABI size changed");

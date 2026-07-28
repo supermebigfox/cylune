@@ -1,13 +1,13 @@
 {
   "app": {
-    "name": "Bambu Spool Keeper",
+    "name": "CYLUNE",
     "localMode": "Local mode",
     "tagline": "A separate, reliable balance for every spool",
     "demoMode": "UI preview",
     "privateNote": "Every file and balance stays on this computer"
   },
   "brand": {
-    "mark": "Bambu Spool Keeper icon"
+    "mark": "CYLUNE icon"
   },
   "common": {
     "confirm": "Confirm",

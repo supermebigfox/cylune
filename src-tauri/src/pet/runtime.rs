@@ -1282,7 +1282,9 @@ mod tests {
         NativeCaptureState, NativeDropResult, NativeRendererState, NativeShutdownState,
         PetNativeConfig,
     };
-    use crate::pet::{PetFps, PetMode, PetSettings, PetStore, PetVisualStyle};
+    use crate::pet::{
+        CapturePermission, PetFps, PetMode, PetSettings, PetSettingsPatch, PetStore, PetVisualStyle,
+    };
     use crate::{
         db::AppDatabase,
         domain::JobOutcome,
@@ -1692,12 +1694,62 @@ mod tests {
     }
 
     #[test]
-    fn denied_permission_keeps_the_lite_pet_running() {
-        let status = CaptureState::Requested.reduce(CaptureEvent::Denied);
+    fn every_unavailable_capture_state_uses_lite_without_changing_requested_mode() {
+        for (event, permission, reason) in [
+            (
+                CaptureEvent::NotDetermined,
+                CapturePermission::NotDetermined,
+                "permission_not_determined",
+            ),
+            (
+                CaptureEvent::Denied,
+                CapturePermission::Denied,
+                "permission_denied",
+            ),
+            (
+                CaptureEvent::RestartRequired,
+                CapturePermission::RestartRequired,
+                "permission_restart_required",
+            ),
+            (
+                CaptureEvent::Unavailable,
+                CapturePermission::Unavailable,
+                "capture_unavailable",
+            ),
+        ] {
+            let status = CaptureState::Requested.reduce(event);
+            assert_eq!(status.effective_mode, PetMode::Lite);
+            assert_eq!(status.permission, permission);
+            assert_eq!(status.fallback_reason.as_deref(), Some(reason));
+            assert!(status.pet_visible);
+        }
+    }
 
-        assert_eq!(status.effective_mode, PetMode::Lite);
-        assert_eq!(status.fallback_reason.as_deref(), Some("permission_denied"));
-        assert!(status.pet_visible);
+    #[test]
+    fn ready_capture_restores_real_and_saved_large_fusion_settings_reload() {
+        let db = AppDatabase::open_in_memory().unwrap();
+        let saved = PetStore::apply(
+            &db,
+            PetSettingsPatch {
+                mode: Some(PetMode::Real),
+                size: Some(900),
+                visual_style: Some(PetVisualStyle::Fusion),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let status = capture_status(
+            saved.mode,
+            NativeCaptureState::Ready,
+            NativeRendererState::Ready,
+        );
+        assert_eq!(status.effective_mode, PetMode::Real);
+        assert_eq!(status.permission, CapturePermission::Granted);
+        assert_eq!(status.fallback_reason, None);
+        let reloaded = PetStore::load(&db).unwrap();
+        assert_eq!(reloaded.mode, PetMode::Real);
+        assert_eq!(reloaded.size, 900);
+        assert_eq!(reloaded.visual_style, PetVisualStyle::Fusion);
     }
 
     #[test]

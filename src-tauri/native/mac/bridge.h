@@ -54,6 +54,7 @@ typedef struct {
   float viewport_px[2];
   float capture_origin_uv[2];
   float capture_extent_uv[2];
+  float center_uv[2];
   float time_seconds;
   float hole_radius_uv;
   float temperature;
@@ -150,7 +151,8 @@ void mac_capture_configure(void *handle, PetCaptureRegion region,
                            bool request_permission, uint32_t fps);
 void mac_capture_stop(void *handle);
 uint32_t mac_capture_state(void *handle);
-IOSurfaceRef mac_capture_copy_latest_surface(void *handle);
+IOSurfaceRef mac_capture_copy_latest_surface(
+    void *handle, PetCaptureRegion *region_out);
 
 void *mac_renderer_create(const char *metal_source, void *metal_layer);
 void mac_renderer_destroy(void *handle);

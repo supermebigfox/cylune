@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "拓竹耗材管家",
+  "productName": "CYLUNE",
   "version": "0.1.0",
-  "identifier": "com.local.bambuspools",
+  "identifier": "com.robin.cylune",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "拓竹耗材管家",
+        "title": "CYLUNE",
         "width": 1180,
         "height": 760,
         "minWidth": 900,
@@ -25,7 +25,7 @@
   "bundle": {
     "active": true,
     "shortDescription": "离线管理拓竹耗材与本地切片任务，可选桌面黑洞效果",
-    "copyright": "Copyright © 2026 Spool Keeper",
+    "copyright": "Copyright © 2026 Robin Development",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
     "targets": ["app", "dmg"],
     "category": "Utility",

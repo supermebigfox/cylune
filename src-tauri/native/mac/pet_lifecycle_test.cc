@@ -55,6 +55,27 @@ static void full_display_capture_never_changes_with_center() {
   assert(close_to(region.panel_extent_uv[1], 1.0));
 }
 
+static void moving_center_does_not_reconfigure_full_display_capture() {
+  const PetScreenFrame display = {0.0, 0.0, 1512.0, 982.0, 2.0, 42};
+  const PetCaptureRegion first = PetFullDisplayCaptureRegion(display);
+  const PetCaptureRegion after_drag =
+      PetFullDisplayCaptureRegion(display);
+  PetCaptureConfigurationGate gate;
+  assert(gate.should_configure({0, true, first}, false));
+  assert(!gate.should_configure({0, true, after_drag}, false));
+}
+
+static void adjacent_panes_receive_complementary_seam_centers() {
+  const PetScreenFrame left = {0.0, 0.0, 1440.0, 900.0, 2.0, 10};
+  const PetScreenFrame right = {1440.0, 0.0, 1920.0, 1080.0, 1.0, 20};
+  const PetScreenPoint left_uv =
+      PetCenterUVForDisplay({1440.0, 450.0}, left);
+  const PetScreenPoint right_uv =
+      PetCenterUVForDisplay({1440.0, 450.0}, right);
+  assert(close_to(left_uv.x, 1.0));
+  assert(close_to(right_uv.x, 0.0));
+}
+
 static void disconnected_center_recovers_only_when_off_every_display() {
   const PetScreenFrame display = {0.0, 0.0, 1440.0, 900.0, 2.0, 10};
   const PetScreenPoint retained =
@@ -113,8 +134,9 @@ static PetRendererBackend fake_renderer_backend(FakeRendererBackend *fake) {
 static void visual_style_values_stay_within_stable_native_contract() {
   static_assert(sizeof(PetConfig) == 64);
   static_assert(offsetof(PetConfig, visual_style) == 62);
-  static_assert(sizeof(PetRenderUniforms) == 152);
-  static_assert(offsetof(PetRenderUniforms, visual_style) == 140);
+  static_assert(sizeof(PetRenderUniforms) == 160);
+  static_assert(offsetof(PetRenderUniforms, center_uv) == 24);
+  static_assert(offsetof(PetRenderUniforms, visual_style) == 148);
   assert(PetVisualStyleIsValid(0));
   assert(PetVisualStyleIsValid(1));
   assert(!PetVisualStyleIsValid(2));
@@ -135,6 +157,15 @@ static void approved_geometry_uses_a_small_circular_core() {
   assert(PetPointInsideCore(81.9, 60.0, small));
   assert(!PetPointInsideCore(82.1, 60.0, small));
   assert(!PetPointInsideCore(0.0, 0.0, small));
+}
+
+static void size_changes_radius_without_changing_the_full_display_pane() {
+  const PetEffectGeometry small = PetEffectGeometryForSize(300.0);
+  const PetEffectGeometry large = PetEffectGeometryForSize(900.0);
+  assert(close_to(small.shadow_radius, 22.5));
+  assert(close_to(large.shadow_radius, 67.5));
+  assert(close_to(small.hit_radius, 25.875));
+  assert(close_to(large.hit_radius, 77.625));
 }
 
 static void large_sizes_keep_logical_geometry_but_cap_the_drawable() {
@@ -349,7 +380,8 @@ static void drag_persistence_is_emitted_only_once_on_mouse_up() {
 
 static void live_capture_reconfiguration_ignores_fps_and_pending_only_updates() {
   PetCaptureConfigurationGate gate;
-  const PetCaptureRegion region = {42, 154.0, 454.0, 272.0, 272.0, 544, 544};
+  const PetCaptureRegion region = {
+      42, 154.0, 454.0, 272.0, 272.0, 544, 544, {0.0f, 0.0f}, {1.0f, 1.0f}};
   const PetCaptureConfigurationKey real = {0, true, region};
 
   assert(gate.should_configure(real, false));
@@ -402,7 +434,8 @@ static void missing_live_frame_falls_back_without_a_black_capture_disc() {
 
 static void capture_restart_coalesces_to_the_latest_drag_target() {
   PetCaptureRestartGate gate;
-  PetCaptureRegion first = {42, 100.0, 100.0, 352.0, 352.0, 704, 704};
+  PetCaptureRegion first = {
+      42, 100.0, 100.0, 352.0, 352.0, 704, 704, {0.0f, 0.0f}, {1.0f, 1.0f}};
   PetCaptureRegion latest = first;
   latest.display_id = 77;
   latest.source_x = 240.0;
@@ -1031,9 +1064,12 @@ int main() {
   center_selects_display_and_maps_negative_coordinates();
   exact_display_seam_keeps_current_display();
   full_display_capture_never_changes_with_center();
+  moving_center_does_not_reconfigure_full_display_capture();
+  adjacent_panes_receive_complementary_seam_centers();
   disconnected_center_recovers_only_when_off_every_display();
   visual_style_values_stay_within_stable_native_contract();
   approved_geometry_uses_a_small_circular_core();
+  size_changes_radius_without_changing_the_full_display_pane();
   large_sizes_keep_logical_geometry_but_cap_the_drawable();
   centered_capture_maps_the_panel_into_the_middle_five_eighths();
   left_edge_capture_does_not_stretch_the_desktop();

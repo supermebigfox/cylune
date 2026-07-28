@@ -29,6 +29,7 @@ struct PetUniforms {
   float2 viewport_px;
   float2 capture_origin_uv;
   float2 capture_extent_uv;
+  float2 center_uv;
   float time_seconds;
   float hole_radius_uv;
   float temperature;
@@ -119,6 +120,17 @@ static float wrapped_value_noise(float2 point, float period_y) {
           hash21(float2(cell.x + 1.0f, y0)), fraction.x),
       mix(hash21(float2(cell.x, y1)),
           hash21(float2(cell.x + 1.0f, y1)), fraction.x),
+      fraction.y);
+}
+
+static float approved_value_noise(float2 point) {
+  const float2 cell = floor(point);
+  float2 fraction = fract(point);
+  fraction = fraction * fraction * (3.0f - 2.0f * fraction);
+  return mix(
+      mix(hash21(cell), hash21(cell + float2(1.0f, 0.0f)), fraction.x),
+      mix(hash21(cell + float2(0.0f, 1.0f)),
+          hash21(cell + 1.0f), fraction.x),
       fraction.y);
 }
 
@@ -254,8 +266,25 @@ float4 shade_crossing(float3 position, float3 velocity,
   const float temperature_profile =
       pow(inner / radius, 0.75f) * pow(profile_base, 0.25f) /
       0.488f;
+  const float spot_radius =
+      clamp(2.4f, inner + 0.05f, outer - 0.05f);
+  const float spot_kepler = pow(inner / spot_radius, 1.5f);
+  const float spot_gravity =
+      sqrt(max(1.0f - 1.5f / spot_radius, 0.02f));
+  const float spot_angle =
+      -visual_time * abs(uniforms.speed) * 0.35f *
+      spot_kepler * spot_gravity * direction;
+  const float spot_delta =
+      atan2(sin(phi - spot_angle), cos(phi - spot_angle));
+  const float spot_radial =
+      (radius - spot_radius) / max(spot_radius * 0.30f, 0.2f);
+  const float spot =
+      exp(-spot_delta * spot_delta / 0.34f -
+          spot_radial * spot_radial * 0.5f) *
+      1.8f;
   float3 thermal =
-      blackbody(uniforms.temperature * temperature_profile * shift);
+      blackbody(uniforms.temperature * temperature_profile * shift *
+                (1.0f + 0.45f * spot));
   if (fusion) {
     thermal =
         mix(thermal, float3(1.0f, 0.91f, 0.70f), 0.12f);
@@ -265,6 +294,7 @@ float4 shade_crossing(float3 position, float3 velocity,
   if (fusion) {
     density = band * (0.62f + 0.58f * streaks);
   }
+  density *= 0.55f + 1.5f * spot;
   const float fusion_emissivity =
       fusion
           ? mix(0.10f, 1.0f,
@@ -292,7 +322,7 @@ float3 weak_deflection_background(float2 p, float b,
                                   constant PetUniforms &uniforms) {
   const float aspect =
       uniforms.viewport_px.x / max(uniforms.viewport_px.y, 1.0f);
-  const float2 center = float2(0.5f);
+  const float2 center = uniforms.center_uv;
   const float radius = length(p);
   const float hole_radius = max(uniforms.hole_radius_uv, 1e-4f);
   const float world_scale = kCriticalImpact / hole_radius;
@@ -355,7 +385,7 @@ float3 trace_schwarzschild(float2 p,
                           thread float &alpha) {
   const float aspect =
       uniforms.viewport_px.x / max(uniforms.viewport_px.y, 1.0f);
-  const float2 center = float2(0.5f);
+  const float2 center = uniforms.center_uv;
   const float radius = length(p);
   const float inner = max(uniforms.disk_inner, 1.6f);
   const float outer = max(uniforms.disk_outer, inner + 0.5f);
@@ -819,6 +849,227 @@ static float3 impact_afterglow_overlay(
   return min(base + addition, float3(1.25f));
 }
 
+static float4 approved_shade_crossing(
+    float3 position, float3 velocity, float3 normal, float3 disk_axis,
+    constant PetUniforms &uniforms, float transmittance,
+    float visual_time) {
+  const float radius = length(position);
+  if (radius <= uniforms.disk_inner || radius >= uniforms.disk_outer) {
+    return float4(0.0f);
+  }
+  const float phi =
+      atan2(dot(position, disk_axis), position.x);
+  const float grain = approved_value_noise(
+      float2(radius * 2.8f + phi * uniforms.wind * 0.12f,
+             phi * 3.0f -
+                 visual_time * uniforms.speed * 0.55f));
+  const float contrast_mix =
+      clamp(uniforms.contrast * 0.5f, 0.0f, 1.0f);
+  const float streak =
+      mix(1.0f,
+          0.25f +
+              1.9f * pow(grain, 1.0f + uniforms.contrast),
+          contrast_mix);
+  const float band =
+      smoothstep(uniforms.disk_inner,
+                 uniforms.disk_inner + 0.45f, radius) *
+      (1.0f -
+       smoothstep(max(uniforms.disk_inner + 0.5f,
+                      uniforms.disk_outer - 2.4f),
+                  uniforms.disk_outer, radius));
+  const float beta =
+      clamp(rsqrt(max(2.0f * (radius - 1.0f), 0.2f)),
+            0.0f, 0.99f);
+  const float gravity =
+      sqrt(max(1.0f - 1.5f / radius, 0.02f)) /
+      max(1.0f +
+              beta *
+                  dot(normalize(cross(normal, position)),
+                      normalize(velocity)),
+          0.05f);
+  const float shift = mix(1.0f, gravity, uniforms.doppler);
+  const float temperature =
+      pow(uniforms.disk_inner / radius, 0.75f) *
+      pow(max(1.0f -
+                  sqrt(uniforms.disk_inner / radius),
+              0.0f),
+          0.25f) /
+      0.488f;
+  const float density = band * streak;
+  const float3 emission =
+      transmittance *
+      blackbody(uniforms.temperature * temperature * shift) *
+      (4.8f * uniforms.gain * density * temperature *
+       temperature * pow(shift, uniforms.beaming));
+  return float4(emission, density);
+}
+
+static float4 approved_black_hole(
+    float2 uv, texture2d<float> capture,
+    sampler capture_sampler,
+    constant PetUniforms &uniforms) {
+  const float2 resolution =
+      max(uniforms.viewport_px, float2(1.0f));
+  const float aspect = resolution.x / resolution.y;
+  const float visual_time =
+      uniforms.reduce_motion == 0u ? uniforms.time_seconds : 0.0f;
+  const float hole_radius =
+      max(uniforms.hole_radius_uv, 1e-4f);
+  const float2 center = uniforms.center_uv;
+  const float2 p =
+      (uv - center) * float2(aspect, 1.0f);
+  const float screen_radius = length(p);
+  const float window =
+      exp(-pow(screen_radius / (7.0f * hole_radius), 2.0f));
+  const float mask =
+      1.0f -
+      smoothstep(3.5f * hole_radius,
+                 4.2f * hole_radius, screen_radius);
+  if (mask < 0.002f) {
+    return float4(0.0f);
+  }
+
+  const float world_scale =
+      kCriticalImpact / hole_radius;
+  const float2 projected =
+      rotate2d(float2(p.x, -p.y), uniforms.roll) *
+      world_scale;
+  const float impact = length(projected);
+  const float maximum_impact =
+      uniforms.disk_outer + 3.0f;
+  const float camera_depth = 14.0f;
+
+  if (impact > maximum_impact) {
+    const float deflection =
+        (2.0f / (world_scale * world_scale)) /
+        max(screen_radius, 0.0001f) *
+        13.0f * window;
+    const float2 sampled =
+        mirror_uv(center +
+                  (p - normalize(p) * deflection) /
+                      float2(aspect, 1.0f));
+    const float3 background =
+        captured_background(sampled, capture,
+                            capture_sampler, uniforms);
+    return float4(background, mask);
+  }
+
+  float3 position = float3(projected, camera_depth);
+  float3 velocity = float3(0.0f, 0.0f, -1.0f);
+  float3 previous_position = position;
+  const float angular_momentum_squared =
+      dot(projected, projected);
+  const float3 normal =
+      float3(0.0f, sin(uniforms.inclination),
+             cos(uniforms.inclination));
+  const float previous_axis_cosine =
+      cos(uniforms.inclination);
+  const float3 disk_axis =
+      float3(0.0f, previous_axis_cosine,
+             -sin(uniforms.inclination));
+  float previous_side = dot(position, normal);
+  float3 emission = float3(0.0f);
+  float transmittance = 1.0f;
+  bool captured = false;
+
+  for (uint step = 0u; step < 40u; ++step) {
+    float radius_squared = dot(position, position);
+    if (radius_squared < 1.0f) {
+      captured = true;
+      break;
+    }
+    if (position.z < -camera_depth && velocity.z < 0.0f) {
+      break;
+    }
+    float radius = sqrt(radius_squared);
+    const float delta =
+        clamp(0.16f * radius, 0.03f, 1.5f);
+    float3 acceleration =
+        -1.5f * angular_momentum_squared * position /
+        (radius_squared * radius_squared * radius);
+    velocity += acceleration * (0.5f * delta);
+    position += velocity * delta;
+    radius_squared = dot(position, position);
+    radius = sqrt(radius_squared);
+    acceleration =
+        -1.5f * angular_momentum_squared * position /
+        (radius_squared * radius_squared * radius);
+    velocity += acceleration * (0.5f * delta);
+
+    const float side = dot(position, normal);
+    if (side * previous_side < 0.0f &&
+        transmittance > 0.02f) {
+      const float crossing_fraction =
+          previous_side / (previous_side - side);
+      const float3 crossing_position =
+          mix(previous_position, position,
+              crossing_fraction);
+      const float4 crossing = approved_shade_crossing(
+          crossing_position, normalize(velocity), normal,
+          disk_axis, uniforms, transmittance, visual_time);
+      emission += crossing.rgb;
+      transmittance *=
+          1.0f -
+          clamp(uniforms.disk_opacity * crossing.a,
+                0.0f, 0.95f);
+    }
+    previous_side = side;
+    previous_position = position;
+  }
+
+  float3 background =
+      captured_background(uv, capture, capture_sampler,
+                          uniforms);
+  const bool shadow =
+      captured &&
+      screen_radius < hole_radius * 1.06f;
+  if (!shadow && !captured) {
+    const float3 direction = normalize(velocity);
+    if (direction.z < -0.05f) {
+      const float plane_distance =
+          (-13.0f - position.z) / direction.z;
+      const float2 sky =
+          rotate2d((position +
+                    direction * plane_distance)
+                       .xy,
+                   -uniforms.roll) /
+          world_scale;
+      const float2 sampled =
+          mirror_uv(center +
+                    (p +
+                     (float2(sky.x, -sky.y) - p) *
+                         window) /
+                        float2(aspect, 1.0f));
+      background =
+          captured_background(sampled, capture,
+                              capture_sampler, uniforms);
+    }
+  }
+  if (uniforms.stars > 0.0f) {
+    const float star =
+        pow(hash21(floor(uv * resolution / 5.0f)),
+            32.0f) *
+        uniforms.stars;
+    background += float3(0.55f, 0.72f, 1.0f) * star;
+  }
+  const float disk_absorption =
+      clamp((1.0f - transmittance) * 0.22f,
+            0.0f, 0.22f);
+  const float3 lit =
+      background * (1.0f - disk_absorption) +
+      (1.0f -
+       exp(-emission * 1.4f * uniforms.exposure));
+  const float shadow_edge =
+      shadow
+          ? 1.0f -
+                smoothstep(hole_radius * 0.90f,
+                           hole_radius * 1.06f,
+                           screen_radius)
+          : 0.0f;
+  return float4(mix(lit, float3(0.0f), shadow_edge),
+                mask);
+}
+
 fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
                              texture2d<float> capture [[texture(0)]],
                              sampler capture_sampler [[sampler(0)]],
@@ -826,53 +1077,20 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
   const float aspect =
       uniforms.viewport_px.x / max(uniforms.viewport_px.y, 1.0f);
   const float2 p =
-      (input.uv - 0.5f) * float2(aspect, 1.0f);
+      (input.uv - uniforms.center_uv) * float2(aspect, 1.0f);
   const float panel_radius = length(p);
-  const float feather_start =
-      uniforms.visual_style == kPetVisualStyleFusion
-          ? 0.42f
-          : 0.46f;
-  const float outer_mask =
-      1.0f - smoothstep(feather_start, 0.495f, panel_radius);
-  if (outer_mask <= 0.0f) {
+  const float4 approved =
+      approved_black_hole(input.uv, capture, capture_sampler, uniforms);
+  if (approved.a <= 0.0f &&
+      uniforms.drop_phase == 0u &&
+      uniforms.success_progress <= 0.0f &&
+      uniforms.error_progress <= 0.0f &&
+      uniforms.impact_level <= 0.0f &&
+      uniforms.feed_strength <= 0.0f) {
     return float4(0.0f);
   }
-
-  const float hole_radius =
-      max(uniforms.hole_radius_uv, 1e-4f);
-  const float world_scale = kCriticalImpact / hole_radius;
-  const float2 projected =
-      rotate2d(float2(p.x, -p.y), uniforms.roll) * world_scale;
-  const float impact = length(projected);
-  const float inner = max(uniforms.disk_inner, 1.6f);
-  const float outer = max(uniforms.disk_outer, inner + 0.5f);
-  const float maximum_impact = outer + 3.0f;
-
-  float alpha = 0.0f;
-  float3 color = float3(0.0f);
-  if (impact >= maximum_impact) {
-    color =
-        weak_deflection_background(p, impact, capture,
-                                   capture_sampler, uniforms);
-    alpha = uniforms.mode == 0u ? 1.0f : 0.0f;
-  } else {
-    color =
-        trace_schwarzschild(p, capture, capture_sampler,
-                            uniforms, alpha);
-  }
-
-  if (uniforms.visual_style == kPetVisualStyleFusion) {
-    const float rim =
-        smoothstep(kCriticalImpact,
-                   kCriticalImpact + 0.05f, impact) *
-        (1.0f -
-         smoothstep(kCriticalImpact + 0.10f,
-                    kCriticalImpact + 0.42f, impact));
-    const float3 rim_color =
-        float3(1.0f, 0.91f, 0.70f) * rim * 0.12f;
-    color += rim_color;
-    alpha = max(alpha, rim * 0.16f);
-  }
+  float3 color = approved.rgb;
+  float alpha = approved.a;
 
   if (uniforms.drop_phase == 3u &&
       uniforms.reduce_motion == 0u &&
@@ -941,7 +1159,7 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
   color = clamp(color, float3(0.0f), float3(1.0f));
   alpha = clamp(max(alpha, max(color.r, max(color.g, color.b))),
                 0.0f, 1.0f);
-  return float4(color, alpha) * outer_mask;
+  return float4(color, alpha);
 }
 
 vertex PetPendingVertexOutput pet_pending_vertex(

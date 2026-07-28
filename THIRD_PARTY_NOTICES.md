@@ -1,13 +1,44 @@
 # Third-party notices
 
-The current black-hole optics in `src-tauri/native/mac/shader.metal` are the
-direct pinned BlackHoleTrash port described first below, with the active Fusion
-material, parameters, and mask semantics described in the blackhole-timer entry.
-The `s0xDk/ghostty-blackhole` entry is retained as a historical notice for a
-source that informed the application's earlier shader. Frame pacing,
-interaction animations, capture integration, and application UI are local
-adaptations. No timer, terminal, settings, packaging, or other unrelated
-product code was copied.
+The default black-hole renderer in `src-tauri/native/mac/shader.metal` is
+ported from the pinned `tiyda/blackhole-desktop` source described first below.
+CYLUNE adds a movable center, live size control, multi-display capture, and a
+safe print-file import target. The other entries document earlier renderer and
+import-animation work that remains in the application. No unrelated timer,
+terminal, trash, settings, or packaging behavior was copied.
+
+## tiyda/blackhole-desktop
+
+Pinned source:
+https://github.com/tiyda/blackhole-desktop/tree/03e74a5cf2522748993aca679cdc6027c7b19697
+
+The default black-hole optics, preset values, 40-step ray integration,
+time-driven accretion-disk noise, transparent effect mask, and desktop
+background sampling are a Metal adaptation of the pinned source. CYLUNE
+replaces the source project's autonomous orbit with a user-controlled center
+and connects the renderer to its own capture, sizing, and file-import systems.
+
+MIT License
+
+Copyright (c) 2026 tiyda
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ## rrrjqy66/BlackHoleTrash
 

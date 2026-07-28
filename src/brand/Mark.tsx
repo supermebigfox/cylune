@@ -1,4 +1,4 @@
-import markUrl from "../assets/brand/filament-mark.svg";
+import markUrl from "../assets/brand/cylune-mark.png";
 
 type MarkProps = {
   className?: string;

@@ -8,11 +8,38 @@
 
 | ID | 检查项 | 预期 | 状态 | 证据 |
 | --- | --- | --- | --- | --- |
-| A01 | 前端测试与生产构建 | `npm test`、`npm run build` 全部成功 | 通过 | 11 个测试文件、71 项测试通过；Vite 生产构建转换 4,590 个模块 |
-| A02 | Rust 普通测试 | `cargo test` 全部成功，只有真实文件 smoke 按设计忽略 | 通过 | 124 项通过、0 失败、1 项真实文件 smoke 按设计忽略 |
+| A01 | 前端测试与生产构建 | `npm test`、`npm run build` 全部成功 | 通过 | 2026-07-28：11 个测试文件、73 项测试通过；release 构建中的 `tsc && vite build` 退出 0，Vite 转换 4,590 个模块 |
+| A02 | Rust 普通测试 | `cargo test` 全部成功，只有真实文件 smoke 按设计忽略 | 通过 | 2026-07-28：149 项通过、0 失败、1 项真实文件 smoke 按设计忽略 |
 | A03 | 用户自有切片文件只读 smoke | 仅通过 `BAMBU_SMOKE_3MF` 读取；先建立 4 个非零独立卷和 4 条创建流水，待处理为 0；导入后余额与流水逐项不变、待处理精确为 1；4 个工具；成功/失败/取消/50% 均结算；重复成功幂等、反转恢复；前后长度与 SHA-256 不变；日志不含完整路径 | 通过 | `cargo test smoke_real_sliced_file_from_environment -- --ignored --nocapture`：14 层、4 个唯一匹配实体卷、4 条未变创建流水、4 种结果通过；长度 `4662275`，SHA-256 `1f1614e6092de69de08cee99b7c45d9d59c37aead47a49e5754113c1433ee9d4` 前后相同 |
-| A04 | Release 构建和签名完整性 | 当前 Mac 架构的 `.app` 与 `.dmg` 存在；`codesign --verify --deep --strict` 成功 | 通过 | arm64 `.app` 通过本机 ad-hoc 严格签名验证；DMG `5,701,449` bytes，SHA-256 `b4637bc489a99ce9da558e4ca781e398c9e3544b9098cc780963b7596278a7be`，`hdiutil verify` 有效 |
-| A05 | Bundle 元数据 | 唯一 bundle identifier；配置最低系统 10.15；无 camera/microphone usage key；无 `menubar` WebView | 通过 | `CFBundleIdentifier=com.local.bambuspools`；`LSMinimumSystemVersion=10.15`；仅一个 bundle Info.plist；两项隐私键缺失；配置仅有 `main` WebView。当前交付仅适用于 Apple Silicon macOS 11+：Mach-O 为 arm64 且 `minos 11.0`；未安装 x86_64 target，未生成 universal 包。配置中的 10.15 只留给未来 Intel 构建 |
+| A04 | Release 构建和签名完整性 | 当前 Mac 架构的 `.app` 存在并可启动 | 本地预览通过 | `npm run tauri -- build --bundles app` 退出 0，生成并成功启动 `CYLUNE.app`。正式分发签名、公证和 DMG 留到发布阶段 |
+| A05 | Bundle 元数据 | 唯一 bundle identifier；配置最低系统 10.15；无 camera/microphone usage key；无 `menubar` WebView | 通过 | `CFBundleIdentifier=com.robin.cylune`；产品名与窗口标题均为 `CYLUNE`；配置最低系统 10.15；配置仅有 `main` WebView |
+| A06 | Task 6 原生、Metal、权限与状态矩阵 | 原生生命周期、synthetic Metal、权限/effective mode 与完整 Rust 门禁全绿 | 通过 | 原生 C++ 二进制退出 0；`cargo test pet::native::tests -- --nocapture` 26 项通过；`cargo test pet::runtime::tests -- --nocapture` 24 项通过；synthetic 表覆盖 `2 style × 2 mode × 3 size × 5 state = 60` 个单元 |
+| A07 | 唯一集成预览构建 | 只运行当前 release `.app`，不同时运行上游或开发版 | 通过 | 当前唯一相关进程为 `src-tauri/target/release/bundle/macos/CYLUNE.app`；独立上游预览已停止 |
+
+## Task 6 完整预览矩阵
+
+自动门禁已完成；下表全部需要启动 release `.app`、读取屏幕录制权限状态或观察桌面，因此在取得动作时确认前统一保持 `待验收`。自动测试不得替代这些人工结论。
+
+| ID | 人工预览单元 | 必须观察 | 状态 | 证据 |
+| --- | --- | --- | --- | --- |
+| Q01 | Real × Gargantua / Fusion | 桌面文字与直线网格连续弯曲，不是圆形放大 | 待验收 | Task 6 动作边界；未启动 `.app` |
+| Q02 | Lite × Gargantua / Fusion | 背景透明，黑洞、卡片与状态时序和 Real 一致 | 待验收 | Task 6 动作边界；未启动 `.app` |
+| Q03 | 300、600、900 px | 全屏画布不缩放；只更新中心半径和命中区；600/900 仍流畅响应 | 待验收 | 自动门禁证明 300/900 半径映射；运行中已验证设置从 220 即时切到 600，完整视觉仍待屏幕录制授权 |
+| Q04 | 每种 style × Real/Lite 的标准成功 | 完整 4.6 秒 approach/stretch/fragment/merge/crossing | 待验收 | synthetic 自动门禁已覆盖阶段边界；仍需人工视觉 |
+| Q05 | 每种 style 的 600/900 | 每种尺寸各完成一次标准成功和一次取消 | 待验收 | Task 6 动作边界；未启动 `.app` |
+| Q06 | 吸收喷流 | 仅在 `u=0.82` 触发一次并持续 0.90 秒 | 待验收 | 自动状态机与 synthetic jet midpoint 已通过；仍需人工视觉 |
+| Q07 | 失败 | 0.42 秒 recoil；无 delivery、jet 或 pending 增量 | 待验收 | 自动状态机已通过；仍需人工视觉/业务观察 |
+| Q08 | 拖出、隐藏、睡眠、销毁取消 | 卡片、碎片与 jet 清空；旧 ack 被忽略 | 待验收 | Task 6 动作边界；未操作应用或系统睡眠 |
+| Q09 | Reduce Motion | 0.15 秒 fade/pulse；无 orbit、stretch、fragment 或 jet | 待验收 | 自动状态机与 synthetic 矩阵已通过；仍需人工视觉 |
+| Q10 | Auto/30/60 FPS、1×/2× display | 帧率策略、drawable 与捕获比例正确 | 待验收 | Task 6 动作边界；未启动 `.app` |
+| Q11 | 左/右/上/下裁切、双显示器跨越 | 画面不拉伸、不裁错，跨屏选择正确 display | 待验收 | 自动几何测试已通过；仍需真实显示器观察 |
+| Q12 | 初始无屏幕录制权限 | requested Real 自动以 effective Lite 运行 | 通过 | release `CYLUNE.app` 中选择“真实扭曲”后，UI 保持 requested Real，并明确显示“屏幕录制权限未开启，当前使用轻量模式” |
+| Q13 | 显式授权控制 | 只点击一次；不得重复弹窗循环 | 待验收 | Task 6 动作边界；未请求权限 |
+| Q14 | `restart_required` | UI 明确要求完整退出并重启 | 待验收 | UI 自动回归已通过；未读取真实 permission enum |
+| Q15 | 完整退出并单实例重启 | Real 恢复；size/style/position/pending 保留 | 待验收 | Task 6 动作边界；未启动或重启应用 |
+| Q16 | 拒绝权限 | Lite 保持完整交互且可安全导入 | 待验收 | Task 6 动作边界；未请求或拒绝权限 |
+| Q17 | 撤销既有授权 | 捕获停止并自动回退 Lite | 待验收 | Task 6 动作边界；未更改系统隐私设置 |
+| Q18 | 重新授权并重启 | Real 恢复且保留 900 px + Fusion | 待验收 | 自动持久化回归已通过；未更改系统隐私设置 |
 
 ## Finder、导入与点击
 
@@ -36,7 +63,7 @@
 | M11 | 撤销权限 | 运行中在系统设置撤销；捕获停止、帧释放并稳定回退轻量模式，不崩溃 | 待验收 | 需真实权限实测 |
 | M12 | 重启权限流程 | 系统要求重启时显示明确状态；彻底退出并重启一个副本后状态更新 | 待验收 | 需真实权限实测 |
 | M13 | 主动轻量模式 | 设置为轻量模式；不请求/使用屏幕捕获，导入、点击与状态动画正常 | 待验收 | 需 release App 实测 |
-| M14 | 尺寸边界与预设 | 滑杆只允许 120–360；分别验证 120、360 与 160/220/300 预设，窗口/命中区同步且不越界 | 待验收 | 需 release App 实测 |
+| M14 | 尺寸边界与预设 | 滑杆允许 120–900；验证 300、legacy 360、600、900，窗口/命中区同步且不越界；600/900 drawable 维持 360 | 待验收 | 需 release App 实测 |
 | M15 | FPS 与隐藏暂停 | 分别选择自动、30、60；自动空闲 30/交互 60；隐藏后渲染和捕获为 0 FPS，再显示可恢复 | 待验收 | 需 Instruments/运行日志实测 |
 
 ## 显示器与系统生命周期
@@ -60,7 +87,7 @@
 
 ## 执行规则
 
-- 人工验收只启动 `src-tauri/target/release/bundle/macos/拓竹耗材管家.app`；先退出开发版、旧版本和已挂载 DMG 中的副本。
+- 人工验收只启动 `src-tauri/target/release/bundle/macos/CYLUNE.app`；先退出开发版、旧版本和已挂载 DMG 中的副本。
 - 不同时运行 `tauri dev` 和 release `.app`，否则会出现两个独立进程和两只黑洞，不能用于判定单实例。
 - 用户自有 3MF 不得复制、改名、修改、上传或提交；测试只记录长度、哈希和解析摘要，不记录其完整路径。
 - 任一人工项目失败时，将状态改为 `失败`，写明系统版本、复现步骤与证据，再回到对应任务补聚焦测试；不得直接把失败改成“通过”。

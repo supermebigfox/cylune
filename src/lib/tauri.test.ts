@@ -3,6 +3,7 @@ import { createTauriApi, type PetSettings } from "./tauri";
 
 const pet: PetSettings = {
   mode: "lite",
+  visual_style: "gargantua",
   size: 220,
   fps: "auto",
   visible: true,
