@@ -731,8 +731,9 @@ static PetRendererBackend ProductionRendererBackend() {
   const CFTimeInterval now = CACurrentMediaTime();
   const PetAnimationSnapshot animation =
       _renderAnimation.sample(now, _reduceMotion);
-  const PetDropSnapshot drop =
-      _dropState.sample(now, _reduceMotion);
+  const PetDropRenderSnapshot dropRender =
+      _dropState.sample_render(now, _reduceMotion);
+  const PetDropSnapshot &drop = dropRender.drop;
   if (drop.deliver_once) {
     _impactState.strike(now, drop.origin, drop.file_kind);
   }
@@ -821,15 +822,13 @@ static PetRendererBackend ProductionRendererBackend() {
                                   : PetDropOrigin{0.5f, 0.5f});
   uniforms.drop_origin_uv[0] = renderOrigin.x;
   uniforms.drop_origin_uv[1] = renderOrigin.y;
-  uniforms.drop_progress =
-      _reduceMotion ? drop.reduced_fade : drop.faller_progress;
+  PetApplyDropMotionUniforms(dropRender, uniforms);
   uniforms.absorption_progress = drop.absorption_progress;
   uniforms.success_progress = animation.success_progress;
   uniforms.error_progress =
       MAX(animation.error_progress, drop.error_progress);
   uniforms.pending_count = _visualState.pending_count();
   uniforms.mode = _mode;
-  uniforms.reduce_motion = _reduceMotion ? 1 : 0;
   uniforms.drop_phase = (uint32_t)drop.phase;
   uniforms.file_kind =
       dropActive ? drop.file_kind : impact.file_kind;

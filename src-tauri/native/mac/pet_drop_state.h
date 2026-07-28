@@ -34,6 +34,19 @@ struct PetDropSnapshot {
   bool deliver_once;
 };
 
+struct PetDropRenderSnapshot {
+  PetDropSnapshot drop;
+  float progress;
+  bool reduce_motion;
+};
+
+inline void PetApplyDropMotionUniforms(
+    const PetDropRenderSnapshot &render,
+    PetRenderUniforms &uniforms) {
+  uniforms.drop_progress = render.progress;
+  uniforms.reduce_motion = render.reduce_motion ? 1u : 0u;
+}
+
 class PetDropState {
  public:
   bool begin_wait(uint64_t generation, PetDropOrigin origin,
@@ -71,6 +84,25 @@ class PetDropState {
   void cancel() { reset(); }
 
   uint64_t generation() const { return generation_; }
+
+  PetDropRenderSnapshot sample_render(double now_seconds,
+                                      bool configured_reduce_motion) {
+    const PetDropSnapshot drop =
+        sample(now_seconds, configured_reduce_motion);
+    const bool active_result =
+        drop.phase == PetDropPhase::kSwallow ||
+        drop.phase == PetDropPhase::kImportRejected;
+    const bool effective_reduce_motion =
+        active_result && motion_policy_latched_
+            ? reduced_motion_
+            : configured_reduce_motion;
+    return {
+        drop,
+        effective_reduce_motion ? drop.reduced_fade
+                                : drop.faller_progress,
+        effective_reduce_motion,
+    };
+  }
 
   PetDropSnapshot sample(double now_seconds, bool reduce_motion) {
     PetDropSnapshot snapshot = current_snapshot();

@@ -786,6 +786,51 @@ static void motion_policy_is_latched_without_losing_delivery() {
   assert(reduced.sample(11.151, false).phase == PetDropPhase::kIdle);
 }
 
+static void render_uniforms_follow_the_latched_drop_motion_policy() {
+  PetDropState standard;
+  assert(standard.begin_wait(41, {0.72f, 0.44f}, PET_FILE_3MF, 1.0));
+  assert(standard.finish(41, PET_DROP_ACCEPTED, 2.0));
+  const PetDropRenderSnapshot standard_start =
+      standard.sample_render(2.0, false);
+  assert(!standard_start.reduce_motion);
+  const PetDropRenderSnapshot standard_after_toggle =
+      standard.sample_render(2.20, true);
+  assert(!standard_after_toggle.reduce_motion);
+  PetRenderUniforms standard_uniforms = {};
+  PetApplyDropMotionUniforms(standard_after_toggle, standard_uniforms);
+  assert(standard_uniforms.reduce_motion == 0);
+  assert(standard_uniforms.drop_progress ==
+         standard_after_toggle.drop.faller_progress);
+  assert(standard_uniforms.drop_progress > 0.04f);
+
+  const PetDropRenderSnapshot jet_mid =
+      standard.sample_render(6.222, true);
+  assert(!jet_mid.reduce_motion);
+  PetRenderUniforms jet_uniforms = {};
+  PetApplyDropMotionUniforms(jet_mid, jet_uniforms);
+  assert(jet_uniforms.reduce_motion == 0);
+  assert(jet_mid.drop.absorption_progress > 0.49f);
+  assert(jet_mid.drop.absorption_progress < 0.51f);
+
+  PetDropState reduced;
+  assert(reduced.begin_wait(51, {0.72f, 0.44f}, PET_FILE_GCODE, 10.0));
+  assert(reduced.finish(51, PET_DROP_ACCEPTED, 11.0));
+  const PetDropRenderSnapshot reduced_start =
+      reduced.sample_render(11.0, true);
+  assert(reduced_start.reduce_motion);
+  const PetDropRenderSnapshot reduced_after_toggle =
+      reduced.sample_render(11.075, false);
+  assert(reduced_after_toggle.reduce_motion);
+  PetRenderUniforms reduced_uniforms = {};
+  PetApplyDropMotionUniforms(reduced_after_toggle, reduced_uniforms);
+  assert(reduced_uniforms.reduce_motion == 1);
+  assert(reduced_uniforms.drop_progress ==
+         reduced_after_toggle.drop.reduced_fade);
+  assert(reduced_uniforms.drop_progress > 0.49f);
+  assert(reduced_uniforms.drop_progress < 0.51f);
+  assert(reduced_after_toggle.drop.absorption_progress == 0.0f);
+}
+
 static void impact_and_afterglow_use_the_reference_lifetimes() {
   PetImpactState impact;
   assert(!impact.sample(1.0).active);
@@ -878,6 +923,7 @@ int main() {
   cancellation_clears_every_visual_without_delivery();
   import_wait_requires_idle_and_a_nonzero_generation();
   motion_policy_is_latched_without_losing_delivery();
+  render_uniforms_follow_the_latched_drop_motion_policy();
   impact_and_afterglow_use_the_reference_lifetimes();
   external_file_states_keep_auto_fps_at_sixty();
 }
