@@ -50,18 +50,37 @@ typedef struct {
 
 typedef struct {
   float viewport_px[2];
+  float capture_origin_uv[2];
+  float capture_extent_uv[2];
   float time_seconds;
-  float lens_strength;
-  float hover_progress;
-  float swallow_progress;
+  float hole_radius_uv;
+  float temperature;
+  float inclination;
+  float roll;
+  float disk_inner;
+  float disk_outer;
+  float disk_opacity;
+  float doppler;
+  float beaming;
+  float gain;
+  float contrast;
+  float wind;
+  float speed;
+  float exposure;
+  float stars;
+  float spin;
+  float spin_phase;
+  float drop_origin_uv[2];
+  float drop_progress;
+  float absorption_progress;
   float success_progress;
   float error_progress;
   uint32_t pending_count;
   uint32_t mode;
   uint32_t reduce_motion;
-  uint32_t _padding;
-  float capture_origin_uv[2];
-  float capture_extent_uv[2];
+  uint32_t drop_phase;
+  uint32_t file_kind;
+  uint32_t _padding[3];
 } PetRenderUniforms;
 
 typedef struct {

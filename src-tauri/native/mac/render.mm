@@ -10,18 +10,16 @@
 #include <stddef.h>
 #include <vector>
 
-static_assert(sizeof(PetRenderUniforms) == 64,
+static_assert(sizeof(PetRenderUniforms) == 152,
               "PetRenderUniforms ABI size changed");
-static_assert(offsetof(PetRenderUniforms, viewport_px) == 0,
-              "PetRenderUniforms viewport offset changed");
-static_assert(offsetof(PetRenderUniforms, time_seconds) == 8,
-              "PetRenderUniforms time offset changed");
-static_assert(offsetof(PetRenderUniforms, pending_count) == 32,
-              "PetRenderUniforms pending offset changed");
-static_assert(offsetof(PetRenderUniforms, capture_origin_uv) == 48,
+static_assert(offsetof(PetRenderUniforms, capture_origin_uv) == 8,
               "PetRenderUniforms capture origin offset changed");
-static_assert(offsetof(PetRenderUniforms, capture_extent_uv) == 56,
-              "PetRenderUniforms capture extent offset changed");
+static_assert(offsetof(PetRenderUniforms, temperature) == 32,
+              "PetRenderUniforms temperature offset changed");
+static_assert(offsetof(PetRenderUniforms, drop_origin_uv) == 96,
+              "PetRenderUniforms drop origin offset changed");
+static_assert(offsetof(PetRenderUniforms, pending_count) == 120,
+              "PetRenderUniforms pending offset changed");
 static_assert(sizeof(PetRenderStats) == 16,
               "PetRenderStats ABI size changed");
 
@@ -343,6 +341,13 @@ static_assert(sizeof(PetPendingInstance) == 16,
   }
   id<MTLTexture> capture = _transparentTexture;
   if (bytes != nullptr) {
+    std::vector<uint8_t> bgraInput(required);
+    for (uint64_t offset = 0; offset < required; offset += 4) {
+      bgraInput[offset] = bytes[offset + 2];
+      bgraInput[offset + 1] = bytes[offset + 1];
+      bgraInput[offset + 2] = bytes[offset];
+      bgraInput[offset + 3] = bytes[offset + 3];
+    }
     MTLTextureDescriptor *captureDescriptor =
         [MTLTextureDescriptor
             texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
@@ -353,7 +358,7 @@ static_assert(sizeof(PetPendingInstance) == 16,
     capture = [_device newTextureWithDescriptor:captureDescriptor];
     [capture replaceRegion:MTLRegionMake2D(0, 0, width, height)
                mipmapLevel:0
-                 withBytes:bytes
+                 withBytes:bgraInput.data()
                bytesPerRow:(NSUInteger)width * 4];
   }
   MTLTextureDescriptor *outputDescriptor =
@@ -369,9 +374,6 @@ static_assert(sizeof(PetPendingInstance) == 16,
       [_device newTextureWithDescriptor:outputDescriptor];
   uniforms.viewport_px[0] = (float)width;
   uniforms.viewport_px[1] = (float)height;
-  if (uniforms.lens_strength <= 0.0f) {
-    uniforms.lens_strength = 1.0f;
-  }
   id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
   if (![self encodeToTexture:outputTexture
                      capture:capture
@@ -389,6 +391,9 @@ static_assert(sizeof(PetPendingInstance) == 16,
               bytesPerRow:(NSUInteger)width * 4
                fromRegion:MTLRegionMake2D(0, 0, width, height)
               mipmapLevel:0];
+  for (uint64_t offset = 0; offset < required; offset += 4) {
+    std::swap(output[offset], output[offset + 2]);
+  }
   return YES;
 }
 

@@ -170,6 +170,8 @@ pub struct TestRenderOptions {
     pub error_progress: f32,
     pub pending_count: u32,
     pub reduce_motion: bool,
+    pub capture_origin_uv: [f32; 2],
+    pub capture_extent_uv: [f32; 2],
 }
 
 #[cfg(test)]
@@ -184,6 +186,8 @@ impl Default for TestRenderOptions {
             error_progress: 0.0,
             pending_count: 0,
             reduce_motion: false,
+            capture_origin_uv: [0.0, 0.0],
+            capture_extent_uv: [1.0, 1.0],
         }
     }
 }
@@ -193,34 +197,71 @@ impl Default for TestRenderOptions {
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 struct TestNativeRenderUniforms {
     viewport_px: [f32; 2],
+    capture_origin_uv: [f32; 2],
+    capture_extent_uv: [f32; 2],
     time_seconds: f32,
-    lens_strength: f32,
-    hover_progress: f32,
-    swallow_progress: f32,
+    hole_radius_uv: f32,
+    temperature: f32,
+    inclination: f32,
+    roll: f32,
+    disk_inner: f32,
+    disk_outer: f32,
+    disk_opacity: f32,
+    doppler: f32,
+    beaming: f32,
+    gain: f32,
+    contrast: f32,
+    wind: f32,
+    speed: f32,
+    exposure: f32,
+    stars: f32,
+    spin: f32,
+    spin_phase: f32,
+    drop_origin_uv: [f32; 2],
+    drop_progress: f32,
+    absorption_progress: f32,
     success_progress: f32,
     error_progress: f32,
     pending_count: u32,
     mode: u32,
     reduce_motion: u32,
-    padding: u32,
-    capture_origin_uv: [f32; 2],
-    capture_extent_uv: [f32; 2],
+    drop_phase: u32,
+    file_kind: u32,
+    padding: [u32; 3],
 }
 
 #[cfg(test)]
 impl From<TestRenderOptions> for TestNativeRenderUniforms {
     fn from(options: TestRenderOptions) -> Self {
         Self {
+            capture_origin_uv: options.capture_origin_uv,
+            capture_extent_uv: options.capture_extent_uv,
             time_seconds: options.time_seconds,
-            lens_strength: 1.0,
-            hover_progress: options.hover_progress,
-            swallow_progress: options.swallow_progress,
+            hole_radius_uv: 0.075,
+            temperature: 4500.0,
+            inclination: 1.52,
+            roll: 0.10,
+            disk_inner: 2.2,
+            disk_outer: 7.0,
+            disk_opacity: 0.85,
+            doppler: 0.35,
+            beaming: 2.0,
+            gain: 1.4,
+            contrast: 0.5,
+            wind: 7.0,
+            speed: 5.0,
+            exposure: 1.20,
+            stars: 0.0,
+            spin: 0.0,
+            spin_phase: 0.0,
+            drop_origin_uv: [0.5, 0.5],
+            drop_progress: options.hover_progress,
+            absorption_progress: options.swallow_progress,
             success_progress: options.success_progress,
             error_progress: options.error_progress,
             pending_count: options.pending_count,
             mode: options.mode as u32,
             reduce_motion: u32::from(options.reduce_motion),
-            capture_extent_uv: [1.0, 1.0],
             ..Self::default()
         }
     }
@@ -640,6 +681,56 @@ mod tests {
             .collect()
     }
 
+    #[cfg(target_os = "macos")]
+    fn rgba_at(pixels: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
+        let offset = (y * width + x) * 4;
+        pixels[offset..offset + 4].try_into().unwrap()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn warm(pixel: [u8; 4]) -> bool {
+        pixel[0] > pixel[2] && pixel[0] > 80 && pixel[1] > 45 && pixel[3] > 20
+    }
+
+    #[cfg(target_os = "macos")]
+    fn checker_boundary_moved(
+        output: &[u8],
+        inverted_output: &[u8],
+        width: usize,
+        height: usize,
+        vertical: bool,
+    ) -> bool {
+        let capture_signal = |x: usize, y: usize| {
+            i16::from(rgba_at(output, width, x, y)[0])
+                - i16::from(rgba_at(inverted_output, width, x, y)[0])
+        };
+        for y in 1..height - 1 {
+            for x in 1..width - 1 {
+                let normalized_x = ((x as f64 + 0.5) / width as f64) * 2.0 - 1.0;
+                let normalized_y = ((y as f64 + 0.5) / height as f64) * 2.0 - 1.0;
+                let radius = (normalized_x * normalized_x + normalized_y * normalized_y).sqrt();
+                if !(0.42..=0.84).contains(&radius) {
+                    continue;
+                }
+                let (next_x, next_y) = if vertical { (x + 1, y) } else { (x, y + 1) };
+                let input_stays_in_same_tile = if vertical {
+                    x / 8 == next_x / 8
+                } else {
+                    y / 8 == next_y / 8
+                };
+                if !input_stays_in_same_tile {
+                    continue;
+                }
+                let current = capture_signal(x, y);
+                let next = capture_signal(next_x, next_y);
+                if current.abs() > 12 && next.abs() > 12 && current.signum() != next.signum() {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     fn checksum_annulus(
         pixels: &[u8],
         width: usize,
@@ -685,6 +776,103 @@ mod tests {
             checksum_annulus(&output, 128, 128, 0.42, 0.84),
             checksum_annulus(&inverted_output, 128, 128, 0.42, 0.84)
         );
+        assert!(
+            checker_boundary_moved(&output, &inverted_output, 128, 128, true),
+            "no vertical checkerboard boundary moved"
+        );
+        assert!(
+            checker_boundary_moved(&output, &inverted_output, 128, 128, false),
+            "no horizontal checkerboard boundary moved"
+        );
+        for (x, y) in [(0, 0), (127, 0), (0, 127), (127, 127)] {
+            assert_eq!(rgba_at(&output, 128, x, y), [0, 0, 0, 0]);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn capture_mapping_preserves_the_lensing_margin_around_the_panel() {
+        let mut input = vec![0_u8; 256 * 256 * 4];
+        for y in 0..256 {
+            for x in 0..256 {
+                let offset = (y * 256 + x) * 4;
+                let in_panel = (48..208).contains(&x) && (48..208).contains(&y);
+                input[offset..offset + 4].copy_from_slice(if in_panel {
+                    &[0, 0, 0, 255]
+                } else {
+                    &[0, 0, 255, 255]
+                });
+            }
+        }
+        let output = super::test_render_with_options(
+            &input,
+            256,
+            256,
+            TestRenderOptions {
+                mode: TestRenderMode::Real,
+                capture_origin_uv: [0.1875, 0.1875],
+                capture_extent_uv: [0.625, 0.625],
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .pixels;
+        let blue_margin_samples = output
+            .chunks_exact(4)
+            .filter(|pixel| pixel[2] > 180 && pixel[0] < 40 && pixel[1] < 40 && pixel[3] > 20)
+            .count();
+
+        assert!(
+            blue_margin_samples > 20,
+            "lensed rays never reached the capture margin: {blue_margin_samples}"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn gargantua_has_a_black_shadow_warm_disk_and_two_lensed_arcs() {
+        let input = checkerboard_rgba(256, 256);
+        let output = super::test_render_with_options(
+            &input,
+            256,
+            256,
+            TestRenderOptions {
+                mode: TestRenderMode::Real,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .pixels;
+        let center = rgba_at(&output, 256, 128, 128);
+        assert!(center[0] < 16 && center[1] < 16 && center[2] < 16);
+        assert!(center[3] > 240);
+        let outside_approved_shadow = rgba_at(&output, 256, 160, 128);
+        assert!(
+            outside_approved_shadow[..3]
+                .iter()
+                .any(|&channel| channel > 16),
+            "legacy oversized radial shadow remains"
+        );
+        let upper = (70..124)
+            .flat_map(|y| (72..184).map(move |x| (x, y)))
+            .filter(|&(x, y)| warm(rgba_at(&output, 256, x, y)))
+            .count();
+        let lower = (132..186)
+            .flat_map(|y| (72..184).map(move |x| (x, y)))
+            .filter(|&(x, y)| warm(rgba_at(&output, 256, x, y)))
+            .count();
+        assert!(upper > 24, "missing upper lensed disk arc");
+        assert!(lower > 24, "missing lower lensed disk arc");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn gargantua_has_no_legacy_spectral_ring_function() {
+        let source = include_str!("../../native/mac/shader.metal");
+        assert!(!source.contains("spectral_ring"));
+        assert!(source.contains("kGeodesicSteps = 48"));
+        assert!(source.contains("shade_crossing"));
+        assert!(source.contains("weak_deflection_background"));
     }
 
     #[cfg(target_os = "macos")]
@@ -826,14 +1014,19 @@ mod tests {
         assert_eq!(offset_of!(PetNativeConfig, pending_count), 56);
         assert_eq!(offset_of!(PetNativeConfig, reduce_motion), 60);
         assert_eq!(offset_of!(PetNativeConfig, request_permission), 61);
-        assert_eq!(size_of::<super::TestNativeRenderUniforms>(), 64);
+        assert_eq!(size_of::<super::TestNativeRenderUniforms>(), 152);
         assert_eq!(
             offset_of!(super::TestNativeRenderUniforms, capture_origin_uv),
-            48
+            8
+        );
+        assert_eq!(offset_of!(super::TestNativeRenderUniforms, temperature), 32);
+        assert_eq!(
+            offset_of!(super::TestNativeRenderUniforms, drop_origin_uv),
+            96
         );
         assert_eq!(
-            offset_of!(super::TestNativeRenderUniforms, capture_extent_uv),
-            56
+            offset_of!(super::TestNativeRenderUniforms, pending_count),
+            120
         );
 
         let pet = NativePet::new(test_callback).unwrap();
