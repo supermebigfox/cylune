@@ -603,13 +603,15 @@ static PetRendererBackend ProductionRendererBackend() {
   if (!_animating) {
     return;
   }
+  const PetLitePulseAnimation pulseAnimation =
+      PetLitePulseAnimationForMotion(_reduceMotion);
   if (_reduceMotion) {
     CABasicAnimation *fade =
         [CABasicAnimation animationWithKeyPath:@"opacity"];
     fade.fromValue = @0.45;
     fade.toValue = @1.0;
-    fade.duration = 0.18;
-    fade.autoreverses = YES;
+    fade.duration = pulseAnimation.duration_seconds;
+    fade.autoreverses = pulseAnimation.autoreverses;
     [_ringLayer addAnimation:fade forKey:@"pet.signal"];
     return;
   }
@@ -617,8 +619,8 @@ static PetRendererBackend ProductionRendererBackend() {
       [CABasicAnimation animationWithKeyPath:@"transform.scale"];
   signal.fromValue = @1.0;
   signal.toValue = @1.08;
-  signal.duration = 0.12;
-  signal.autoreverses = YES;
+  signal.duration = pulseAnimation.duration_seconds;
+  signal.autoreverses = pulseAnimation.autoreverses;
   [_ringLayer addAnimation:signal forKey:@"pet.signal"];
 }
 

@@ -372,6 +372,22 @@ static void reduced_motion_uses_short_color_transitions_without_spring() {
   assert(state.sample(2.16, true).swallow_progress == 0.0);
 }
 
+static void lite_reduced_motion_pulse_is_one_150ms_transition() {
+  const PetLitePulseAnimation reduced =
+      PetLitePulseAnimationForMotion(true);
+  assert(reduced.duration_seconds ==
+         PetSignalTransitionDuration(true, 0.18));
+  assert(reduced.duration_seconds == 0.15);
+  assert(!reduced.autoreverses);
+  assert(PetLitePulseEffectiveDuration(reduced) == 0.15);
+
+  const PetLitePulseAnimation standard =
+      PetLitePulseAnimationForMotion(false);
+  assert(standard.duration_seconds == 0.12);
+  assert(standard.autoreverses);
+  assert(PetLitePulseEffectiveDuration(standard) == 0.24);
+}
+
 static void hover_exit_keeps_auto_fps_high_until_the_fade_finishes() {
   PetRenderAnimationState state;
   state.set_hover(true, 1.0);
@@ -482,6 +498,7 @@ int main() {
   native_frame_pacing_matches_auto_fixed_and_hidden_modes();
   animation_state_distinguishes_hover_and_each_signal();
   reduced_motion_uses_short_color_transitions_without_spring();
+  lite_reduced_motion_pulse_is_one_150ms_transition();
   hover_exit_keeps_auto_fps_high_until_the_fade_finishes();
   completing_a_drop_clears_the_persistent_hover_state();
   renderer_create_failure_reports_once_after_host_binding();

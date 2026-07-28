@@ -169,6 +169,25 @@ inline constexpr double PetSignalTransitionDuration(
   return reduce_motion ? 0.15 : standard_duration;
 }
 
+struct PetLitePulseAnimation {
+  double duration_seconds;
+  bool autoreverses;
+};
+
+inline constexpr PetLitePulseAnimation
+PetLitePulseAnimationForMotion(bool reduce_motion) {
+  return reduce_motion
+             ? PetLitePulseAnimation{
+                   PetSignalTransitionDuration(true, 0.18), false}
+             : PetLitePulseAnimation{0.12, true};
+}
+
+inline constexpr double PetLitePulseEffectiveDuration(
+    PetLitePulseAnimation animation) {
+  return animation.duration_seconds *
+         (animation.autoreverses ? 2.0 : 1.0);
+}
+
 struct PetAnimationSnapshot {
   float hover_progress;
   float swallow_progress;
