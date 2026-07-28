@@ -4,6 +4,9 @@
  Original copyright: Copyright (c) 2026 GreenScreen410.
  Fusion material parameters are adapted from cabbagehao/blackhole-timer
  commit f3cc9cc349540ad6d274cd8074cf050b9b0c0200 (MIT).
+ The file faller and impact response adapt ZGhey/blackhole-mac
+ commit f719aa1139ecc49a728cbb8fac2e60fcfa51996e (MIT).
+ Original copyright: Copyright (c) 2026 Jack Zhang.
  This application replaces recycling with acknowledged local import.
  Full notices: THIRD_PARTY_NOTICES.md.
 */
@@ -55,7 +58,8 @@ struct PetUniforms {
   uint drop_phase;
   uint file_kind;
   uint visual_style;
-  uint padding[2];
+  float impact_level;
+  float feed_strength;
 };
 
 struct PetPendingInstance {
@@ -485,6 +489,336 @@ static float ring_mask(float radius, float center, float width) {
          smoothstep(width, width * 2.0f, abs(radius - center));
 }
 
+static float rounded_box_sdf(float2 point, float2 half_extent,
+                             float radius) {
+  const float2 q = abs(point) - half_extent + radius;
+  return length(max(q, float2(0.0f))) +
+         min(max(q.x, q.y), 0.0f) - radius;
+}
+
+// Programmatic external-file card. It deliberately carries no filename,
+// source path, thumbnail, workspace icon, or file texture.
+static float4 procedural_file_card(float2 p,
+                                   constant PetUniforms &uniforms) {
+  if (uniforms.file_kind == 0u || uniforms.drop_phase == 0u) {
+    return float4(0.0f);
+  }
+
+  const float aspect =
+      uniforms.viewport_px.x / max(uniforms.viewport_px.y, 1.0f);
+  const float2 start =
+      (uniforms.drop_origin_uv - 0.5f) * float2(aspect, 1.0f);
+  const float u = clamp(uniforms.drop_progress, 0.0f, 1.0f);
+
+  // These are the reference Faller stage boundaries.
+  float approach = smoothstep(0.00f, 0.25f, u);
+  float stretch = smoothstep(0.20f, 0.55f, u);
+  // `fragment` is an MSL stage keyword, so the reference stage value uses
+  // the equivalent non-reserved local name below.
+  float fragment_stage = smoothstep(0.45f, 0.72f, u);
+  float merge = smoothstep(0.70f, 0.88f, u);
+  float fade = 1.0f - smoothstep(0.88f, 1.00f, u);
+  uint fragment_count = u >= 0.45f && u < 0.88f ? 12u : 0u;
+
+  float2 center = start;
+  float half_size = 0.065f;
+  float alpha = 1.0f;
+  float tear = 0.0f;
+  const float horizon = max(uniforms.hole_radius_uv, 0.01f);
+
+  if (uniforms.drop_phase == 3u) {
+    if (uniforms.reduce_motion != 0u) {
+      alpha = 1.0f - u;
+      stretch = 0.0f;
+      fragment_stage = 0.0f;
+      merge = 0.0f;
+      fragment_count = 0u;
+    } else {
+      // ZGhey/blackhole-mac Faller: a rapid radial approach followed by a
+      // slower 1.5-turn orbit in the tidal region.
+      const float start_radius = max(length(start), 0.34f);
+      const float start_angle = atan2(start.y, start.x);
+      const float settle = horizon * 1.15f;
+      const float radius =
+          settle + (start_radius - settle) * pow(1.0f - u, 3.4f);
+      const float phi =
+          start_angle +
+          1.5f * 6.2831853f *
+              (1.0f - pow(1.0f - u, 2.4f));
+      const float2 reference_center =
+          float2(cos(phi), sin(phi)) * radius;
+      // Core-target drops can begin inside the reference faller's 0.34
+      // staging radius. Blend into that path over the approach stage so the
+      // acknowledged origin remains exact at u == 0.
+      center = mix(start, reference_center, approach);
+      half_size =
+          0.065f *
+          (0.45f + 0.55f * (radius / max(start_radius, 1e-4f)));
+      const float tidal =
+          smoothstep(horizon * 1.2f, horizon * 2.2f, radius);
+      tear = 1.1f * (1.0f - tidal);
+      alpha = fade;
+    }
+  } else if (uniforms.drop_phase == 4u) {
+    const float recoil = clamp(uniforms.error_progress, 0.0f, 1.0f);
+    const float2 outward =
+        length(start) > 1e-4f ? normalize(start) : float2(1.0f, 0.0f);
+    center += outward * sin(recoil * 3.1415927f) * 0.075f;
+    half_size *= 1.0f + 0.10f * sin(recoil * 3.1415927f);
+    alpha = 1.0f - smoothstep(0.72f, 1.0f, recoil);
+    stretch = 0.0f;
+    fragment_stage = 0.0f;
+    merge = 0.0f;
+    fragment_count = 0u;
+  } else {
+    // Pending/hover stays readable and steady at its submitted origin.
+    stretch = 0.0f;
+    fragment_stage = 0.0f;
+    merge = 0.0f;
+    fragment_count = 0u;
+  }
+
+  if (alpha <= 0.001f) {
+    return float4(0.0f);
+  }
+
+  float2 local;
+  if (uniforms.drop_phase == 3u && uniforms.reduce_motion == 0u) {
+    // Invert the Keplerian shear as a pure function of radius, as in the
+    // pinned blackhole-mac faller. Inner debris leads and falls inward first.
+    const float r0 = max(length(center), 1e-4f);
+    const float rr = max(length(p), 1e-5f);
+    const float a0 = atan2(center.y, center.x);
+    const float theta = atan2(p.y, p.x);
+    const float lead =
+        tear * (pow(r0 / rr, 1.5f) - 1.0f);
+    float delta = theta - a0 - lead;
+    delta = atan2(sin(delta), cos(delta));
+    float radial = (rr - r0) / max(half_size, 1e-4f);
+    if (radial < 0.0f) {
+      radial /= 1.0f + 2.2f * tear;
+    }
+    const float tangential =
+        delta * r0 / max(half_size, 1e-4f);
+    const float2 sheared =
+        float2(tangential / (1.0f + 0.70f * stretch),
+               radial / max(1.0f - 0.30f * stretch, 0.45f));
+    const float2 cartesian =
+        (p - center) / max(half_size, 1e-4f);
+    local = mix(cartesian, sheared, approach);
+    local = rotate2d(local, 0.08f * approach * sin(u * 6.2831853f));
+  } else {
+    local = (p - center) / max(half_size, 1e-4f);
+  }
+
+  // Twelve deterministic 4×3 pieces open along seams during disruption.
+  float fragment_alpha = 1.0f;
+  if (fragment_count == 12u) {
+    const float2 grid =
+        clamp(local / float2(2.0f, 1.44f) * 0.5f + 0.5f,
+              float2(0.0f), float2(0.9999f));
+    const float2 cell = floor(grid * float2(4.0f, 3.0f));
+    const float cell_id = cell.x + cell.y * 4.0f;
+    const float2 jitter =
+        float2(hash21(float2(cell_id, 4.1f)),
+               hash21(float2(cell_id, 9.7f))) -
+        0.5f;
+    local -=
+        jitter * fragment_stage * (1.0f - 0.35f * merge) * 0.24f;
+    const float2 within = fract(grid * float2(4.0f, 3.0f));
+    const float seam =
+        min(min(within.x, 1.0f - within.x),
+            min(within.y, 1.0f - within.y));
+    fragment_alpha =
+        smoothstep(0.025f, 0.10f, seam);
+  }
+
+  const float body_distance =
+      rounded_box_sdf(local, float2(1.0f, 0.72f), 0.16f);
+  const float body =
+      smoothstep(0.06f, -0.04f, body_distance) * fragment_alpha;
+  if (body <= 0.001f) {
+    return float4(0.0f);
+  }
+
+  const bool is_gcode = uniforms.file_kind == 2u;
+  float3 card_color =
+      is_gcode ? float3(0.16f, 0.82f, 0.52f)
+               : float3(0.20f, 0.66f, 1.0f);
+  if (uniforms.drop_phase == 4u) {
+    card_color = mix(card_color, float3(1.0f, 0.08f, 0.10f),
+                     clamp(uniforms.error_progress * 1.4f, 0.0f, 1.0f));
+  }
+  const float edge =
+      smoothstep(0.10f, 0.0f, abs(body_distance));
+  const float fold =
+      smoothstep(0.22f, 0.02f,
+                 max(local.x - 0.57f, -local.y - 0.28f));
+  const float mark =
+      is_gcode
+          ? smoothstep(0.11f, 0.02f,
+                       abs(sin((local.y + 0.42f) * 17.0f)) * 0.12f +
+                           max(abs(local.x + 0.05f) - 0.48f, 0.0f))
+          : smoothstep(0.18f, 0.05f,
+                       abs(length((local + float2(0.05f, 0.02f)) *
+                                  float2(1.0f, 1.25f)) -
+                           0.32f));
+  float3 color =
+      card_color * (0.68f + 0.24f * edge) +
+      float3(1.0f) * (0.22f * fold + 0.32f * mark);
+  const float final_alpha = clamp(body * alpha, 0.0f, 1.0f);
+  return float4(color * final_alpha, final_alpha);
+}
+
+// MSL port of BlackHoleTrash's pinned absorption_jet_overlay, using fixed
+// energy 1.0 and omitting cursor graphics.
+static float3 absorption_jet_overlay(float3 base, float2 p,
+                                     constant PetUniforms &uniforms) {
+  const float progress =
+      clamp(uniforms.absorption_progress, 0.0f, 1.0f);
+  const float energy = 1.0f;
+  const float energy01 = 0.0f;
+  const float radius = max(uniforms.hole_radius_uv, 1e-4f);
+
+  float2 axis =
+      normalize(rotate2d(float2(0.0f, -1.0f), -uniforms.roll));
+  if (axis.y > 0.0f) {
+    axis = -axis;
+  }
+  const float2 tangent = float2(-axis.y, axis.x);
+  const float axial = dot(p, axis);
+  const float transverse = dot(p, tangent);
+
+  float attack = smoothstep(0.0f, 0.13f, progress);
+  float decay = 1.0f - smoothstep(0.45f, 1.0f, progress);
+  const float envelope = attack * decay;
+  float extension = smoothstep(0.0f, 0.24f, progress);
+  const float main_length =
+      min(radius * mix(11.0f, 14.0f, energy01), 0.52f) *
+      extension;
+  const float base_width =
+      radius * mix(0.38f, 0.50f, energy01);
+
+  const float main_distance = max(axial, 0.0f);
+  const float main_fraction =
+      clamp(main_distance / max(main_length, radius), 0.0f, 1.0f);
+  const float main_cap =
+      step(0.0f, axial) *
+      (1.0f -
+       smoothstep(main_length * 0.82f, max(main_length, radius),
+                  main_distance));
+  const float main_width =
+      base_width * mix(1.55f, 0.42f, main_fraction);
+  const float filament =
+      0.84f +
+      0.16f *
+          sin(main_distance / radius * 10.0f -
+              uniforms.time_seconds * 34.0f +
+              transverse / radius * 2.4f);
+  const float main_core =
+      exp2(-pow(transverse / max(main_width * 0.20f, 1e-5f), 2.0f) *
+           2.2f) *
+      main_cap * filament;
+  const float main_halo =
+      exp2(-pow(transverse / max(main_width, 1e-5f), 2.0f) *
+           1.5f) *
+      main_cap;
+
+  const float counter_distance = max(-axial, 0.0f);
+  const float counter_length = main_length * 0.64f;
+  const float counter_fraction =
+      clamp(counter_distance / max(counter_length, radius),
+            0.0f, 1.0f);
+  const float counter_cap =
+      step(0.0f, -axial) *
+      (1.0f -
+       smoothstep(counter_length * 0.78f,
+                  max(counter_length, radius), counter_distance));
+  const float counter_width =
+      base_width * mix(1.35f, 0.50f, counter_fraction);
+  const float counter =
+      exp2(-pow(transverse / max(counter_width, 1e-5f), 2.0f) *
+           1.7f) *
+      counter_cap * 0.18f;
+
+  const float radial = length(p);
+  float shock_progress = smoothstep(0.02f, 0.72f, progress);
+  const float shock_radius =
+      radius * mix(1.15f, mix(4.8f, 5.7f, energy01),
+                   shock_progress);
+  const float shock_width =
+      radius * mix(0.30f, 0.09f, shock_progress);
+  const float shock =
+      exp2(-pow((radial - shock_radius) /
+                    max(shock_width, 1e-5f),
+                2.0f) *
+           2.8f) *
+      (1.0f - smoothstep(0.18f, 0.78f, progress));
+  float flash_decay = 1.0f - smoothstep(0.0f, 0.28f, progress);
+  const float flash =
+      exp2(-pow(radial / max(radius * 0.95f, 1e-5f), 2.0f) *
+           2.4f) *
+      flash_decay;
+
+  float3 light = float3(0.0f);
+  light += float3(0.48f, 0.60f, 1.0f) * main_halo *
+               envelope * energy;
+  light += float3(0.96f, 0.98f, 1.0f) * main_core *
+               envelope * energy;
+  light += float3(0.58f, 0.48f, 1.0f) * counter *
+               envelope * energy;
+  light += float3(0.68f, 0.80f, 1.0f) * shock * energy;
+  light += float3(0.92f, 0.95f, 1.0f) * flash * energy;
+  const float3 contribution =
+      float3(1.0f) - exp(-min(light, float3(4.0f)));
+  return min(base + contribution, float3(1.25f));
+}
+
+static float3 impact_afterglow_overlay(
+    float3 base, float2 p, constant PetUniforms &uniforms) {
+  const float radius = max(uniforms.hole_radius_uv, 1e-4f);
+  const float radial = length(p);
+  const float impact = max(uniforms.impact_level, 0.0f);
+  const float feed = max(uniforms.feed_strength, 0.0f);
+  if (impact <= 0.0001f && feed <= 0.0001f) {
+    return base;
+  }
+
+  const float impact_ring =
+      exp2(-pow((radial - radius * 2.15f) /
+                    max(radius * 0.22f, 1e-5f),
+                2.0f) *
+           2.8f);
+  const float impact_flash =
+      exp2(-pow(radial / max(radius * 1.25f, 1e-5f), 2.0f) *
+           2.2f);
+
+  const float2 source =
+      uniforms.drop_origin_uv - float2(0.5f);
+  const float source_angle =
+      length(source) > 1e-4f ? atan2(source.y, source.x) : 0.0f;
+  float delta = atan2(p.y, p.x) - source_angle;
+  delta = atan2(sin(delta), cos(delta));
+  const float feed_width =
+      mix(2.9f, 0.40f, clamp(feed, 0.0f, 1.0f));
+  const float feed_arc =
+      exp(-delta * delta / max(feed_width * feed_width, 1e-4f)) *
+      exp2(-pow((radial - radius * 3.0f) /
+                    max(radius * 0.55f, 1e-5f),
+                2.0f) *
+           1.8f) *
+      feed;
+  const float3 feed_color =
+      uniforms.file_kind == 2u
+          ? float3(0.52f, 1.0f, 0.62f)
+          : float3(0.42f, 0.72f, 1.0f);
+  const float3 addition =
+      float3(1.0f, 0.64f, 0.18f) *
+          impact * (impact_ring * 1.2f + impact_flash * 0.75f) +
+      feed_color * feed_arc * 0.85f;
+  return min(base + addition, float3(1.25f));
+}
+
 fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
                              texture2d<float> capture [[texture(0)]],
                              sampler capture_sampler [[sampler(0)]],
@@ -540,24 +874,22 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
     alpha = max(alpha, rim * 0.16f);
   }
 
-  if (uniforms.absorption_progress > 0.0f) {
-    const float transition =
-        sin(uniforms.absorption_progress * 3.1415927f);
-    const float flash =
-        uniforms.reduce_motion == 0u
-            ? pow(max(0.0f,
-                      1.0f -
-                          abs(uniforms.absorption_progress - 0.5f) *
-                              8.0f),
-                  2.0f)
-            : 0.0f;
-    const float3 addition =
-        float3(1.0f, 0.58f, 0.08f) * transition * 0.55f +
-        flash * 0.75f;
-    color += addition;
-    alpha = max(alpha, max(transition * 0.6f,
-                           max(addition.r,
-                               max(addition.g, addition.b))));
+  if (uniforms.drop_phase == 3u &&
+      uniforms.reduce_motion == 0u &&
+      uniforms.absorption_progress > 0.0f) {
+    const float3 before = color;
+    color = absorption_jet_overlay(color, p, uniforms);
+    const float3 addition = max(color - before, float3(0.0f));
+    alpha = max(alpha, max(addition.r,
+                           max(addition.g, addition.b)));
+  }
+
+  {
+    const float3 before = color;
+    color = impact_afterglow_overlay(color, p, uniforms);
+    const float3 addition = max(color - before, float3(0.0f));
+    alpha = max(alpha, max(addition.r,
+                           max(addition.g, addition.b)));
   }
 
   const float normalized_radius = panel_radius * 2.0f;
@@ -601,6 +933,10 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
                 max(ripple, max(addition.r,
                                 max(addition.g, addition.b))));
   }
+
+  const float4 card = procedural_file_card(p, uniforms);
+  color = card.rgb + color * (1.0f - card.a);
+  alpha = card.a + alpha * (1.0f - card.a);
 
   color = clamp(color, float3(0.0f), float3(1.0f));
   alpha = clamp(max(alpha, max(color.r, max(color.g, color.b))),

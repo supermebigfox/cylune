@@ -82,6 +82,11 @@ static_assert(offsetof(PetConfig, visual_style) == 62,
 - (void)setAnimating:(BOOL)animating;
 - (void)setHovering:(BOOL)hovering;
 - (void)completeDrop;
+- (BOOL)beginImportWait:(uint64_t)generation
+                 origin:(NSPoint)origin
+               fileKind:(uint32_t)fileKind;
+- (BOOL)finishImport:(uint64_t)generation result:(uint32_t)result;
+- (void)cancelImport;
 - (void)setPendingCount:(uint32_t)pendingCount;
 - (void)signal:(uint32_t)signal;
 - (void)pulse;
@@ -210,6 +215,7 @@ static PetRendererBackend ProductionRendererBackend() {
   CALayer *_pendingDotsLayer;
   NSMutableArray<CALayer *> *_pendingDotLayers;
   CAShapeLayer *_signalLayer;
+  CAShapeLayer *_dropCardLayer;
   PetVisualState _visualState;
   BOOL _reduceMotion;
   BOOL _animating;
@@ -224,6 +230,8 @@ static PetRendererBackend ProductionRendererBackend() {
   uint32_t _visualStyle;
   uint32_t _fps;
   PetRenderAnimationState _renderAnimation;
+  PetDropState _dropState;
+  PetImpactState _impactState;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -271,6 +279,17 @@ static PetRendererBackend ProductionRendererBackend() {
     _signalLayer.opacity = 0.0;
     [self.layer addSublayer:_signalLayer];
 
+    _dropCardLayer = [CAShapeLayer layer];
+    _dropCardLayer.fillColor =
+        [NSColor colorWithSRGBRed:0.22 green:0.68 blue:1.0 alpha:1.0]
+            .CGColor;
+    _dropCardLayer.strokeColor =
+        [NSColor colorWithSRGBRed:0.78 green:0.92 blue:1.0 alpha:1.0]
+            .CGColor;
+    _dropCardLayer.lineWidth = 1.5;
+    _dropCardLayer.opacity = 0.0;
+    [self.layer addSublayer:_dropCardLayer];
+
     if (CVDisplayLinkCreateWithActiveCGDisplays(&_displayLink) ==
         kCVReturnSuccess) {
       CVDisplayLinkSetOutputCallback(_displayLink, PetDisplayLinkCallback,
@@ -281,6 +300,9 @@ static PetRendererBackend ProductionRendererBackend() {
 }
 
 - (void)dealloc {
+  _dropState.cancel();
+  _impactState.clear();
+  [_dropCardLayer removeAllAnimations];
   if (_displayLink != nullptr) {
     CVDisplayLinkStop(_displayLink);
     CVDisplayLinkRelease(_displayLink);
@@ -358,6 +380,7 @@ static PetRendererBackend ProductionRendererBackend() {
   _ringLayer.hidden = _metalAvailable;
   _pendingDotsLayer.hidden = _metalAvailable;
   _signalLayer.hidden = _metalAvailable;
+  _dropCardLayer.hidden = _metalAvailable;
   _diskLayer.frame = shadowFrame;
   _diskLayer.cornerRadius = geometry.shadow_radius;
   _ringLayer.frame = bounds;
@@ -399,6 +422,17 @@ static PetRendererBackend ProductionRendererBackend() {
           nullptr);
   _signalLayer.path = signalPath;
   CGPathRelease(signalPath);
+
+  const CGSize cardSize =
+      CGSizeMake(MAX(34.0, panelSide * 0.29),
+                 MAX(24.0, panelSide * 0.20));
+  _dropCardLayer.bounds =
+      CGRectMake(0.0, 0.0, cardSize.width, cardSize.height);
+  CGPathRef cardPath = CGPathCreateWithRoundedRect(
+      _dropCardLayer.bounds, cardSize.height * 0.18,
+      cardSize.height * 0.18, nullptr);
+  _dropCardLayer.path = cardPath;
+  CGPathRelease(cardPath);
   [CATransaction commit];
 }
 
@@ -454,6 +488,224 @@ static PetRendererBackend ProductionRendererBackend() {
   _renderAnimation.complete_drop(CACurrentMediaTime());
 }
 
+- (NSPoint)pointForDropOrigin:(PetDropOrigin)origin {
+  const NSRect bounds = self.bounds;
+  return NSMakePoint(
+      NSMinX(bounds) + origin.x * NSWidth(bounds),
+      NSMinY(bounds) + origin.y * NSHeight(bounds));
+}
+
+- (void)showFallbackCardAt:(NSPoint)origin
+                  fileKind:(uint32_t)fileKind {
+  [_dropCardLayer removeAllAnimations];
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  _dropCardLayer.fillColor =
+      (fileKind == PET_FILE_GCODE
+           ? [NSColor colorWithSRGBRed:0.20 green:0.86 blue:0.53 alpha:1.0]
+           : [NSColor colorWithSRGBRed:0.22 green:0.68 blue:1.0 alpha:1.0])
+          .CGColor;
+  _dropCardLayer.strokeColor =
+      [NSColor colorWithSRGBRed:0.84 green:0.95 blue:1.0 alpha:1.0]
+          .CGColor;
+  _dropCardLayer.position = origin;
+  _dropCardLayer.opacity = 1.0;
+  [CATransaction commit];
+}
+
+- (BOOL)beginImportWait:(uint64_t)generation
+                 origin:(NSPoint)origin
+               fileKind:(uint32_t)fileKind {
+  const NSRect bounds = self.bounds;
+  if (NSWidth(bounds) <= 0.0 || NSHeight(bounds) <= 0.0) {
+    return NO;
+  }
+  const PetDropOrigin normalized = {
+      (float)std::clamp((origin.x - NSMinX(bounds)) / NSWidth(bounds),
+                        0.0, 1.0),
+      (float)std::clamp((origin.y - NSMinY(bounds)) / NSHeight(bounds),
+                        0.0, 1.0),
+  };
+  if (!_dropState.begin_wait(generation, normalized, fileKind,
+                             CACurrentMediaTime())) {
+    return NO;
+  }
+  _impactState.clear();
+  _lastRenderedAt = 0.0;
+  if (_metalAvailable) {
+    if (_animating) {
+      [self renderFrame];
+    }
+  } else {
+    [self showFallbackCardAt:origin fileKind:fileKind];
+  }
+  return YES;
+}
+
+- (void)scheduleFallbackCompletionForGeneration:(uint64_t)generation
+                                           after:(CFTimeInterval)delay {
+  __weak BPPetView *weakSelf = self;
+  dispatch_after(
+      dispatch_time(DISPATCH_TIME_NOW,
+                    (int64_t)(delay * (CFTimeInterval)NSEC_PER_SEC)),
+      dispatch_get_main_queue(), ^{
+        BPPetView *strongSelf = weakSelf;
+        if (strongSelf == nil ||
+            strongSelf->_dropState.generation() != generation) {
+          return;
+        }
+        const PetDropSnapshot completed =
+            strongSelf->_dropState.sample(CACurrentMediaTime(),
+                                          strongSelf->_reduceMotion);
+        if (completed.generation == generation &&
+            completed.phase != PetDropPhase::kIdle) {
+          // dispatch_after is not expected to fire early, but a short
+          // generation-guarded retry keeps the state reusable across clock
+          // quantization without touching a newer import.
+          [strongSelf
+              scheduleFallbackCompletionForGeneration:generation
+                                                 after:0.02];
+        }
+      });
+}
+
+- (BOOL)finishImport:(uint64_t)generation result:(uint32_t)result {
+  const CFTimeInterval now = CACurrentMediaTime();
+  const PetDropSnapshot waiting = _dropState.sample(now, false);
+  if (!_dropState.finish(generation, result, now)) {
+    return NO;
+  }
+  _lastRenderedAt = 0.0;
+  if (_metalAvailable) {
+    if (_animating) {
+      [self renderFrame];
+    }
+    return YES;
+  }
+
+  // Without Metal there is no display-link sampling. Latch the current
+  // motion policy now and arrange a generation-safe terminal sample so the
+  // fallback can accept a later import.
+  (void)_dropState.sample(now, _reduceMotion);
+  const CFTimeInterval completionDelay =
+      _reduceMotion ? 0.15
+                    : (result == PET_DROP_REJECTED ? 0.42 : 4.672);
+  [self scheduleFallbackCompletionForGeneration:generation
+                                          after:completionDelay];
+
+  const NSPoint origin = [self pointForDropOrigin:waiting.origin];
+  const NSRect bounds = self.bounds;
+  const NSPoint center =
+      NSMakePoint(NSMidX(bounds), NSMidY(bounds));
+  [_dropCardLayer removeAllAnimations];
+  if (result == PET_DROP_ACCEPTED && _reduceMotion) {
+    CABasicAnimation *reduced =
+        [CABasicAnimation animationWithKeyPath:@"opacity"];
+    reduced.fromValue = @1.0;
+    reduced.toValue = @0.0;
+    reduced.duration = 0.15;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _dropCardLayer.opacity = 0.0;
+    [CATransaction commit];
+    [_dropCardLayer addAnimation:reduced forKey:@"pet.drop.reduced"];
+    return YES;
+  }
+
+  if (result == PET_DROP_ACCEPTED) {
+    const NSPoint p1 =
+        NSMakePoint(origin.x + (center.x - origin.x) * 0.36,
+                    origin.y + (center.y - origin.y) * 0.30);
+    const NSPoint p2 =
+        NSMakePoint(center.x + (origin.y - center.y) * 0.28,
+                    center.y - (origin.x - center.x) * 0.28);
+    const NSPoint p3 =
+        NSMakePoint(center.x - (origin.x - center.x) * 0.12,
+                    center.y - (origin.y - center.y) * 0.12);
+    CAKeyframeAnimation *standard =
+        [CAKeyframeAnimation animationWithKeyPath:@"position"];
+    standard.values = @[
+      [NSValue valueWithPoint:origin], [NSValue valueWithPoint:p1],
+      [NSValue valueWithPoint:p2], [NSValue valueWithPoint:p3],
+      [NSValue valueWithPoint:center], [NSValue valueWithPoint:center]
+    ];
+    standard.duration = 4.6;
+    standard.keyTimes = @[ @0.0, @0.25, @0.55, @0.72, @0.88, @1.0 ];
+    standard.calculationMode = kCAAnimationCubic;
+
+    CAKeyframeAnimation *standardOpacity =
+        [CAKeyframeAnimation animationWithKeyPath:@"opacity"];
+    standardOpacity.values = @[ @1.0, @1.0, @1.0, @0.90, @0.58, @0.0 ];
+    standardOpacity.duration = standard.duration;
+    standardOpacity.keyTimes = standard.keyTimes;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _dropCardLayer.position = center;
+    _dropCardLayer.opacity = 0.0;
+    [CATransaction commit];
+    [_dropCardLayer addAnimation:standard forKey:@"pet.drop.standard"];
+    [_dropCardLayer addAnimation:standardOpacity
+                          forKey:@"pet.drop.standard-opacity"];
+    return YES;
+  }
+
+  if (_reduceMotion) {
+    CABasicAnimation *reduced =
+        [CABasicAnimation animationWithKeyPath:@"opacity"];
+    reduced.fromValue = @1.0;
+    reduced.toValue = @0.0;
+    reduced.duration = 0.15;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _dropCardLayer.opacity = 0.0;
+    [CATransaction commit];
+    [_dropCardLayer addAnimation:reduced forKey:@"pet.drop.reduced-reject"];
+    return YES;
+  }
+
+  const NSPoint outward =
+      NSMakePoint(origin.x + (origin.x - center.x) * 0.14,
+                  origin.y + (origin.y - center.y) * 0.14);
+  CAKeyframeAnimation *rejected =
+      [CAKeyframeAnimation animationWithKeyPath:@"position"];
+  rejected.values = @[
+    [NSValue valueWithPoint:origin], [NSValue valueWithPoint:outward],
+    [NSValue valueWithPoint:origin]
+  ];
+  rejected.keyTimes = @[ @0.0, @0.46, @1.0 ];
+  rejected.duration = 0.42;
+  CAKeyframeAnimation *rejectedOpacity =
+      [CAKeyframeAnimation animationWithKeyPath:@"opacity"];
+  rejectedOpacity.values = @[ @1.0, @1.0, @0.0 ];
+  rejectedOpacity.keyTimes = rejected.keyTimes;
+  rejectedOpacity.duration = rejected.duration;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  _dropCardLayer.position = origin;
+  _dropCardLayer.opacity = 0.0;
+  [CATransaction commit];
+  [_dropCardLayer addAnimation:rejected forKey:@"pet.drop.rejected"];
+  [_dropCardLayer addAnimation:rejectedOpacity
+                        forKey:@"pet.drop.rejected-opacity"];
+  return YES;
+}
+
+- (void)cancelImport {
+  _dropState.cancel();
+  _impactState.clear();
+  _lastRenderedAt = 0.0;
+  [_dropCardLayer removeAllAnimations];
+  [_signalLayer removeAllAnimations];
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  _dropCardLayer.opacity = 0.0;
+  _signalLayer.opacity = 0.0;
+  [CATransaction commit];
+  if (_metalAvailable && _animating) {
+    [self renderFrame];
+  }
+}
+
 - (void)displayLinkTick:(const CVTimeStamp *)outputTime {
   (void)outputTime;
   if (!_frameGate.try_enqueue()) {
@@ -479,7 +731,16 @@ static PetRendererBackend ProductionRendererBackend() {
   const CFTimeInterval now = CACurrentMediaTime();
   const PetAnimationSnapshot animation =
       _renderAnimation.sample(now, _reduceMotion);
-  const uint32_t targetFps = PetTargetFps(_fps, animation.activity);
+  const PetDropSnapshot drop =
+      _dropState.sample(now, _reduceMotion);
+  if (drop.deliver_once) {
+    _impactState.strike(now, drop.origin, drop.file_kind);
+  }
+  const PetImpactSnapshot impact = _impactState.sample(now);
+  const PetRenderActivity activity =
+      PetResolveRenderActivity(animation.activity, drop.phase,
+                               impact.active);
+  const uint32_t targetFps = PetTargetFps(_fps, activity);
   if (targetFps == 0) {
     return;
   }
@@ -552,18 +813,29 @@ static PetRendererBackend ProductionRendererBackend() {
     uniforms.spin = 0.0f;
   }
   uniforms.spin_phase = 0.0f;
-  uniforms.drop_origin_uv[0] = 0.5f;
-  uniforms.drop_origin_uv[1] = 0.5f;
-  uniforms.drop_progress = animation.hover_progress;
-  uniforms.absorption_progress = animation.swallow_progress;
+  const bool dropActive =
+      drop.phase != PetDropPhase::kIdle;
+  const PetDropOrigin renderOrigin =
+      dropActive ? drop.origin
+                 : (impact.active ? impact.origin
+                                  : PetDropOrigin{0.5f, 0.5f});
+  uniforms.drop_origin_uv[0] = renderOrigin.x;
+  uniforms.drop_origin_uv[1] = renderOrigin.y;
+  uniforms.drop_progress =
+      _reduceMotion ? drop.reduced_fade : drop.faller_progress;
+  uniforms.absorption_progress = drop.absorption_progress;
   uniforms.success_progress = animation.success_progress;
-  uniforms.error_progress = animation.error_progress;
+  uniforms.error_progress =
+      MAX(animation.error_progress, drop.error_progress);
   uniforms.pending_count = _visualState.pending_count();
   uniforms.mode = _mode;
   uniforms.reduce_motion = _reduceMotion ? 1 : 0;
-  uniforms.drop_phase = 0;
-  uniforms.file_kind = 0;
+  uniforms.drop_phase = (uint32_t)drop.phase;
+  uniforms.file_kind =
+      dropActive ? drop.file_kind : impact.file_kind;
   uniforms.visual_style = _visualStyle;
+  uniforms.impact_level = impact.impact_level;
+  uniforms.feed_strength = impact.feed_strength;
   const PetRendererStep renderStep =
       _rendererDriver.draw(surface, uniforms);
   if (surface != nullptr) {
@@ -1124,6 +1396,7 @@ static PetRendererBackend ProductionRendererBackend() {
 - (void)hide {
   self.gestureActive = NO;
   _windowLifecycle.hide();
+  [self.petView cancelImport];
   [self.petView setAnimating:NO];
   mac_capture_stop(_captureHandle);
   _captureConfiguration.invalidate();
@@ -1224,6 +1497,7 @@ static PetRendererBackend ProductionRendererBackend() {
 
 - (void)dragExited {
   [self.petView setHovering:NO];
+  [self.petView cancelImport];
   if (_callback != nullptr) {
     _callback(kPetCallbackDropExited, nullptr, 0.0, 0.0, self.displayID);
   }
@@ -1322,6 +1596,7 @@ static PetRendererBackend ProductionRendererBackend() {
   _sleeping = YES;
   mac_capture_stop(_captureHandle);
   _captureConfiguration.invalidate();
+  [self.petView cancelImport];
   [self.petView setAnimating:NO];
   if (_callback != nullptr) {
     _callback(kPetCallbackSleep, nullptr, 0.0, 0.0, self.displayID);
@@ -1426,6 +1701,7 @@ static PetRendererBackend ProductionRendererBackend() {
 
 - (uint32_t)shutdown {
   uint32_t shutdownState = PET_SHUTDOWN_COMPLETE;
+  [self.petView cancelImport];
   [self.petView setAnimating:NO];
   if (_captureHandle != nullptr) {
     shutdownState = mac_capture_destroy(_captureHandle);

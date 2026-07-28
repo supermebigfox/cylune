@@ -4,6 +4,7 @@ fn main() {
     println!("cargo:rerun-if-changed=native/mac/pet_lifecycle_test.cc");
     println!("cargo:rerun-if-changed=native/mac/pet_visual_state.h");
     println!("cargo:rerun-if-changed=native/mac/pet_render_state.h");
+    println!("cargo:rerun-if-changed=native/mac/pet_drop_state.h");
     println!("cargo:rerun-if-changed=native/mac/pet.mm");
     println!("cargo:rerun-if-changed=native/mac/capture.mm");
     println!("cargo:rerun-if-changed=native/mac/render.mm");

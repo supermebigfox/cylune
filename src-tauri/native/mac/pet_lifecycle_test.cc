@@ -1,4 +1,5 @@
 #include "pet_lifecycle.h"
+#include "pet_drop_state.h"
 #include "pet_render_state.h"
 #include "pet_visual_state.h"
 
@@ -689,6 +690,147 @@ static void frame_dispatch_gate_is_initialized_before_the_first_callback() {
   assert(!gate.try_enqueue());
 }
 
+static void import_wait_never_crosses_before_acknowledgment() {
+  PetDropState state;
+  assert(state.begin_wait(7, {0.72f, 0.44f}, PET_FILE_3MF, 10.0));
+  const PetDropSnapshot waiting = state.sample(110.0, false);
+  assert(waiting.phase == PetDropPhase::kImportPending);
+  assert(waiting.faller_progress == 0.0f);
+  assert(waiting.absorption_progress == 0.0f);
+  assert(!waiting.deliver_once);
+}
+
+static void accepted_import_runs_the_complete_reference_timing() {
+  PetDropState state;
+  assert(state.begin_wait(7, {0.72f, 0.44f}, PET_FILE_3MF, 10.0));
+  assert(state.finish(7, PET_DROP_ACCEPTED, 20.0));
+  assert(state.sample(22.30, false).faller_progress > 0.49f);
+  assert(state.sample(22.30, false).faller_progress < 0.51f);
+  const PetDropSnapshot crossing = state.sample(23.772, false);
+  assert(crossing.deliver_once);
+  assert(crossing.absorption_progress == 0.0f);
+  assert(!state.sample(23.773, false).deliver_once);
+  const PetDropSnapshot jet_mid = state.sample(24.222, false);
+  assert(jet_mid.absorption_progress > 0.49f);
+  assert(jet_mid.absorption_progress < 0.51f);
+  assert(state.sample(24.671, false).phase == PetDropPhase::kSwallow);
+  assert(state.sample(24.673, false).phase == PetDropPhase::kIdle);
+}
+
+static void stale_ack_and_reduced_motion_are_bounded() {
+  PetDropState state;
+  assert(state.begin_wait(12, {0.6f, 0.5f}, PET_FILE_GCODE, 1.0));
+  assert(!state.finish(11, PET_DROP_ACCEPTED, 2.0));
+  assert(state.sample(20.0, false).phase == PetDropPhase::kImportPending);
+  assert(state.finish(12, PET_DROP_ACCEPTED, 21.0));
+  const PetDropSnapshot reduced = state.sample(21.075, true);
+  assert(reduced.reduced_fade > 0.49f && reduced.reduced_fade < 0.51f);
+  assert(reduced.fragment_count == 0);
+  assert(reduced.absorption_progress == 0.0f);
+  assert(state.sample(21.151, true).phase == PetDropPhase::kIdle);
+}
+
+static void rejected_import_recoils_without_delivery() {
+  PetDropState state;
+  assert(state.begin_wait(4, {0.8f, 0.5f}, PET_FILE_3MF, 1.0));
+  assert(state.finish(4, PET_DROP_REJECTED, 2.0));
+  const PetDropSnapshot recoil = state.sample(2.18, false);
+  assert(recoil.phase == PetDropPhase::kImportRejected);
+  assert(recoil.error_progress > 0.42f && recoil.error_progress < 0.44f);
+  assert(!recoil.deliver_once);
+  assert(recoil.absorption_progress == 0.0f);
+  assert(state.sample(2.421, false).phase == PetDropPhase::kIdle);
+}
+
+static void cancellation_clears_every_visual_without_delivery() {
+  PetDropState state;
+  assert(state.begin_wait(8, {0.8f, 0.5f}, PET_FILE_3MF, 1.0));
+  state.cancel();
+  const PetDropSnapshot cancelled = state.sample(100.0, false);
+  assert(cancelled.phase == PetDropPhase::kIdle);
+  assert(cancelled.fragment_count == 0);
+  assert(cancelled.absorption_progress == 0.0f);
+  assert(!cancelled.deliver_once);
+  assert(!state.finish(8, PET_DROP_ACCEPTED, 101.0));
+}
+
+static void import_wait_requires_idle_and_a_nonzero_generation() {
+  PetDropState state;
+  assert(!state.begin_wait(0, {0.8f, 0.5f}, PET_FILE_3MF, 1.0));
+  assert(state.begin_wait(1, {0.8f, 0.5f}, PET_FILE_3MF, 1.0));
+  assert(!state.begin_wait(2, {0.8f, 0.5f}, PET_FILE_GCODE, 2.0));
+  state.cancel();
+  assert(state.begin_wait(2, {0.8f, 0.5f}, PET_FILE_GCODE, 3.0));
+}
+
+static void motion_policy_is_latched_without_losing_delivery() {
+  PetDropState standard;
+  assert(standard.begin_wait(21, {0.72f, 0.44f}, PET_FILE_3MF, 1.0));
+  assert(standard.finish(21, PET_DROP_ACCEPTED, 2.0));
+  assert(standard.sample(2.0, false).phase == PetDropPhase::kSwallow);
+  const PetDropSnapshot toggled = standard.sample(2.20, true);
+  assert(toggled.phase == PetDropPhase::kSwallow);
+  assert(toggled.faller_progress > 0.04f);
+  assert(toggled.reduced_fade == 0.0f);
+  assert(!toggled.deliver_once);
+  assert(standard.sample(5.772, true).deliver_once);
+  assert(standard.sample(6.673, true).phase == PetDropPhase::kIdle);
+  assert(standard.begin_wait(22, {0.6f, 0.5f}, PET_FILE_GCODE, 7.0));
+
+  PetDropState reduced;
+  assert(reduced.begin_wait(31, {0.72f, 0.44f}, PET_FILE_3MF, 10.0));
+  assert(reduced.finish(31, PET_DROP_ACCEPTED, 11.0));
+  const PetDropSnapshot first = reduced.sample(11.0, true);
+  assert(first.deliver_once);
+  assert(first.reduced_fade == 0.0f);
+  assert(reduced.sample(11.151, false).phase == PetDropPhase::kIdle);
+}
+
+static void impact_and_afterglow_use_the_reference_lifetimes() {
+  PetImpactState impact;
+  assert(!impact.sample(1.0).active);
+
+  impact.strike(2.0, {0.72f, 0.44f}, PET_FILE_3MF);
+  const PetImpactSnapshot attack = impact.sample(2.06);
+  assert(attack.active);
+  assert(attack.impact_level > 0.0f);
+  assert(attack.feed_strength > 0.9f);
+
+  const PetImpactSnapshot impact_tail = impact.sample(5.999);
+  assert(impact_tail.active);
+  assert(impact_tail.impact_level > 0.0f);
+  const PetImpactSnapshot feed_tail = impact.sample(6.001);
+  assert(feed_tail.active);
+  assert(feed_tail.impact_level == 0.0f);
+  assert(feed_tail.feed_strength > 0.0f);
+  assert(impact.sample(15.999).active);
+  assert(!impact.sample(16.001).active);
+
+  impact.clear();
+  const PetImpactSnapshot cleared = impact.sample(100.0);
+  assert(!cleared.active);
+  assert(cleared.impact_level == 0.0f);
+  assert(cleared.feed_strength == 0.0f);
+}
+
+static void external_file_states_keep_auto_fps_at_sixty() {
+  assert(PetResolveRenderActivity(PetRenderActivity::kIdle,
+                                  PetDropPhase::kImportPending, false) ==
+         PetRenderActivity::kSignal);
+  assert(PetResolveRenderActivity(PetRenderActivity::kIdle,
+                                  PetDropPhase::kSwallow, false) ==
+         PetRenderActivity::kSignal);
+  assert(PetResolveRenderActivity(PetRenderActivity::kIdle,
+                                  PetDropPhase::kImportRejected, false) ==
+         PetRenderActivity::kSignal);
+  assert(PetResolveRenderActivity(PetRenderActivity::kIdle,
+                                  PetDropPhase::kIdle, true) ==
+         PetRenderActivity::kSignal);
+  assert(PetResolveRenderActivity(PetRenderActivity::kIdle,
+                                  PetDropPhase::kIdle, false) ==
+         PetRenderActivity::kIdle);
+}
+
 int main() {
   visual_style_values_stay_within_stable_native_contract();
   approved_geometry_uses_a_small_circular_core();
@@ -729,4 +871,13 @@ int main() {
   renderer_create_failure_reports_once_after_host_binding();
   fatal_and_repeated_draw_failures_degrade_once_and_destroy();
   frame_dispatch_gate_is_initialized_before_the_first_callback();
+  import_wait_never_crosses_before_acknowledgment();
+  accepted_import_runs_the_complete_reference_timing();
+  stale_ack_and_reduced_motion_are_bounded();
+  rejected_import_recoils_without_delivery();
+  cancellation_clears_every_visual_without_delivery();
+  import_wait_requires_idle_and_a_nonzero_generation();
+  motion_policy_is_latched_without_losing_delivery();
+  impact_and_afterglow_use_the_reference_lifetimes();
+  external_file_states_keep_auto_fps_at_sixty();
 }

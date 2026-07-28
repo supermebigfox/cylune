@@ -83,7 +83,8 @@ typedef struct {
   uint32_t drop_phase;
   uint32_t file_kind;
   uint32_t visual_style;
-  uint32_t _padding[2];
+  float impact_level;
+  float feed_strength;
 } PetRenderUniforms;
 
 typedef struct {
@@ -117,6 +118,17 @@ enum {
   PET_SHUTDOWN_COMPLETE = 0,
   PET_SHUTDOWN_STOP_FAILED = 1,
   PET_SHUTDOWN_STOP_TIMED_OUT = 2,
+};
+
+enum {
+  PET_FILE_NONE = 0,
+  PET_FILE_3MF = 1,
+  PET_FILE_GCODE = 2,
+};
+
+enum {
+  PET_DROP_ACCEPTED = 1,
+  PET_DROP_REJECTED = 2,
 };
 
 void *pet_create(PetCallback callback, const char *metal_source);

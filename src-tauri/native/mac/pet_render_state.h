@@ -2,6 +2,7 @@
 #define BAMBU_POOLS_PET_RENDER_STATE_H
 
 #include "bridge.h"
+#include "pet_drop_state.h"
 
 #include <algorithm>
 #include <atomic>
@@ -163,6 +164,77 @@ inline constexpr uint32_t PetTargetFps(uint32_t configured_fps,
   }
   return activity == PetRenderActivity::kIdle ? 30 : 60;
 }
+
+inline constexpr PetRenderActivity PetResolveRenderActivity(
+    PetRenderActivity base_activity, PetDropPhase drop_phase,
+    bool impact_active) {
+  if (base_activity == PetRenderActivity::kHidden) {
+    return PetRenderActivity::kHidden;
+  }
+  if (impact_active || drop_phase == PetDropPhase::kImportPending ||
+      drop_phase == PetDropPhase::kSwallow ||
+      drop_phase == PetDropPhase::kImportRejected) {
+    return PetRenderActivity::kSignal;
+  }
+  return base_activity;
+}
+
+struct PetImpactSnapshot {
+  PetDropOrigin origin;
+  uint32_t file_kind;
+  float impact_level;
+  float feed_strength;
+  bool active;
+};
+
+class PetImpactState {
+ public:
+  void strike(double now_seconds, PetDropOrigin origin,
+              uint32_t file_kind) {
+    if (!std::isfinite(now_seconds)) {
+      return;
+    }
+    started_at_ = now_seconds;
+    origin_ = origin;
+    file_kind_ = file_kind;
+  }
+
+  void clear() {
+    started_at_ = kNotStarted;
+    origin_ = {0.0f, 0.0f};
+    file_kind_ = PET_FILE_NONE;
+  }
+
+  PetImpactSnapshot sample(double now_seconds) const {
+    const double elapsed = now_seconds - started_at_;
+    if (!std::isfinite(elapsed) || elapsed < 0.0 ||
+        elapsed > kFeedLifetime) {
+      return {{0.0f, 0.0f}, PET_FILE_NONE, 0.0f, 0.0f, false};
+    }
+    const float impact =
+        elapsed <= kImpactLifetime
+            ? static_cast<float>(
+                  std::exp(-elapsed / kImpactDecay) *
+                  (1.0 - std::exp(-elapsed / kImpactAttack)))
+            : 0.0f;
+    const float feed = static_cast<float>(
+        std::exp(-elapsed / kFeedDecay));
+    return {origin_, file_kind_, impact, feed, true};
+  }
+
+ private:
+  static constexpr double kNotStarted =
+      -std::numeric_limits<double>::infinity();
+  static constexpr double kImpactAttack = 0.06;
+  static constexpr double kImpactDecay = 0.90;
+  static constexpr double kImpactLifetime = 4.0;
+  static constexpr double kFeedDecay = 3.2;
+  static constexpr double kFeedLifetime = 14.0;
+
+  double started_at_ = kNotStarted;
+  PetDropOrigin origin_ = {0.0f, 0.0f};
+  uint32_t file_kind_ = PET_FILE_NONE;
+};
 
 inline constexpr double PetSignalTransitionDuration(
     bool reduce_motion, double standard_duration) {

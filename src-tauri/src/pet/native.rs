@@ -173,12 +173,17 @@ pub struct TestRenderOptions {
     pub mode: TestRenderMode,
     pub visual_style: TestVisualStyle,
     pub time_seconds: f32,
-    pub hover_progress: f32,
-    pub swallow_progress: f32,
+    pub drop_origin_uv: [f32; 2],
+    pub drop_progress: f32,
+    pub absorption_progress: f32,
     pub success_progress: f32,
     pub error_progress: f32,
     pub pending_count: u32,
     pub reduce_motion: bool,
+    pub drop_phase: u32,
+    pub file_kind: u32,
+    pub impact_level: f32,
+    pub feed_strength: f32,
     pub capture_origin_uv: [f32; 2],
     pub capture_extent_uv: [f32; 2],
 }
@@ -190,12 +195,17 @@ impl Default for TestRenderOptions {
             mode: TestRenderMode::Lite,
             visual_style: TestVisualStyle::Gargantua,
             time_seconds: 0.0,
-            hover_progress: 0.0,
-            swallow_progress: 0.0,
+            drop_origin_uv: [0.5, 0.5],
+            drop_progress: 0.0,
+            absorption_progress: 0.0,
             success_progress: 0.0,
             error_progress: 0.0,
             pending_count: 0,
             reduce_motion: false,
+            drop_phase: 0,
+            file_kind: 0,
+            impact_level: 0.0,
+            feed_strength: 0.0,
             capture_origin_uv: [0.0, 0.0],
             capture_extent_uv: [1.0, 1.0],
         }
@@ -238,7 +248,8 @@ struct TestNativeRenderUniforms {
     drop_phase: u32,
     file_kind: u32,
     visual_style: u32,
-    padding: [u32; 2],
+    impact_level: f32,
+    feed_strength: f32,
 }
 
 #[cfg(test)]
@@ -250,15 +261,19 @@ impl From<TestRenderOptions> for TestNativeRenderUniforms {
             time_seconds: options.time_seconds,
             hole_radius_uv: 0.075,
             spin_phase: 0.0,
-            drop_origin_uv: [0.5, 0.5],
-            drop_progress: options.hover_progress,
-            absorption_progress: options.swallow_progress,
+            drop_origin_uv: options.drop_origin_uv,
+            drop_progress: options.drop_progress,
+            absorption_progress: options.absorption_progress,
             success_progress: options.success_progress,
             error_progress: options.error_progress,
             pending_count: options.pending_count,
             mode: options.mode as u32,
             reduce_motion: u32::from(options.reduce_motion),
+            drop_phase: options.drop_phase,
+            file_kind: options.file_kind,
             visual_style: options.visual_style as u32,
+            impact_level: options.impact_level,
+            feed_strength: options.feed_strength,
             ..Self::default()
         };
         match options.visual_style {
@@ -824,6 +839,26 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
+    fn different_pixel_count(lhs: &[u8], rhs: &[u8]) -> usize {
+        lhs.chunks_exact(4)
+            .zip(rhs.chunks_exact(4))
+            .filter(|(left, right)| *left != *right)
+            .count()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn render_drop_cell(
+        input: &[u8],
+        width: u32,
+        height: u32,
+        options: TestRenderOptions,
+    ) -> Vec<u8> {
+        super::test_render_with_options(input, width, height, options)
+            .unwrap()
+            .pixels
+    }
+
+    #[cfg(target_os = "macos")]
     fn opaque_black_horizon_area(pixels: &[u8], width: usize, height: usize) -> usize {
         let mut area = 0;
         for y in 0..height {
@@ -1281,6 +1316,203 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn synthetic_drop_matrix_covers_styles_modes_motion_and_outcomes() {
+        const SIDE: u32 = 96;
+        for visual_style in [TestVisualStyle::Gargantua, TestVisualStyle::Fusion] {
+            for mode in [TestRenderMode::Real, TestRenderMode::Lite] {
+                let input = match mode {
+                    TestRenderMode::Real => checkerboard_rgba(SIDE as usize, SIDE as usize),
+                    TestRenderMode::Lite => Vec::new(),
+                };
+                for reduce_motion in [false, true] {
+                    let baseline_options = TestRenderOptions {
+                        mode,
+                        visual_style,
+                        reduce_motion,
+                        ..TestRenderOptions::default()
+                    };
+                    let baseline = render_drop_cell(&input, SIDE, SIDE, baseline_options);
+
+                    for outcome in ["pending", "success", "reject", "cancel"] {
+                        let mut options = TestRenderOptions {
+                            mode,
+                            visual_style,
+                            reduce_motion,
+                            drop_origin_uv: [0.72, 0.44],
+                            file_kind: 1,
+                            ..TestRenderOptions::default()
+                        };
+                        match outcome {
+                            "pending" => {
+                                options.drop_phase = 2;
+                            }
+                            "success" => {
+                                options.drop_phase = 3;
+                                options.drop_progress = if reduce_motion { 0.5 } else { 0.60 };
+                            }
+                            "reject" => {
+                                options.drop_phase = 4;
+                                options.file_kind = 2;
+                                options.drop_progress = 0.43;
+                                options.error_progress = 0.43;
+                                // A stale jet value must remain invisible outside success.
+                                options.absorption_progress = 0.5;
+                            }
+                            "cancel" => {
+                                // PetDropState cancellation clears every external-file field.
+                                options.drop_phase = 0;
+                                options.file_kind = 0;
+                            }
+                            _ => unreachable!(),
+                        }
+                        let rendered = render_drop_cell(&input, SIDE, SIDE, options);
+                        let label = format!("{visual_style:?}/{mode:?}/{reduce_motion}/{outcome}");
+
+                        match outcome {
+                            "pending" | "success" | "reject" => assert!(
+                                different_pixel_count(&baseline, &rendered) > 24,
+                                "{label} did not draw its external-file state"
+                            ),
+                            "cancel" => assert_eq!(
+                                rendered, baseline,
+                                "{label} retained a card, fragments, jet, or error overlay"
+                            ),
+                            _ => unreachable!(),
+                        }
+
+                        if outcome == "success" {
+                            if reduce_motion {
+                                let mut without_jet = options;
+                                without_jet.absorption_progress = 0.0;
+                                assert_eq!(
+                                    rendered,
+                                    render_drop_cell(&input, SIDE, SIDE, without_jet),
+                                    "{label} drew a jet during Reduce Motion"
+                                );
+                            } else {
+                                let mut jet_mid = options;
+                                jet_mid.drop_progress = 4.222 / 4.6;
+                                jet_mid.absorption_progress = 0.5;
+                                let mut without_jet = jet_mid;
+                                without_jet.absorption_progress = 0.0;
+                                assert!(
+                                    different_pixel_count(
+                                        &render_drop_cell(&input, SIDE, SIDE, without_jet),
+                                        &render_drop_cell(&input, SIDE, SIDE, jet_mid),
+                                    ) > 24,
+                                    "{label} did not draw the 0.90-second jet midpoint"
+                                );
+                            }
+                        }
+
+                        if outcome == "reject" {
+                            let mut without_jet = options;
+                            without_jet.absorption_progress = 0.0;
+                            assert_eq!(
+                                rendered,
+                                render_drop_cell(&input, SIDE, SIDE, without_jet),
+                                "{label} drew a jet for rejection"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn procedural_file_cards_distinguish_3mf_from_gcode_without_textures() {
+        let render_kind = |file_kind| {
+            render_drop_cell(
+                &[],
+                128,
+                128,
+                TestRenderOptions {
+                    mode: TestRenderMode::Lite,
+                    drop_origin_uv: [0.72, 0.44],
+                    drop_phase: 2,
+                    file_kind,
+                    ..TestRenderOptions::default()
+                },
+            )
+        };
+        let three_mf = render_kind(1);
+        let gcode = render_kind(2);
+
+        assert!(
+            different_pixel_count(&three_mf, &gcode) > 24,
+            "procedural 3MF and GCODE cards were indistinguishable"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn faller_starts_at_the_acknowledged_origin_without_a_phase_jump() {
+        let options = TestRenderOptions {
+            mode: TestRenderMode::Lite,
+            drop_origin_uv: [0.72, 0.44],
+            file_kind: 1,
+            drop_phase: 2,
+            ..TestRenderOptions::default()
+        };
+        let pending = render_drop_cell(&[], 128, 128, options);
+        let swallowing = render_drop_cell(
+            &[],
+            128,
+            128,
+            TestRenderOptions {
+                drop_phase: 3,
+                drop_progress: 0.0,
+                ..options
+            },
+        );
+
+        assert_eq!(
+            pending, swallowing,
+            "the accepted card moved or rotated before faller time advanced"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn impact_and_afterglow_remain_visible_after_the_card_is_gone() {
+        let baseline = render_drop_cell(&[], 128, 128, TestRenderOptions::default());
+        let impact = render_drop_cell(
+            &[],
+            128,
+            128,
+            TestRenderOptions {
+                drop_origin_uv: [0.72, 0.44],
+                file_kind: 1,
+                impact_level: 0.72,
+                ..TestRenderOptions::default()
+            },
+        );
+        let afterglow = render_drop_cell(
+            &[],
+            128,
+            128,
+            TestRenderOptions {
+                drop_origin_uv: [0.72, 0.44],
+                file_kind: 1,
+                feed_strength: 0.08,
+                ..TestRenderOptions::default()
+            },
+        );
+
+        assert!(
+            different_pixel_count(&baseline, &impact) > 24,
+            "the disk did not react at the impact"
+        );
+        assert!(
+            different_pixel_count(&baseline, &afterglow) > 24,
+            "the fed-disk afterglow disappeared before its 14-second lifetime"
+        );
+    }
+
     #[test]
     fn automatic_fps_tracks_interaction_and_visibility() {
         assert_eq!(super::target_fps(PetFps::Auto, PetActivity::Idle), 30);
@@ -1332,6 +1564,14 @@ mod tests {
         assert_eq!(
             offset_of!(super::TestNativeRenderUniforms, visual_style),
             140
+        );
+        assert_eq!(
+            offset_of!(super::TestNativeRenderUniforms, impact_level),
+            144
+        );
+        assert_eq!(
+            offset_of!(super::TestNativeRenderUniforms, feed_strength),
+            148
         );
 
         let pet = NativePet::new(test_callback).unwrap();
