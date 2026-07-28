@@ -60,6 +60,36 @@ pub enum NativeRendererState {
     Ready = 1,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeShutdownState {
+    Complete,
+    StopFailed,
+    StopTimedOut,
+}
+
+impl NativeShutdownState {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::StopFailed => "capture_stop_failed",
+            Self::StopTimedOut => "capture_stop_timed_out",
+        }
+    }
+}
+
+impl TryFrom<u32> for NativeShutdownState {
+    type Error = ();
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Complete),
+            1 => Ok(Self::StopFailed),
+            2 => Ok(Self::StopTimedOut),
+            _ => Err(()),
+        }
+    }
+}
+
 impl TryFrom<u32> for NativeRendererState {
     type Error = ();
 
@@ -167,7 +197,7 @@ mod platform {
 
     extern "C" {
         fn pet_create(callback: PetCallback, metal_source: *const c_char) -> *mut c_void;
-        fn pet_destroy(handle: *mut c_void);
+        fn pet_destroy(handle: *mut c_void) -> u32;
         fn pet_apply(handle: *mut c_void, config: PetNativeConfig) -> bool;
         fn pet_show(handle: *mut c_void);
         fn pet_hide(handle: *mut c_void);
@@ -182,41 +212,67 @@ mod platform {
         unsafe { pet_abi_version() }
     }
 
-    pub struct Handle(NonNull<c_void>);
+    pub struct Handle(Option<NonNull<c_void>>);
 
     impl Handle {
         pub fn new(callback: PetCallback) -> Option<Self> {
-            NonNull::new(unsafe { pet_create(callback, std::ptr::null()) }).map(Self)
+            NonNull::new(unsafe { pet_create(callback, std::ptr::null()) })
+                .map(Some)
+                .map(Self)
         }
 
         pub fn apply(&self, config: PetNativeConfig) -> bool {
-            unsafe { pet_apply(self.0.as_ptr(), config) }
+            self.0
+                .is_some_and(|handle| unsafe { pet_apply(handle.as_ptr(), config) })
         }
 
         pub fn show(&self) {
-            unsafe { pet_show(self.0.as_ptr()) }
+            if let Some(handle) = self.0 {
+                unsafe { pet_show(handle.as_ptr()) }
+            }
         }
 
         pub fn hide(&self) {
-            unsafe { pet_hide(self.0.as_ptr()) }
+            if let Some(handle) = self.0 {
+                unsafe { pet_hide(handle.as_ptr()) }
+            }
         }
 
         pub fn reset(&self) {
-            unsafe { pet_reset(self.0.as_ptr()) }
+            if let Some(handle) = self.0 {
+                unsafe { pet_reset(handle.as_ptr()) }
+            }
         }
 
         pub fn signal(&self, signal: u32) {
-            unsafe { pet_signal(self.0.as_ptr(), signal) }
+            if let Some(handle) = self.0 {
+                unsafe { pet_signal(handle.as_ptr(), signal) }
+            }
         }
 
         pub fn capture_state(&self) -> NativeCaptureState {
-            NativeCaptureState::try_from(unsafe { pet_capture_state(self.0.as_ptr()) })
+            self.0
+                .and_then(|handle| {
+                    NativeCaptureState::try_from(unsafe { pet_capture_state(handle.as_ptr()) }).ok()
+                })
                 .unwrap_or(NativeCaptureState::Failed)
         }
 
         pub fn renderer_state(&self) -> NativeRendererState {
-            NativeRendererState::try_from(unsafe { pet_renderer_state(self.0.as_ptr()) })
+            self.0
+                .and_then(|handle| {
+                    NativeRendererState::try_from(unsafe { pet_renderer_state(handle.as_ptr()) })
+                        .ok()
+                })
                 .unwrap_or(NativeRendererState::Unavailable)
+        }
+
+        pub fn shutdown(mut self) -> super::NativeShutdownState {
+            let Some(handle) = self.0.take() else {
+                return super::NativeShutdownState::Complete;
+            };
+            super::NativeShutdownState::try_from(unsafe { pet_destroy(handle.as_ptr()) })
+                .unwrap_or(super::NativeShutdownState::StopFailed)
         }
     }
 
@@ -224,7 +280,9 @@ mod platform {
 
     impl Drop for Handle {
         fn drop(&mut self) {
-            unsafe { pet_destroy(self.0.as_ptr()) }
+            if let Some(handle) = self.0.take() {
+                let _ = unsafe { pet_destroy(handle.as_ptr()) };
+            }
         }
     }
 }
@@ -262,6 +320,10 @@ mod platform {
 
         pub fn renderer_state(&self) -> NativeRendererState {
             NativeRendererState::Unavailable
+        }
+
+        pub fn shutdown(self) -> super::NativeShutdownState {
+            super::NativeShutdownState::Complete
         }
     }
 }
@@ -307,6 +369,10 @@ impl NativePet {
 
     pub fn renderer_state(&self) -> NativeRendererState {
         self.handle.renderer_state()
+    }
+
+    pub fn shutdown(self) -> NativeShutdownState {
+        self.handle.shutdown()
     }
 }
 

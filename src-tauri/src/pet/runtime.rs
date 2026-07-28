@@ -2,8 +2,8 @@ use crate::{
     error::{AppError, Result},
     imports::{ImportState, PendingSummary, PrintService, PrintState},
     pet::native::{
-        NativeCaptureState, NativePet, NativePetError, NativeRendererState, PetCallbackKind,
-        PetNativeConfig,
+        NativeCaptureState, NativePet, NativePetError, NativeRendererState, NativeShutdownState,
+        PetCallbackKind, PetNativeConfig,
     },
     pet::{CapturePermission, PetMode, PetSettings, PetSettingsPatch, PetStatus, PetStore},
     tray::persist_pending_job,
@@ -309,8 +309,45 @@ impl<T> NativeOwner<T> {
     }
 }
 
+trait RuntimeNative: Send {
+    // Routine methods must enqueue native work and return without waiting for
+    // AppKit because callers may hold RuntimeState's mutex.
+    fn apply(&self, config: PetNativeConfig) -> bool;
+    fn show(&self);
+    fn hide(&self);
+    fn reset(&self);
+    fn signal(&self, signal: u32);
+    fn shutdown(self: Box<Self>) -> NativeShutdownState;
+}
+
+impl RuntimeNative for NativePet {
+    fn apply(&self, config: PetNativeConfig) -> bool {
+        NativePet::apply(self, config)
+    }
+
+    fn show(&self) {
+        NativePet::show(self);
+    }
+
+    fn hide(&self) {
+        NativePet::hide(self);
+    }
+
+    fn reset(&self) {
+        NativePet::reset(self);
+    }
+
+    fn signal(&self, signal: u32) {
+        NativePet::signal(self, signal);
+    }
+
+    fn shutdown(self: Box<Self>) -> NativeShutdownState {
+        NativePet::shutdown(*self)
+    }
+}
+
 struct RuntimeState {
-    pet: NativeOwner<NativePet>,
+    pet: NativeOwner<Box<dyn RuntimeNative>>,
     settings: PetSettings,
     pending_count: u32,
     capture_state: NativeCaptureState,
@@ -328,10 +365,7 @@ impl RuntimeState {
         let Some(pet) = self.pet.as_ref() else {
             return false;
         };
-        let applied = pet.apply(self.config(request_permission));
-        self.capture_state = pet.capture_state();
-        self.renderer_state = pet.renderer_state();
-        applied
+        pet.apply(self.config(request_permission))
     }
 
     fn status(&self) -> PetStatus {
@@ -356,7 +390,7 @@ impl RuntimeState {
 }
 
 pub struct PetRuntime {
-    app: AppHandle,
+    app: Option<AppHandle>,
     state: Arc<Mutex<RuntimeState>>,
     callback: CallbackRegistration,
     worker: Mutex<Option<JoinHandle<()>>>,
@@ -372,12 +406,17 @@ impl PetRuntime {
         let callback = CallbackRegistration::install(sender);
 
         let pet = NativePet::new(native_callback)?;
+        let initial_capture_state = if settings.mode == PetMode::Real {
+            NativeCaptureState::NotDetermined
+        } else {
+            NativeCaptureState::Unavailable
+        };
         let state = Arc::new(Mutex::new(RuntimeState {
-            pet: NativeOwner::new(pet),
+            pet: NativeOwner::new(Box::new(pet)),
             settings,
             pending_count: pending.count,
-            capture_state: NativeCaptureState::Unavailable,
-            renderer_state: NativeRendererState::Unavailable,
+            capture_state: initial_capture_state,
+            renderer_state: NativeRendererState::Ready,
         }));
         state
             .lock()
@@ -397,7 +436,7 @@ impl PetRuntime {
             })
             .expect("failed to start pet runtime worker");
         Ok(Self {
-            app,
+            app: Some(app),
             state,
             callback,
             worker: Mutex::new(Some(worker)),
@@ -422,7 +461,10 @@ impl PetRuntime {
             state.settings = settings;
             state.apply(request_permission)
         };
-        crate::tray::sync_pet_visibility(&self.app, visible);
+        crate::tray::sync_pet_visibility(
+            self.app.as_ref().expect("production runtime has an app"),
+            visible,
+        );
         applied
     }
 
@@ -456,6 +498,8 @@ impl PetRuntime {
     pub fn reset(&self) {
         let saved = self
             .app
+            .as_ref()
+            .expect("production runtime has an app")
             .state::<PrintState>()
             .lock()
             .map_err(|_| AppError::Database("print lock poisoned".to_owned()))
@@ -495,31 +539,38 @@ impl PetRuntime {
         pending_count_state(&self.state)
     }
 
-    pub fn shutdown(&self) {
+    pub fn shutdown(&self) -> NativeShutdownState {
+        // Closing the sender lets the worker drain any in-flight callback and
+        // exit before native teardown can synchronize with AppKit.
         self.callback.clear();
+        let worker = self
+            .worker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(worker) = worker {
+            let _ = worker.join();
+        }
         let native = self
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .pet
             .take();
-        // Drop outside the state lock. Native destruction synchronizes with
-        // AppKit's main thread and must never wait while the main thread could
-        // be waiting for this mutex.
-        drop(native);
-        if let Some(worker) = self
-            .worker
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-        {
-            let _ = worker.join();
+        let shutdown_state = native
+            .map(|native| native.shutdown())
+            .unwrap_or(NativeShutdownState::Complete);
+        if shutdown_state != NativeShutdownState::Complete {
+            eprintln!("pet shutdown failed: {}", shutdown_state.code());
         }
+        shutdown_state
     }
 
     fn set_visible(&self, visible: bool) {
         let saved = self
             .app
+            .as_ref()
+            .expect("production runtime has an app")
             .state::<PrintState>()
             .lock()
             .map_err(|_| AppError::Database("print lock poisoned".to_owned()))
@@ -550,7 +601,10 @@ impl PetRuntime {
                         pet.hide();
                     }
                 }
-                crate::tray::sync_pet_visibility(&self.app, visible);
+                crate::tray::sync_pet_visibility(
+                    self.app.as_ref().expect("production runtime has an app"),
+                    visible,
+                );
             }
         }
     }
@@ -558,7 +612,7 @@ impl PetRuntime {
 
 impl Drop for PetRuntime {
     fn drop(&mut self) {
-        self.shutdown();
+        let _ = self.shutdown();
     }
 }
 
@@ -816,10 +870,12 @@ mod tests {
         capture_status, copy_native_event, handle_file_drop, pending_transition,
         persist_native_position, second_launch_actions, CallbackRegistration, CaptureEvent,
         CaptureState, InstanceAction, InstanceRecall, LifeAction, LifeEvent, LifeState,
-        NativeEvent, NativeOwner, PetSignal,
+        NativeEvent, NativeOwner, PetRuntime, PetSignal, RuntimeNative, RuntimeState,
     };
-    use crate::pet::native::{NativeCaptureState, NativeRendererState};
-    use crate::pet::{PetMode, PetStore};
+    use crate::pet::native::{
+        NativeCaptureState, NativeRendererState, NativeShutdownState, PetNativeConfig,
+    };
+    use crate::pet::{PetFps, PetMode, PetSettings, PetStore};
     use crate::{
         db::AppDatabase,
         domain::JobOutcome,
@@ -829,10 +885,8 @@ mod tests {
     use std::{
         ffi::CString,
         path::{Path, PathBuf},
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            mpsc, Arc,
-        },
+        sync::{atomic::AtomicBool, mpsc, Arc, Condvar, Mutex},
+        thread,
         time::Duration,
     };
 
@@ -1028,23 +1082,116 @@ mod tests {
     }
 
     #[test]
-    fn native_owner_is_destroyed_before_shutdown_returns() {
-        struct DropProbe(Arc<AtomicBool>);
+    fn runtime_shutdown_joins_worker_before_native_destroy_during_apply() {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum Event {
+            WorkerExited,
+            NativeShutdown,
+        }
 
-        impl Drop for DropProbe {
-            fn drop(&mut self) {
-                self.0.store(true, Ordering::Release);
+        struct QueuedNative {
+            apply_started: mpsc::Sender<()>,
+            events: mpsc::Sender<Event>,
+        }
+
+        impl RuntimeNative for QueuedNative {
+            fn apply(&self, _config: PetNativeConfig) -> bool {
+                self.apply_started.send(()).unwrap();
+                true
+            }
+
+            fn show(&self) {}
+            fn hide(&self) {}
+            fn reset(&self) {}
+            fn signal(&self, _signal: u32) {}
+
+            fn shutdown(self: Box<Self>) -> NativeShutdownState {
+                self.events.send(Event::NativeShutdown).unwrap();
+                NativeShutdownState::Complete
             }
         }
 
-        let destroyed = Arc::new(AtomicBool::new(false));
-        let mut owner = NativeOwner::new(DropProbe(Arc::clone(&destroyed)));
+        let settings = PetSettings {
+            mode: PetMode::Lite,
+            size: 220,
+            fps: PetFps::Auto,
+            visible: true,
+            x: None,
+            y: None,
+            display_id: None,
+        };
+        let (apply_started_tx, apply_started_rx) = mpsc::channel();
+        let (events_tx, events_rx) = mpsc::channel();
+        let native = QueuedNative {
+            apply_started: apply_started_tx,
+            events: events_tx.clone(),
+        };
+        let state = Arc::new(Mutex::new(RuntimeState {
+            pet: NativeOwner::new(Box::new(native)),
+            settings,
+            pending_count: 0,
+            capture_state: NativeCaptureState::Unavailable,
+            renderer_state: NativeRendererState::Ready,
+        }));
+        let worker_state = Arc::clone(&state);
+        let worker_gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let worker_gate_for_thread = Arc::clone(&worker_gate);
+        let worker = thread::spawn(move || {
+            worker_state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .apply(false);
+            let (released, wake) = &*worker_gate_for_thread;
+            let mut released = released
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            while !*released {
+                released = wake
+                    .wait(released)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
+            events_tx.send(Event::WorkerExited).unwrap();
+        });
+        apply_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
 
-        let native = owner.take();
-        assert!(owner.as_ref().is_none());
-        drop(native);
+        let runtime = PetRuntime {
+            app: None,
+            state,
+            callback: CallbackRegistration {
+                active: AtomicBool::new(false),
+            },
+            worker: Mutex::new(Some(worker)),
+        };
+        let (shutdown_started_tx, shutdown_started_rx) = mpsc::channel();
+        let shutdown = thread::spawn(move || {
+            shutdown_started_tx.send(()).unwrap();
+            runtime.shutdown()
+        });
+        shutdown_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
 
-        assert!(destroyed.load(Ordering::Acquire));
+        assert_eq!(
+            events_rx.recv_timeout(Duration::from_millis(50)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        );
+        let (released, wake) = &*worker_gate;
+        *released
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        wake.notify_one();
+
+        assert_eq!(
+            events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Event::WorkerExited
+        );
+        assert_eq!(
+            events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Event::NativeShutdown
+        );
+        assert_eq!(shutdown.join().unwrap(), NativeShutdownState::Complete);
     }
 
     #[test]

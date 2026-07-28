@@ -55,8 +55,14 @@ enum {
   PET_RENDERER_READY = 1,
 };
 
+enum {
+  PET_SHUTDOWN_COMPLETE = 0,
+  PET_SHUTDOWN_STOP_FAILED = 1,
+  PET_SHUTDOWN_STOP_TIMED_OUT = 2,
+};
+
 void *pet_create(PetCallback callback, const char *metal_source);
-void pet_destroy(void *handle);
+uint32_t pet_destroy(void *handle);
 bool pet_apply(void *handle, PetConfig config);
 void pet_show(void *handle);
 void pet_hide(void *handle);
@@ -67,7 +73,7 @@ uint32_t pet_renderer_state(void *handle);
 uint32_t pet_abi_version(void);
 
 void *mac_capture_create(PetCallback callback);
-void mac_capture_destroy(void *handle);
+uint32_t mac_capture_destroy(void *handle);
 void mac_capture_configure(void *handle, PetCaptureRegion region,
                            bool real_mode, bool visible,
                            bool request_permission, uint32_t fps);

@@ -98,16 +98,17 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
 - (void)rendererBecameUnavailable;
 - (uint32_t)captureState;
 - (uint32_t)rendererState;
-- (void)shutdown;
+- (uint32_t)shutdown;
 @end
 
 @interface BPPetBridge : NSObject
 @property(nonatomic, assign) PetCallback callback;
 @property(nonatomic, strong) BPPetHost *host;
 @property(nonatomic, assign) BOOL destroyed;
+@property(nonatomic, assign) uint32_t shutdownState;
 - (instancetype)initWithCallback:(PetCallback)callback;
 - (void)ensureHost;
-- (void)shutdown;
+- (uint32_t)shutdown;
 @end
 
 @implementation BPPetPanel
@@ -983,16 +984,12 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
       .state;
 }
 
-- (void)shutdown {
-  PetShutdownCapture(
-      [&] {
-        // hide synchronously stops the stream and releases the retained frame.
-        [self hide];
-      },
-      [&] {
-        mac_capture_destroy(_captureHandle);
-        _captureHandle = nullptr;
-      });
+- (uint32_t)shutdown {
+  uint32_t shutdownState = PET_SHUTDOWN_COMPLETE;
+  if (_captureHandle != nullptr) {
+    shutdownState = mac_capture_destroy(_captureHandle);
+    _captureHandle = nullptr;
+  }
   _windowLifecycle.destroy();
   if (self.observingScreenChanges) {
     [NSNotificationCenter.defaultCenter removeObserver:self];
@@ -1016,6 +1013,7 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   self.petView = nil;
   self.panel = nil;
   _callback = nullptr;
+  return shutdownState;
 }
 
 @end
@@ -1036,14 +1034,16 @@ static_assert(offsetof(PetConfig, request_permission) == 29,
   }
 }
 
-- (void)shutdown {
+- (uint32_t)shutdown {
   if (self.destroyed) {
-    return;
+    return self.shutdownState;
   }
   self.destroyed = YES;
-  [self.host shutdown];
+  self.shutdownState =
+      self.host == nil ? PET_SHUTDOWN_COMPLETE : [self.host shutdown];
   self.host = nil;
   self.callback = nullptr;
+  return self.shutdownState;
 }
 
 @end
@@ -1097,14 +1097,16 @@ extern "C" void *pet_create(PetCallback callback,
   return handle;
 }
 
-extern "C" void pet_destroy(void *handle) {
+extern "C" uint32_t pet_destroy(void *handle) {
   if (handle == nullptr) {
-    return;
+    return PET_SHUTDOWN_COMPLETE;
   }
   BPPetBridge *bridge = (__bridge_transfer BPPetBridge *)handle;
+  __block uint32_t shutdownState = PET_SHUTDOWN_COMPLETE;
   RunOnMainForShutdownAndWait(^{
-    [bridge shutdown];
+    shutdownState = [bridge shutdown];
   });
+  return shutdownState;
 }
 
 extern "C" bool pet_apply(void *handle, PetConfig config) {
@@ -1112,7 +1114,9 @@ extern "C" bool pet_apply(void *handle, PetConfig config) {
     return false;
   }
   BPPetBridge *bridge = (__bridge BPPetBridge *)handle;
-  RunOnMainAndWait(^{
+  // Routine apply is deliberately asynchronous. Rust callers may hold the
+  // runtime-state mutex while submitting it.
+  RunOnMain(^{
     if (!bridge.destroyed) {
       [bridge ensureHost];
       [bridge.host applyConfig:config];

@@ -5,8 +5,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
+#include <mutex>
 
 struct PetPanelFrame {
   double x;
@@ -50,11 +53,70 @@ PetRendererDecisionForMetalAvailability(bool metal_available) {
              : PetRendererDecision{PET_RENDERER_UNAVAILABLE, false, true};
 }
 
-template <typename StopAndRelease, typename Destroy>
-inline void PetShutdownCapture(StopAndRelease stop_and_release,
-                               Destroy destroy) {
-  stop_and_release();
-  destroy();
+enum class PetShutdownState : uint32_t {
+  kComplete = PET_SHUTDOWN_COMPLETE,
+  kStopFailed = PET_SHUTDOWN_STOP_FAILED,
+  kStopTimedOut = PET_SHUTDOWN_STOP_TIMED_OUT,
+};
+
+class PetStopCompletion {
+ public:
+  void complete(bool success) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ != State::kPending) {
+      return;
+    }
+    state_ = success ? State::kComplete : State::kStopFailed;
+    condition_.notify_all();
+  }
+
+  PetShutdownState wait_for(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (!condition_.wait_for(lock, timeout,
+                             [this] { return state_ != State::kPending; })) {
+      state_ = State::kStopTimedOut;
+    }
+    return public_state();
+  }
+
+  PetShutdownState state() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return public_state();
+  }
+
+  bool done() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return state_ != State::kPending;
+  }
+
+ private:
+  enum class State {
+    kPending,
+    kComplete,
+    kStopFailed,
+    kStopTimedOut,
+  };
+
+  PetShutdownState public_state() const {
+    switch (state_) {
+      case State::kComplete:
+        return PetShutdownState::kComplete;
+      case State::kStopFailed:
+        return PetShutdownState::kStopFailed;
+      case State::kStopTimedOut:
+        return PetShutdownState::kStopTimedOut;
+      case State::kPending:
+        return PetShutdownState::kStopTimedOut;
+    }
+  }
+
+  mutable std::mutex mutex_;
+  std::condition_variable condition_;
+  State state_ = State::kPending;
+};
+
+inline constexpr std::chrono::milliseconds PetCaptureShutdownTimeout() {
+  return std::chrono::seconds(2);
 }
 
 class PetFrameRetention {

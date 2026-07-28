@@ -9,6 +9,9 @@
 #import <dispatch/dispatch.h>
 #import <os/lock.h>
 
+#include <memory>
+#include <vector>
+
 static const uint32_t kPetCallbackPermissionChanged = 7;
 static const uint32_t kPetCallbackCaptureFailed = 8;
 static_assert(PetSafeCapturePolicy().maximum_retained_frames == 1,
@@ -40,7 +43,7 @@ static const char *CaptureStateName(uint32_t state) {
       requestPermission:(BOOL)requestPermission
                     fps:(uint32_t)fps;
 - (void)stop;
-- (void)shutdown;
+- (uint32_t)shutdown;
 - (uint32_t)captureState;
 - (IOSurfaceRef)copyLatestSurface CF_RETURNS_RETAINED;
 @end
@@ -78,8 +81,9 @@ static const char *CaptureStateName(uint32_t state) {
 
 - (void)stop {}
 
-- (void)shutdown {
+- (uint32_t)shutdown {
   _callback = nullptr;
+  return PET_SHUTDOWN_COMPLETE;
 }
 
 - (uint32_t)captureState {
@@ -110,6 +114,8 @@ API_AVAILABLE(macos(12.3))
   uint32_t _captureState;
   PetPermissionLifecycle _permission;
   BOOL _shuttingDown;
+  dispatch_queue_t _shutdownQueue;
+  std::vector<std::shared_ptr<PetStopCompletion>> _pendingStops;
 }
 
 - (instancetype)initWithCallback:(PetCallback)callback {
@@ -118,6 +124,9 @@ API_AVAILABLE(macos(12.3))
     _callback = callback;
     _frameQueue =
         dispatch_queue_create("com.local.bambuspools.capture.frames",
+                              DISPATCH_QUEUE_SERIAL);
+    _shutdownQueue =
+        dispatch_queue_create("com.local.bambuspools.capture.shutdown",
                               DISPATCH_QUEUE_SERIAL);
     _surfaceLock = OS_UNFAIR_LOCK_INIT;
     _captureState = PET_CAPTURE_UNAVAILABLE;
@@ -353,9 +362,12 @@ API_AVAILABLE(macos(12.3))
 - (void)stream:(SCStream *)stream
     didStopWithError:(NSError *)error API_AVAILABLE(macos(12.3)) {
   (void)error;
+  __weak BPScreenCaptureService *weakSelf = self;
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!self->_shuttingDown && stream == self->_stream) {
-      [self failCapture];
+    BPScreenCaptureService *strongSelf = weakSelf;
+    if (strongSelf != nil && !strongSelf->_shuttingDown &&
+        stream == strongSelf->_stream) {
+      [strongSelf failCapture];
     }
   });
 }
@@ -367,14 +379,16 @@ API_AVAILABLE(macos(12.3))
     SCStream *stream = _stream;
     _stream = nil;
     if (stream != nil) {
+      auto completion = std::make_shared<PetStopCompletion>();
+      _pendingStops.push_back(completion);
       [stream stopCaptureWithCompletionHandler:^(NSError *error) {
-        (void)error;
         if (@available(macOS 12.3, *)) {
           NSError *removeError = nil;
           [stream removeStreamOutput:self
                                 type:SCStreamOutputTypeScreen
                                error:&removeError];
         }
+        completion->complete(error == nil);
       }];
     }
   }
@@ -396,13 +410,66 @@ API_AVAILABLE(macos(12.3))
   [self stopStreamAndReleaseFrame];
 }
 
-- (void)shutdown {
+- (uint32_t)shutdown {
   if (_shuttingDown) {
-    return;
+    return PET_SHUTDOWN_COMPLETE;
   }
   _shuttingDown = YES;
-  [self stopStreamAndReleaseFrame];
   _callback = nullptr;
+  ++_generation;
+
+  _frameRetention.stop();
+  os_unfair_lock_lock(&_surfaceLock);
+  _activeStreamIdentity = nullptr;
+  os_unfair_lock_unlock(&_surfaceLock);
+
+  if (@available(macOS 12.3, *)) {
+    SCStream *stream = _stream;
+    _stream = nil;
+    if (stream != nil) {
+      auto completion = std::make_shared<PetStopCompletion>();
+      _pendingStops.push_back(completion);
+      dispatch_async(_shutdownQueue, ^{
+        [stream stopCaptureWithCompletionHandler:^(NSError *error) {
+          if (@available(macOS 12.3, *)) {
+            NSError *removeError = nil;
+            [stream removeStreamOutput:self
+                                  type:SCStreamOutputTypeScreen
+                                 error:&removeError];
+          }
+          completion->complete(error == nil);
+        }];
+      });
+    }
+  }
+
+  const std::vector<std::shared_ptr<PetStopCompletion>> pending =
+      _pendingStops;
+  __block PetShutdownState result = PetShutdownState::kComplete;
+  // ScreenCaptureKit does not promise a completion queue. Start the final
+  // stop and perform the bounded wait on this service-owned queue; the
+  // completion touches only the stream/output and never calls AppKit.
+  dispatch_sync(_shutdownQueue, ^{
+    const auto deadline =
+        std::chrono::steady_clock::now() + PetCaptureShutdownTimeout();
+    for (const auto &completion : pending) {
+      const auto now = std::chrono::steady_clock::now();
+      const auto remaining =
+          now < deadline
+              ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                    deadline - now)
+              : std::chrono::milliseconds::zero();
+      const PetShutdownState state = completion->wait_for(remaining);
+      if (state == PetShutdownState::kStopTimedOut) {
+        result = state;
+      } else if (state == PetShutdownState::kStopFailed &&
+                 result == PetShutdownState::kComplete) {
+        result = state;
+      }
+    }
+  });
+  [self releaseLatestSurface];
+  return static_cast<uint32_t>(result);
 }
 
 - (uint32_t)captureState {
@@ -431,13 +498,13 @@ extern "C" void *mac_capture_create(PetCallback callback) {
   return (__bridge_retained void *)service;
 }
 
-extern "C" void mac_capture_destroy(void *handle) {
+extern "C" uint32_t mac_capture_destroy(void *handle) {
   if (handle == nullptr) {
-    return;
+    return PET_SHUTDOWN_COMPLETE;
   }
   id<BPCaptureControlling> service =
       (__bridge_transfer id<BPCaptureControlling>)handle;
-  [service shutdown];
+  return [service shutdown];
 }
 
 extern "C" void mac_capture_configure(

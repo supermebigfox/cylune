@@ -2,8 +2,11 @@
 #include "pet_visual_state.h"
 
 #include <assert.h>
+#include <chrono>
 #include <initializer_list>
 #include <math.h>
+#include <memory>
+#include <thread>
 #include <vector>
 
 static void event_horizon_circle_fits_inside_core_hit_target() {
@@ -101,22 +104,56 @@ static void stopped_capture_rejects_late_frame_delivery() {
   assert(!gate.accepting());
 }
 
-static void shutdown_stops_and_releases_capture_before_destroying_it() {
+static void shutdown_waits_for_delayed_stop_before_release_and_destroy() {
+  using namespace std::chrono_literals;
+
   std::vector<int> actions;
-  bool frame_retained = true;
+  PetFrameRetention frame_gate;
+  frame_gate.start();
+  frame_gate.stop();
+  auto completion = std::make_shared<PetStopCompletion>();
 
-  PetShutdownCapture(
-      [&] {
-        actions.push_back(1);
-        frame_retained = false;
-      },
-      [&] {
-        assert(!frame_retained);
-        actions.push_back(2);
-      });
+  std::thread delayed_completion([completion] {
+    std::this_thread::sleep_for(40ms);
+    completion->complete(true);
+  });
+  const auto started = std::chrono::steady_clock::now();
+  const PetShutdownState state = completion->wait_for(250ms);
+  actions.push_back(1);  // Release the retained IOSurface.
+  actions.push_back(2);  // Destroy the capture service.
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  delayed_completion.join();
 
+  assert(state == PetShutdownState::kComplete);
+  assert(elapsed >= 30ms);
+  assert(!frame_gate.accepting());
   assert((actions == std::vector<int>{1, 2}));
-  assert(!frame_retained);
+}
+
+static void shutdown_timeout_is_stable_and_keeps_the_frame_gate_closed() {
+  using namespace std::chrono_literals;
+
+  PetFrameRetention frame_gate;
+  frame_gate.start();
+  frame_gate.stop();
+  PetStopCompletion completion;
+
+  assert(completion.wait_for(5ms) == PetShutdownState::kStopTimedOut);
+  completion.complete(true);
+
+  assert(completion.state() == PetShutdownState::kStopTimedOut);
+  assert(!frame_gate.accepting());
+}
+
+static void shutdown_stop_error_is_stable() {
+  using namespace std::chrono_literals;
+
+  PetStopCompletion completion;
+  completion.complete(false);
+
+  assert(completion.wait_for(50ms) == PetShutdownState::kStopFailed);
+  completion.complete(true);
+  assert(completion.state() == PetShutdownState::kStopFailed);
 }
 
 static void permission_request_requires_one_explicit_real_mode_action() {
@@ -251,7 +288,9 @@ int main() {
   capture_policy_excludes_media_and_retains_only_the_newest_frame();
   metal_unavailable_disables_real_capture_and_requests_stop();
   stopped_capture_rejects_late_frame_delivery();
-  shutdown_stops_and_releases_capture_before_destroying_it();
+  shutdown_waits_for_delayed_stop_before_release_and_destroy();
+  shutdown_timeout_is_stable_and_keeps_the_frame_gate_closed();
+  shutdown_stop_error_is_stable();
   permission_request_requires_one_explicit_real_mode_action();
   hidden_explicit_real_selection_requests_once_without_streaming();
   permission_change_after_denial_requires_a_clean_restart();
