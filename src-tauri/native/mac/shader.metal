@@ -28,6 +28,17 @@ struct PetUniforms {
   uint reduce_motion;
 };
 
+struct PetPendingInstance {
+  float2 center;
+  float diameter;
+  float padding;
+};
+
+struct PetPendingVertexOutput {
+  float4 position [[position]];
+  float2 local;
+};
+
 vertex PetVertexOutput pet_vertex(uint vertex_id [[vertex_id]]) {
   const float2 positions[3] = {
       float2(-1.0, -1.0), float2(3.0, -1.0), float2(-1.0, 3.0)};
@@ -52,41 +63,6 @@ static float3 spectral_ring(float angle, float pulse) {
                      : mix(violet, rose, (phase - 0.5) * 2.0);
 }
 
-static float pending_dot(float2 p, uint index, uint count, float time_seconds,
-                         bool reduce_motion) {
-  uint ring_index = 0;
-  uint ring_start = 0;
-  uint capacity = 8;
-  while (index >= ring_start + capacity) {
-    ring_start += capacity;
-    ring_index += 1;
-    capacity = 8 + ring_index * 4;
-  }
-  const uint remaining = count - ring_start;
-  const uint dots_in_ring = min(remaining, capacity);
-  uint ring_count = 0;
-  uint left = count;
-  while (left > 0) {
-    left = left > (8 + ring_count * 4)
-               ? left - (8 + ring_count * 4)
-               : 0;
-    ring_count += 1;
-  }
-  const float radius =
-      ring_count <= 1 ? 0.78
-                      : 0.62 + 0.28 * float(ring_index) /
-                                   float(max(1u, ring_count - 1));
-  const float stagger = (ring_index & 1u) == 0u ? 0.0 : 0.5;
-  const float orbit = reduce_motion ? 0.0 : time_seconds * 0.55;
-  const float angle = -1.5707963 +
-                      6.2831853 *
-                          (float(index - ring_start) + stagger) /
-                          float(max(1u, dots_in_ring)) +
-                      orbit * ((ring_index & 1u) == 0u ? 1.0 : -1.0);
-  const float2 center = float2(cos(angle), sin(angle)) * radius;
-  return 1.0 - smoothstep(0.025, 0.042, distance(p, center));
-}
-
 fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
                              texture2d<float> capture [[texture(0)]],
                              sampler capture_sampler [[sampler(0)]],
@@ -103,6 +79,8 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
   }
 
   const float angle = atan2(p.y, p.x);
+  const float visual_time =
+      uniforms.reduce_motion != 0u ? 0.0 : uniforms.time_seconds;
   const float event_horizon = 0.355;
   const float photon_radius = 0.505;
   const float lens_outer = 0.94;
@@ -131,13 +109,13 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
       ring_mask(radius, photon_radius, 0.018) *
       (0.76 + uniforms.hover_progress * 0.42);
   const float disk_wave =
-      0.5 + 0.5 * sin(angle * 3.0 - uniforms.time_seconds * 1.4);
+      0.5 + 0.5 * sin(angle * 3.0 - visual_time * 1.4);
   const float disk_radius = photon_radius + 0.095 + 0.025 * disk_wave;
   const float accretion =
       ring_mask(radius, disk_radius, 0.032) *
       smoothstep(0.12, 0.92, abs(p.y) + 0.17);
   const float3 ring_color =
-      spectral_ring(angle, uniforms.time_seconds) *
+      spectral_ring(angle, visual_time) *
       (1.0 + uniforms.hover_progress * 0.35);
   color.rgb += ring_color * photon * 1.35;
   color.rgb += mix(float3(1.0, 0.25, 0.06), ring_color, disk_wave) *
@@ -161,31 +139,66 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
 
   if (uniforms.success_progress > 0.0) {
     const float pulse_radius =
-        0.54 + uniforms.success_progress * 0.34;
-    const float pulse = ring_mask(radius, pulse_radius, 0.022) *
-                        (1.0 - uniforms.success_progress);
+        uniforms.reduce_motion != 0u
+            ? 0.72
+            : 0.54 + uniforms.success_progress * 0.34;
+    const float pulse_opacity =
+        uniforms.reduce_motion != 0u
+            ? 1.0 - abs(uniforms.success_progress * 2.0 - 1.0)
+            : 1.0 - uniforms.success_progress;
+    const float pulse =
+        ring_mask(radius, pulse_radius, 0.022) * pulse_opacity;
     color.rgb += float3(0.16, 1.0, 0.43) * pulse * 1.4;
     color.a = max(color.a, pulse);
   }
   if (uniforms.error_progress > 0.0) {
     const float ripple_radius =
-        0.48 + uniforms.error_progress * 0.48;
-    const float ripple = ring_mask(radius, ripple_radius, 0.025) *
-                         (1.0 - uniforms.error_progress);
+        uniforms.reduce_motion != 0u
+            ? 0.76
+            : 0.48 + uniforms.error_progress * 0.48;
+    const float ripple_opacity =
+        uniforms.reduce_motion != 0u
+            ? 1.0 - abs(uniforms.error_progress * 2.0 - 1.0)
+            : 1.0 - uniforms.error_progress;
+    const float ripple =
+        ring_mask(radius, ripple_radius, 0.025) * ripple_opacity;
     color.rgb += float3(1.0, 0.07, 0.10) * ripple * 1.5;
     color.a = max(color.a, ripple);
-  }
-
-  for (uint index = 0; index < uniforms.pending_count; ++index) {
-    const float dot = pending_dot(
-        p, index, uniforms.pending_count, uniforms.time_seconds,
-        uniforms.reduce_motion != 0u);
-    color.rgb += float3(1.0, 0.56, 0.06) * dot * 1.2;
-    color.a = max(color.a, dot);
   }
 
   const float edge_fade = 1.0 - smoothstep(0.94, 0.985, radius);
   color.a *= edge_fade;
   color.rgb *= color.a;
   return color;
+}
+
+vertex PetPendingVertexOutput pet_pending_vertex(
+    uint vertex_id [[vertex_id]], uint instance_id [[instance_id]],
+    const device PetPendingInstance *instances [[buffer(1)]],
+    constant PetUniforms &uniforms [[buffer(2)]]) {
+  const float2 corners[6] = {
+      float2(-1.0, -1.0), float2(1.0, -1.0), float2(-1.0, 1.0),
+      float2(-1.0, 1.0),  float2(1.0, -1.0),  float2(1.0, 1.0),
+  };
+  const PetPendingInstance instance = instances[instance_id];
+  const float orbit =
+      uniforms.reduce_motion != 0u ? 0.0 : uniforms.time_seconds * 0.55;
+  const float cosine = cos(orbit);
+  const float sine = sin(orbit);
+  const float2 center =
+      float2(instance.center.x * cosine - instance.center.y * sine,
+             instance.center.x * sine + instance.center.y * cosine);
+  const float2 local = corners[vertex_id];
+  const float2 p = center + local * instance.diameter * 0.5;
+  PetPendingVertexOutput output;
+  output.position = float4(p.x, -p.y, 0.0, 1.0);
+  output.local = local;
+  return output;
+}
+
+fragment float4 pet_pending_fragment(
+    PetPendingVertexOutput input [[stage_in]]) {
+  const float alpha =
+      1.0 - smoothstep(0.68, 1.0, length(input.local));
+  return float4(float3(1.0, 0.56, 0.06) * alpha * 1.2, alpha);
 }

@@ -10,6 +10,49 @@
 #include <thread>
 #include <vector>
 
+struct FakeRendererBackend {
+  bool create_success = true;
+  std::vector<uint32_t> draw_results;
+  size_t draw_index = 0;
+  uint32_t create_calls = 0;
+  uint32_t draw_calls = 0;
+  uint32_t destroy_calls = 0;
+};
+
+static void *fake_renderer_create(void *context, const char *source,
+                                  void *layer) {
+  (void)source;
+  (void)layer;
+  auto *fake = static_cast<FakeRendererBackend *>(context);
+  ++fake->create_calls;
+  return fake->create_success ? fake : nullptr;
+}
+
+static uint32_t fake_renderer_draw(void *context, void *handle,
+                                   IOSurfaceRef surface,
+                                   PetRenderUniforms uniforms) {
+  (void)handle;
+  (void)surface;
+  (void)uniforms;
+  auto *fake = static_cast<FakeRendererBackend *>(context);
+  ++fake->draw_calls;
+  if (fake->draw_index >= fake->draw_results.size()) {
+    return PET_RENDER_DRAW_OK;
+  }
+  return fake->draw_results[fake->draw_index++];
+}
+
+static void fake_renderer_destroy(void *context, void *handle) {
+  (void)handle;
+  auto *fake = static_cast<FakeRendererBackend *>(context);
+  ++fake->destroy_calls;
+}
+
+static PetRendererBackend fake_renderer_backend(FakeRendererBackend *fake) {
+  return {fake, fake_renderer_create, fake_renderer_draw,
+          fake_renderer_destroy};
+}
+
 static void event_horizon_circle_fits_inside_core_hit_target() {
   for (const double effectDiameter : {120.0, 220.0, 360.0}) {
     const PetEventHorizonGeometry geometry =
@@ -315,6 +358,9 @@ static void animation_state_distinguishes_hover_and_each_signal() {
 }
 
 static void reduced_motion_uses_short_color_transitions_without_spring() {
+  assert(PetSignalTransitionDuration(true, 0.52) == 0.15);
+  assert(PetSignalTransitionDuration(false, 0.52) == 0.52);
+
   PetRenderAnimationState state;
   state.set_hover(true, 1.0);
   state.signal(1, 2.0);
@@ -350,6 +396,70 @@ static void completing_a_drop_clears_the_persistent_hover_state() {
   assert(state.sample(2.16, false).activity == PetRenderActivity::kIdle);
 }
 
+static void renderer_create_failure_reports_once_after_host_binding() {
+  FakeRendererBackend fake;
+  fake.create_success = false;
+  PetRendererDriver driver;
+
+  assert(!driver.initialize(fake_renderer_backend(&fake), "shader", nullptr));
+  assert(fake.create_calls == 1);
+  assert(driver.bind_host() == PetRendererStep::kBecameUnavailable);
+  assert(driver.bind_host() == PetRendererStep::kUnavailable);
+  assert(fake.destroy_calls == 0);
+}
+
+static void fatal_and_repeated_draw_failures_degrade_once_and_destroy() {
+  PetRenderUniforms uniforms = {};
+  FakeRendererBackend fatal;
+  fatal.draw_results = {PET_RENDER_DRAW_FATAL};
+  PetRendererDriver fatal_driver;
+  assert(fatal_driver.initialize(fake_renderer_backend(&fatal), "shader",
+                                 nullptr));
+  assert(fatal_driver.bind_host() == PetRendererStep::kRendered);
+  assert(fatal_driver.draw(nullptr, uniforms) ==
+         PetRendererStep::kBecameUnavailable);
+  assert(fatal.destroy_calls == 1);
+  assert(fatal_driver.draw(nullptr, uniforms) ==
+         PetRendererStep::kUnavailable);
+  assert(fatal.destroy_calls == 1);
+
+  FakeRendererBackend transient;
+  transient.draw_results = {
+      PET_RENDER_DRAW_TRANSIENT, PET_RENDER_DRAW_TRANSIENT,
+      PET_RENDER_DRAW_OK,        PET_RENDER_DRAW_TRANSIENT,
+      PET_RENDER_DRAW_TRANSIENT, PET_RENDER_DRAW_TRANSIENT,
+  };
+  PetRendererDriver transient_driver;
+  assert(transient_driver.initialize(fake_renderer_backend(&transient),
+                                     "shader", nullptr));
+  assert(transient_driver.bind_host() == PetRendererStep::kRendered);
+  assert(transient_driver.draw(nullptr, uniforms) ==
+         PetRendererStep::kRetry);
+  assert(transient_driver.draw(nullptr, uniforms) ==
+         PetRendererStep::kRetry);
+  assert(transient_driver.draw(nullptr, uniforms) ==
+         PetRendererStep::kRendered);
+  assert(transient_driver.draw(nullptr, uniforms) ==
+         PetRendererStep::kRetry);
+  assert(transient_driver.draw(nullptr, uniforms) ==
+         PetRendererStep::kRetry);
+  assert(transient_driver.draw(nullptr, uniforms) ==
+         PetRendererStep::kBecameUnavailable);
+  assert(transient.destroy_calls == 1);
+}
+
+static void frame_dispatch_gate_is_initialized_before_the_first_callback() {
+  PetFrameDispatchGate gate;
+  assert(!gate.try_enqueue());
+  gate.set_enabled(true);
+  assert(gate.try_enqueue());
+  assert(!gate.try_enqueue());
+  gate.complete();
+  assert(gate.try_enqueue());
+  gate.set_enabled(false);
+  assert(!gate.try_enqueue());
+}
+
 int main() {
   event_horizon_circle_fits_inside_core_hit_target();
   core_hit_target_corners_stay_inside_decorative_effect_circle();
@@ -374,4 +484,7 @@ int main() {
   reduced_motion_uses_short_color_transitions_without_spring();
   hover_exit_keeps_auto_fps_high_until_the_fade_finishes();
   completing_a_drop_clears_the_persistent_hover_state();
+  renderer_create_failure_reports_once_after_host_binding();
+  fatal_and_repeated_draw_failures_degrade_once_and_destroy();
+  frame_dispatch_gate_is_initialized_before_the_first_callback();
 }

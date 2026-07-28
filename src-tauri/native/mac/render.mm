@@ -1,4 +1,5 @@
 #import "bridge.h"
+#import "pet_visual_state.h"
 
 #import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
@@ -7,6 +8,7 @@
 
 #include <algorithm>
 #include <stddef.h>
+#include <vector>
 
 static_assert(sizeof(PetRenderUniforms) == 48,
               "PetRenderUniforms ABI size changed");
@@ -16,27 +18,42 @@ static_assert(offsetof(PetRenderUniforms, time_seconds) == 8,
               "PetRenderUniforms time offset changed");
 static_assert(offsetof(PetRenderUniforms, pending_count) == 32,
               "PetRenderUniforms pending offset changed");
+static_assert(sizeof(PetRenderStats) == 16,
+              "PetRenderStats ABI size changed");
+
+struct PetPendingInstance {
+  simd_float2 center;
+  float diameter;
+  float padding;
+};
+
+static_assert(sizeof(PetPendingInstance) == 16,
+              "PetPendingInstance layout changed");
 
 @interface BPPetMetalRenderer : NSObject
 - (instancetype)initWithSource:(NSString *)source
                          layer:(CAMetalLayer *)layer;
-- (BOOL)drawSurface:(IOSurfaceRef)surface
-           uniforms:(PetRenderUniforms)uniforms;
+- (uint32_t)drawSurface:(IOSurfaceRef)surface
+               uniforms:(PetRenderUniforms)uniforms;
 - (BOOL)drawBytes:(const uint8_t *)bytes
             width:(uint32_t)width
            height:(uint32_t)height
-             mode:(uint32_t)mode
+         uniforms:(PetRenderUniforms)uniforms
            output:(uint8_t *)output
-         capacity:(uint64_t)capacity;
+         capacity:(uint64_t)capacity
+            stats:(PetRenderStats *)stats;
 @end
 
 @implementation BPPetMetalRenderer {
   id<MTLDevice> _device;
   id<MTLCommandQueue> _commandQueue;
   id<MTLRenderPipelineState> _pipeline;
+  id<MTLRenderPipelineState> _pendingPipeline;
   id<MTLSamplerState> _sampler;
   id<MTLTexture> _transparentTexture;
   __weak CAMetalLayer *_layer;
+  id<MTLBuffer> _pendingInstances;
+  uint32_t _pendingInstanceCount;
 }
 
 - (instancetype)initWithSource:(NSString *)source
@@ -80,6 +97,35 @@ static_assert(offsetof(PetRenderUniforms, pending_count) == 32,
       NSLog(@"pet Metal pipeline failed: %@", pipelineError);
       return nil;
     }
+    id<MTLFunction> pendingVertex =
+        [library newFunctionWithName:@"pet_pending_vertex"];
+    id<MTLFunction> pendingFragment =
+        [library newFunctionWithName:@"pet_pending_fragment"];
+    if (pendingVertex == nil || pendingFragment == nil) {
+      return nil;
+    }
+    MTLRenderPipelineDescriptor *pendingDescriptor =
+        [[MTLRenderPipelineDescriptor alloc] init];
+    pendingDescriptor.vertexFunction = pendingVertex;
+    pendingDescriptor.fragmentFunction = pendingFragment;
+    pendingDescriptor.colorAttachments[0].pixelFormat =
+        MTLPixelFormatBGRA8Unorm;
+    pendingDescriptor.colorAttachments[0].blendingEnabled = YES;
+    pendingDescriptor.colorAttachments[0].sourceRGBBlendFactor =
+        MTLBlendFactorOne;
+    pendingDescriptor.colorAttachments[0].destinationRGBBlendFactor =
+        MTLBlendFactorOneMinusSourceAlpha;
+    pendingDescriptor.colorAttachments[0].sourceAlphaBlendFactor =
+        MTLBlendFactorOne;
+    pendingDescriptor.colorAttachments[0].destinationAlphaBlendFactor =
+        MTLBlendFactorOneMinusSourceAlpha;
+    _pendingPipeline =
+        [_device newRenderPipelineStateWithDescriptor:pendingDescriptor
+                                                error:&pipelineError];
+    if (_pendingPipeline == nil || pipelineError != nil) {
+      NSLog(@"pet pending pipeline failed: %@", pipelineError);
+      return nil;
+    }
     _commandQueue = [_device newCommandQueue];
     if (_commandQueue == nil) {
       return nil;
@@ -119,6 +165,65 @@ static_assert(offsetof(PetRenderUniforms, pending_count) == 32,
   return self;
 }
 
+- (BOOL)preparePendingInstances:(uint32_t)pendingCount {
+  if (_pendingInstanceCount == pendingCount) {
+    return pendingCount == 0 || _pendingInstances != nil;
+  }
+  _pendingInstanceCount = pendingCount;
+  _pendingInstances = nil;
+  if (pendingCount == 0) {
+    return YES;
+  }
+
+  std::vector<PetPendingInstance> instances;
+  instances.reserve(pendingCount);
+  const uint32_t ringCount = PetPendingRingCount(pendingCount);
+  uint64_t ringStart = 0;
+  uint32_t ringIndex = 0;
+  uint64_t capacity = PetPendingRingCapacity(0);
+  for (uint32_t index = 0; index < pendingCount; ++index) {
+    while ((uint64_t)index >= ringStart + capacity) {
+      ringStart += capacity;
+      ++ringIndex;
+      capacity = PetPendingRingCapacity(ringIndex);
+    }
+    const uint64_t remaining = (uint64_t)pendingCount - ringStart;
+    const uint32_t dotsInRing =
+        (uint32_t)std::min<uint64_t>(remaining, capacity);
+    const uint32_t indexInRing = (uint32_t)((uint64_t)index - ringStart);
+    const float radius =
+        ringCount <= 1
+            ? 0.78f
+            : 0.62f + 0.28f * (float)ringIndex /
+                          (float)std::max(1u, ringCount - 1);
+    const float stagger = ringIndex % 2 == 0 ? 0.0f : 0.5f;
+    const float angle =
+        -1.5707963268f +
+        6.2831853072f * ((float)indexInRing + stagger) /
+            (float)std::max(1u, dotsInRing);
+    const float arcDiameter =
+        6.2831853072f * radius / (float)std::max(1u, dotsInRing) *
+        0.55f;
+    const float ringDiameter =
+        ringCount <= 1
+            ? 0.064f
+            : 0.28f / (float)std::max(1u, ringCount - 1) * 0.62f;
+    const float diameter =
+        std::min(0.064f, std::min(arcDiameter, ringDiameter));
+    instances.push_back({
+        {cosf(angle) * radius, sinf(angle) * radius},
+        diameter,
+        0.0f,
+    });
+  }
+  _pendingInstances =
+      [_device newBufferWithBytes:instances.data()
+                          length:instances.size() *
+                                 sizeof(PetPendingInstance)
+                         options:MTLResourceStorageModeShared];
+  return _pendingInstances != nil;
+}
+
 - (id<MTLTexture>)textureForSurface:(IOSurfaceRef)surface {
   if (surface == nullptr) {
     return _transparentTexture;
@@ -143,9 +248,16 @@ static_assert(offsetof(PetRenderUniforms, pending_count) == 32,
 - (BOOL)encodeToTexture:(id<MTLTexture>)output
                 capture:(id<MTLTexture>)capture
                uniforms:(PetRenderUniforms)uniforms
-          commandBuffer:(id<MTLCommandBuffer>)commandBuffer {
+          commandBuffer:(id<MTLCommandBuffer>)commandBuffer
+                   stats:(PetRenderStats *)stats {
   if (output == nil || capture == nil || commandBuffer == nil) {
     return NO;
+  }
+  if (![self preparePendingInstances:uniforms.pending_count]) {
+    return NO;
+  }
+  if (stats != nullptr) {
+    *stats = {};
   }
   MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
   pass.colorAttachments[0].texture = output;
@@ -166,42 +278,63 @@ static_assert(offsetof(PetRenderUniforms, pending_count) == 32,
   [encoder drawPrimitives:MTLPrimitiveTypeTriangle
               vertexStart:0
               vertexCount:3];
+  if (stats != nullptr) {
+    stats->base_draw_calls = 1;
+  }
+  if (uniforms.pending_count > 0) {
+    [encoder setRenderPipelineState:_pendingPipeline];
+    [encoder setVertexBuffer:_pendingInstances offset:0 atIndex:1];
+    [encoder setVertexBytes:&uniforms
+                     length:sizeof(uniforms)
+                    atIndex:2];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                vertexStart:0
+                vertexCount:6
+              instanceCount:uniforms.pending_count];
+    if (stats != nullptr) {
+      stats->pending_draw_calls = 1;
+      stats->pending_instances = uniforms.pending_count;
+      stats->fragment_pending_iterations = 0;
+    }
+  }
   [encoder endEncoding];
   return YES;
 }
 
-- (BOOL)drawSurface:(IOSurfaceRef)surface
-           uniforms:(PetRenderUniforms)uniforms {
+- (uint32_t)drawSurface:(IOSurfaceRef)surface
+               uniforms:(PetRenderUniforms)uniforms {
   CAMetalLayer *layer = _layer;
   if (layer == nil) {
-    return NO;
+    return PET_RENDER_DRAW_FATAL;
   }
   id<CAMetalDrawable> drawable = [layer nextDrawable];
   if (drawable == nil) {
-    return NO;
+    return PET_RENDER_DRAW_TRANSIENT;
   }
   id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
   if (![self encodeToTexture:drawable.texture
                      capture:[self textureForSurface:surface]
                     uniforms:uniforms
-               commandBuffer:commandBuffer]) {
-    return NO;
+               commandBuffer:commandBuffer
+                        stats:nullptr]) {
+    return PET_RENDER_DRAW_FATAL;
   }
   [commandBuffer presentDrawable:drawable];
   [commandBuffer commit];
-  return YES;
+  return PET_RENDER_DRAW_OK;
 }
 
 - (BOOL)drawBytes:(const uint8_t *)bytes
             width:(uint32_t)width
            height:(uint32_t)height
-             mode:(uint32_t)mode
+         uniforms:(PetRenderUniforms)uniforms
            output:(uint8_t *)output
-         capacity:(uint64_t)capacity {
+         capacity:(uint64_t)capacity
+            stats:(PetRenderStats *)stats {
   const uint64_t required =
       (uint64_t)width * (uint64_t)height * (uint64_t)4;
   if (width == 0 || height == 0 || output == nullptr ||
-      capacity < required || (mode == 0 && bytes == nullptr)) {
+      capacity < required || (uniforms.mode == 0 && bytes == nullptr)) {
     return NO;
   }
   id<MTLTexture> capture = _transparentTexture;
@@ -230,16 +363,17 @@ static_assert(offsetof(PetRenderUniforms, pending_count) == 32,
   outputDescriptor.storageMode = MTLStorageModeShared;
   id<MTLTexture> outputTexture =
       [_device newTextureWithDescriptor:outputDescriptor];
-  PetRenderUniforms uniforms = {};
   uniforms.viewport_px[0] = (float)width;
   uniforms.viewport_px[1] = (float)height;
-  uniforms.lens_strength = 1.0f;
-  uniforms.mode = mode;
+  if (uniforms.lens_strength <= 0.0f) {
+    uniforms.lens_strength = 1.0f;
+  }
   id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
   if (![self encodeToTexture:outputTexture
                      capture:capture
                     uniforms:uniforms
-               commandBuffer:commandBuffer]) {
+               commandBuffer:commandBuffer
+                        stats:stats]) {
     return NO;
   }
   [commandBuffer commit];
@@ -275,18 +409,19 @@ extern "C" void mac_renderer_destroy(void *handle) {
   }
 }
 
-extern "C" bool mac_renderer_draw(void *handle, IOSurfaceRef surface,
-                                  PetRenderUniforms uniforms) {
+extern "C" uint32_t mac_renderer_draw(void *handle, IOSurfaceRef surface,
+                                      PetRenderUniforms uniforms) {
   if (handle == nullptr) {
-    return false;
+    return PET_RENDER_DRAW_FATAL;
   }
   return [(__bridge BPPetMetalRenderer *)handle drawSurface:surface
                                                    uniforms:uniforms];
 }
 
 extern "C" uint64_t pet_test_render_rgba(
-    const uint8_t *input, uint32_t width, uint32_t height, uint32_t mode,
-    uint8_t *output, uint64_t output_capacity, const char *metal_source) {
+    const uint8_t *input, uint32_t width, uint32_t height,
+    PetRenderUniforms uniforms, uint8_t *output, uint64_t output_capacity,
+    PetRenderStats *stats, const char *metal_source) {
   void *handle = mac_renderer_create(metal_source, nullptr);
   if (handle == nullptr) {
     return 0;
@@ -295,9 +430,10 @@ extern "C" uint64_t pet_test_render_rgba(
       [(__bridge BPPetMetalRenderer *)handle drawBytes:input
                                                 width:width
                                                height:height
-                                                 mode:mode
+                                             uniforms:uniforms
                                                output:output
-                                             capacity:output_capacity];
+                                             capacity:output_capacity
+                                                stats:stats];
   mac_renderer_destroy(handle);
   if (!rendered) {
     return 0;

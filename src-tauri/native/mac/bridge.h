@@ -55,6 +55,13 @@ typedef struct {
   uint32_t _padding;
 } PetRenderUniforms;
 
+typedef struct {
+  uint32_t base_draw_calls;
+  uint32_t pending_draw_calls;
+  uint32_t pending_instances;
+  uint32_t fragment_pending_iterations;
+} PetRenderStats;
+
 enum {
   PET_CAPTURE_UNAVAILABLE = 0,
   PET_CAPTURE_NOT_DETERMINED = 1,
@@ -67,6 +74,12 @@ enum {
 enum {
   PET_RENDERER_UNAVAILABLE = 0,
   PET_RENDERER_READY = 1,
+};
+
+enum {
+  PET_RENDER_DRAW_OK = 0,
+  PET_RENDER_DRAW_TRANSIENT = 1,
+  PET_RENDER_DRAW_FATAL = 2,
 };
 
 enum {
@@ -97,11 +110,12 @@ IOSurfaceRef mac_capture_copy_latest_surface(void *handle);
 
 void *mac_renderer_create(const char *metal_source, void *metal_layer);
 void mac_renderer_destroy(void *handle);
-bool mac_renderer_draw(void *handle, IOSurfaceRef surface,
-                       PetRenderUniforms uniforms);
+uint32_t mac_renderer_draw(void *handle, IOSurfaceRef surface,
+                           PetRenderUniforms uniforms);
 uint64_t pet_test_render_rgba(const uint8_t *input, uint32_t width,
-                              uint32_t height, uint32_t mode, uint8_t *output,
-                              uint64_t output_capacity,
+                              uint32_t height, PetRenderUniforms uniforms,
+                              uint8_t *output, uint64_t output_capacity,
+                              PetRenderStats *stats,
                               const char *metal_source);
 
 #ifdef __cplusplus

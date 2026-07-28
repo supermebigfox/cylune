@@ -159,6 +159,87 @@ pub enum TestRenderMode {
     Lite = MODE_LITE,
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TestRenderOptions {
+    pub mode: TestRenderMode,
+    pub time_seconds: f32,
+    pub hover_progress: f32,
+    pub swallow_progress: f32,
+    pub success_progress: f32,
+    pub error_progress: f32,
+    pub pending_count: u32,
+    pub reduce_motion: bool,
+}
+
+#[cfg(test)]
+impl Default for TestRenderOptions {
+    fn default() -> Self {
+        Self {
+            mode: TestRenderMode::Lite,
+            time_seconds: 0.0,
+            hover_progress: 0.0,
+            swallow_progress: 0.0,
+            success_progress: 0.0,
+            error_progress: 0.0,
+            pending_count: 0,
+            reduce_motion: false,
+        }
+    }
+}
+
+#[cfg(test)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct TestNativeRenderUniforms {
+    viewport_px: [f32; 2],
+    time_seconds: f32,
+    lens_strength: f32,
+    hover_progress: f32,
+    swallow_progress: f32,
+    success_progress: f32,
+    error_progress: f32,
+    pending_count: u32,
+    mode: u32,
+    reduce_motion: u32,
+    padding: u32,
+}
+
+#[cfg(test)]
+impl From<TestRenderOptions> for TestNativeRenderUniforms {
+    fn from(options: TestRenderOptions) -> Self {
+        Self {
+            time_seconds: options.time_seconds,
+            lens_strength: 1.0,
+            hover_progress: options.hover_progress,
+            swallow_progress: options.swallow_progress,
+            success_progress: options.success_progress,
+            error_progress: options.error_progress,
+            pending_count: options.pending_count,
+            mode: options.mode as u32,
+            reduce_motion: u32::from(options.reduce_motion),
+            ..Self::default()
+        }
+    }
+}
+
+#[cfg(test)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TestRenderStats {
+    pub base_draw_calls: u32,
+    pub pending_draw_calls: u32,
+    pub pending_instances: u32,
+    pub fragment_pending_iterations: u32,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestRenderResult {
+    pub pixels: Vec<u8>,
+    pub stats: TestRenderStats,
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PetNativeConfig {
@@ -245,9 +326,10 @@ mod platform {
             input: *const u8,
             width: u32,
             height: u32,
-            mode: u32,
+            uniforms: super::TestNativeRenderUniforms,
             output: *mut u8,
             output_capacity: u64,
+            stats: *mut super::TestRenderStats,
             metal_source: *const c_char,
         ) -> u64;
     }
@@ -333,20 +415,21 @@ mod platform {
     }
 
     #[cfg(test)]
-    pub fn test_render_rgba(
+    pub fn test_render_with_options(
         input: &[u8],
         width: u32,
         height: u32,
-        mode: super::TestRenderMode,
-    ) -> Option<Vec<u8>> {
+        options: super::TestRenderOptions,
+    ) -> Option<super::TestRenderResult> {
         let length = usize::try_from(width)
             .ok()?
             .checked_mul(usize::try_from(height).ok()?)?
             .checked_mul(4)?;
-        if mode == super::TestRenderMode::Real && input.len() != length {
+        if options.mode == super::TestRenderMode::Real && input.len() != length {
             return None;
         }
         let mut output = vec![0_u8; length];
+        let mut stats = super::TestRenderStats::default();
         let source = CString::new(include_str!("../../native/mac/shader.metal"))
             .expect("embedded Metal source contains no NUL bytes");
         let input_pointer = if input.is_empty() {
@@ -359,13 +442,17 @@ mod platform {
                 input_pointer,
                 width,
                 height,
-                mode as u32,
+                options.into(),
                 output.as_mut_ptr(),
                 u64::try_from(output.len()).ok()?,
+                &mut stats,
                 source.as_ptr(),
             )
         };
-        (checksum != 0).then_some(output)
+        (checksum != 0).then_some(super::TestRenderResult {
+            pixels: output,
+            stats,
+        })
     }
 }
 
@@ -421,7 +508,26 @@ pub fn test_render_rgba(
     height: u32,
     mode: TestRenderMode,
 ) -> Result<Vec<u8>, NativePetError> {
-    platform::test_render_rgba(input, width, height, mode).ok_or(NativePetError)
+    test_render_with_options(
+        input,
+        width,
+        height,
+        TestRenderOptions {
+            mode,
+            ..TestRenderOptions::default()
+        },
+    )
+    .map(|rendered| rendered.pixels)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+pub fn test_render_with_options(
+    input: &[u8],
+    width: u32,
+    height: u32,
+    options: TestRenderOptions,
+) -> Result<TestRenderResult, NativePetError> {
+    platform::test_render_with_options(input, width, height, options).ok_or(NativePetError)
 }
 
 pub struct NativePet {
@@ -470,7 +576,7 @@ impl NativePet {
 
 #[cfg(test)]
 mod tests {
-    use super::{NativePet, PetActivity, PetNativeConfig, TestRenderMode};
+    use super::{NativePet, PetActivity, PetNativeConfig, TestRenderMode, TestRenderOptions};
     use crate::pet::PetFps;
     use std::{
         ffi::c_char,
@@ -501,35 +607,50 @@ mod tests {
             .collect()
     }
 
-    fn checksum_region(
+    fn checksum_annulus(
         pixels: &[u8],
         width: usize,
-        x: usize,
-        y: usize,
-        region_width: usize,
-        region_height: usize,
+        height: usize,
+        inner_radius: f64,
+        outer_radius: f64,
     ) -> u64 {
-        (y..y + region_height)
-            .flat_map(|row| {
-                (x..x + region_width).flat_map(move |column| {
-                    let offset = (row * width + column) * 4;
-                    pixels[offset..offset + 4].iter().copied()
-                })
-            })
-            .fold(0_u64, |sum, byte| {
-                sum.wrapping_mul(16_777_619) ^ u64::from(byte)
-            })
+        let mut checksum = 0_u64;
+        for y in 0..height {
+            for x in 0..width {
+                let normalized_x = ((x as f64 + 0.5) / width as f64) * 2.0 - 1.0;
+                let normalized_y = ((y as f64 + 0.5) / height as f64) * 2.0 - 1.0;
+                let radius = (normalized_x * normalized_x + normalized_y * normalized_y).sqrt();
+                if radius < inner_radius || radius > outer_radius {
+                    continue;
+                }
+                let offset = (y * width + x) * 4;
+                for byte in &pixels[offset..offset + 4] {
+                    checksum = checksum.wrapping_mul(16_777_619) ^ u64::from(*byte);
+                }
+            }
+        }
+        checksum
     }
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn synthetic_checkerboard_is_distorted_inside_the_lens() {
+    fn synthetic_capture_drives_distortion_in_the_annulus_outside_the_horizon() {
         let input = checkerboard_rgba(128, 128);
+        let inverted = input
+            .chunks_exact(4)
+            .flat_map(|pixel| [255 - pixel[0], 255 - pixel[1], 255 - pixel[2], 255])
+            .collect::<Vec<_>>();
         let output = super::test_render_rgba(&input, 128, 128, TestRenderMode::Real).unwrap();
+        let inverted_output =
+            super::test_render_rgba(&inverted, 128, 128, TestRenderMode::Real).unwrap();
 
         assert_ne!(
-            checksum_region(&output, 128, 48, 48, 32, 32),
-            checksum_region(&input, 128, 48, 48, 32, 32)
+            checksum_annulus(&output, 128, 128, 0.42, 0.84),
+            checksum_annulus(&input, 128, 128, 0.42, 0.84)
+        );
+        assert_ne!(
+            checksum_annulus(&output, 128, 128, 0.42, 0.84),
+            checksum_annulus(&inverted_output, 128, 128, 0.42, 0.84)
         );
     }
 
@@ -542,6 +663,8 @@ mod tests {
         assert_eq!(&output[0..4], &[0, 0, 0, 0]);
         let last = output.len() - 4;
         assert_eq!(&output[last..], &[0, 0, 0, 0]);
+        let outside_lens = (64 * 4)..(65 * 4);
+        assert_eq!(&output[outside_lens], &[0, 0, 0, 0]);
     }
 
     #[cfg(target_os = "macos")]
@@ -551,6 +674,90 @@ mod tests {
 
         assert!(output.chunks_exact(4).any(|pixel| pixel[3] > 0));
         assert_eq!(&output[0..4], &[0, 0, 0, 0]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pending_points_use_one_instanced_pass_without_fragment_count_loops() {
+        let source = include_str!("../../native/mac/shader.metal");
+        let base_fragment = source
+            .split_once("fragment float4 pet_fragment")
+            .and_then(|(_, after_start)| after_start.split_once("vertex PetPendingVertexOutput"))
+            .map(|(fragment, _)| fragment)
+            .expect("base and pending shader stages remain present");
+        assert!(!base_fragment.contains("pending_count"));
+
+        for pending_count in [37, 4_096] {
+            let rendered = super::test_render_with_options(
+                &[],
+                128,
+                128,
+                TestRenderOptions {
+                    mode: TestRenderMode::Lite,
+                    pending_count,
+                    ..TestRenderOptions::default()
+                },
+            )
+            .unwrap();
+
+            assert_eq!(rendered.stats.base_draw_calls, 1);
+            assert_eq!(rendered.stats.pending_draw_calls, 1);
+            assert_eq!(rendered.stats.pending_instances, pending_count);
+            assert_eq!(rendered.stats.fragment_pending_iterations, 0);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reduced_motion_freezes_continuous_phase_and_pending_orbits() {
+        let render_at = |time_seconds| {
+            super::test_render_with_options(
+                &[],
+                128,
+                128,
+                TestRenderOptions {
+                    mode: TestRenderMode::Lite,
+                    time_seconds,
+                    pending_count: 37,
+                    reduce_motion: true,
+                    ..TestRenderOptions::default()
+                },
+            )
+            .unwrap()
+            .pixels
+        };
+
+        assert_eq!(render_at(0.0), render_at(73.0));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reduced_motion_success_and_error_keep_fixed_geometry() {
+        for signal in ["success", "error"] {
+            let render_at = |progress| {
+                let (success_progress, error_progress) = match signal {
+                    "success" => (progress, 0.0),
+                    "error" => (0.0, progress),
+                    _ => unreachable!(),
+                };
+                super::test_render_with_options(
+                    &[],
+                    128,
+                    128,
+                    TestRenderOptions {
+                        mode: TestRenderMode::Lite,
+                        success_progress,
+                        error_progress,
+                        reduce_motion: true,
+                        ..TestRenderOptions::default()
+                    },
+                )
+                .unwrap()
+                .pixels
+            };
+
+            assert_eq!(render_at(0.25), render_at(0.75), "{signal}");
+        }
     }
 
     #[test]

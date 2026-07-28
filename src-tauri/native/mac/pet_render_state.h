@@ -1,7 +1,10 @@
 #ifndef BAMBU_POOLS_PET_RENDER_STATE_H
 #define BAMBU_POOLS_PET_RENDER_STATE_H
 
+#include "bridge.h"
+
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -13,6 +16,143 @@ enum class PetRenderActivity {
   kHidden,
 };
 
+enum class PetRendererStep {
+  kRendered,
+  kRetry,
+  kBecameUnavailable,
+  kUnavailable,
+};
+
+struct PetRendererBackend {
+  void *context;
+  void *(*create)(void *context, const char *source, void *layer);
+  uint32_t (*draw)(void *context, void *handle, IOSurfaceRef surface,
+                   PetRenderUniforms uniforms);
+  void (*destroy)(void *context, void *handle);
+};
+
+class PetRendererDriver {
+ public:
+  PetRendererDriver() = default;
+  PetRendererDriver(const PetRendererDriver &) = delete;
+  PetRendererDriver &operator=(const PetRendererDriver &) = delete;
+
+  ~PetRendererDriver() { shutdown(); }
+
+  bool initialize(PetRendererBackend backend, const char *source,
+                  void *layer) {
+    shutdown();
+    backend_ = backend;
+    has_backend_ = backend.create != nullptr && backend.draw != nullptr &&
+                   backend.destroy != nullptr;
+    handle_ =
+        has_backend_ ? backend_.create(backend_.context, source, layer)
+                     : nullptr;
+    available_ = handle_ != nullptr;
+    report_pending_ = !available_;
+    reported_ = false;
+    consecutive_failures_ = 0;
+    return available_;
+  }
+
+  PetRendererStep bind_host() {
+    host_bound_ = true;
+    if (available_) {
+      return PetRendererStep::kRendered;
+    }
+    return report_unavailable_once();
+  }
+
+  PetRendererStep draw(IOSurfaceRef surface, PetRenderUniforms uniforms) {
+    if (!available_ || handle_ == nullptr) {
+      return report_unavailable_once();
+    }
+    const uint32_t result =
+        backend_.draw(backend_.context, handle_, surface, uniforms);
+    if (result == PET_RENDER_DRAW_OK) {
+      consecutive_failures_ = 0;
+      return PetRendererStep::kRendered;
+    }
+    if (result == PET_RENDER_DRAW_TRANSIENT) {
+      ++consecutive_failures_;
+      if (consecutive_failures_ < kTransientFailureLimit) {
+        return PetRendererStep::kRetry;
+      }
+    }
+    return degrade();
+  }
+
+  bool available() const { return available_; }
+
+  void shutdown() {
+    if (handle_ != nullptr && has_backend_) {
+      backend_.destroy(backend_.context, handle_);
+    }
+    handle_ = nullptr;
+    available_ = false;
+    report_pending_ = false;
+    consecutive_failures_ = 0;
+  }
+
+ private:
+  static constexpr uint32_t kTransientFailureLimit = 3;
+
+  PetRendererStep degrade() {
+    if (handle_ != nullptr && has_backend_) {
+      backend_.destroy(backend_.context, handle_);
+    }
+    handle_ = nullptr;
+    available_ = false;
+    report_pending_ = true;
+    return report_unavailable_once();
+  }
+
+  PetRendererStep report_unavailable_once() {
+    if (host_bound_ && report_pending_ && !reported_) {
+      reported_ = true;
+      report_pending_ = false;
+      return PetRendererStep::kBecameUnavailable;
+    }
+    return PetRendererStep::kUnavailable;
+  }
+
+  PetRendererBackend backend_ = {};
+  void *handle_ = nullptr;
+  bool has_backend_ = false;
+  bool available_ = false;
+  bool host_bound_ = false;
+  bool report_pending_ = false;
+  bool reported_ = false;
+  uint32_t consecutive_failures_ = 0;
+};
+
+class PetFrameDispatchGate {
+ public:
+  void set_enabled(bool enabled) {
+    enabled_.store(enabled, std::memory_order_release);
+    if (!enabled) {
+      enqueued_.store(false, std::memory_order_release);
+    }
+  }
+
+  bool try_enqueue() {
+    return enabled_.load(std::memory_order_acquire) &&
+           !enqueued_.exchange(true, std::memory_order_acq_rel);
+  }
+
+  void complete() {
+    enqueued_.store(false, std::memory_order_release);
+  }
+
+  bool enabled() const {
+    return enabled_.load(std::memory_order_acquire);
+  }
+
+ private:
+  std::atomic<bool> enqueued_{false};
+  std::atomic<bool> enabled_{false};
+};
+
 inline constexpr uint32_t PetTargetFps(uint32_t configured_fps,
                                       PetRenderActivity activity) {
   if (activity == PetRenderActivity::kHidden) {
@@ -22,6 +162,11 @@ inline constexpr uint32_t PetTargetFps(uint32_t configured_fps,
     return configured_fps;
   }
   return activity == PetRenderActivity::kIdle ? 30 : 60;
+}
+
+inline constexpr double PetSignalTransitionDuration(
+    bool reduce_motion, double standard_duration) {
+  return reduce_motion ? 0.15 : standard_duration;
 }
 
 struct PetAnimationSnapshot {
@@ -64,15 +209,16 @@ class PetRenderAnimationState {
 
   PetAnimationSnapshot sample(double now_seconds, bool reduce_motion) const {
     const float hover = reduce_motion ? 0.0f : hover_progress(now_seconds);
-    const double transition_duration = reduce_motion ? 0.15 : 0.52;
+    const double transition_duration =
+        PetSignalTransitionDuration(reduce_motion, 0.52);
     const float swallow =
         progress(swallow_started_at_, now_seconds, transition_duration);
     const float success =
         progress(success_started_at_, now_seconds,
-                 reduce_motion ? 0.15 : 0.48);
+                 PetSignalTransitionDuration(reduce_motion, 0.48));
     const float error =
         progress(error_started_at_, now_seconds,
-                 reduce_motion ? 0.15 : 0.42);
+                 PetSignalTransitionDuration(reduce_motion, 0.42));
     const bool signal_active =
         swallow > 0.0f || success > 0.0f || error > 0.0f;
     return {

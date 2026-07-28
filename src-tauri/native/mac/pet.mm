@@ -161,7 +161,31 @@ static CVReturn PetDisplayLinkCallback(CVDisplayLinkRef displayLink,
   return kCVReturnSuccess;
 }
 
+static void *ProductionRendererCreate(void *context, const char *source,
+                                      void *layer) {
+  (void)context;
+  return mac_renderer_create(source, layer);
+}
+
+static uint32_t ProductionRendererDraw(void *context, void *handle,
+                                       IOSurfaceRef surface,
+                                       PetRenderUniforms uniforms) {
+  (void)context;
+  return mac_renderer_draw(handle, surface, uniforms);
+}
+
+static void ProductionRendererDestroy(void *context, void *handle) {
+  (void)context;
+  mac_renderer_destroy(handle);
+}
+
+static PetRendererBackend ProductionRendererBackend() {
+  return {nullptr, ProductionRendererCreate, ProductionRendererDraw,
+          ProductionRendererDestroy};
+}
+
 @implementation BPPetView {
+  __weak BPPetHost *_petHost;
   CALayer *_diskLayer;
   CAGradientLayer *_ringLayer;
   CAShapeLayer *_ringMask;
@@ -173,10 +197,9 @@ static CVReturn PetDisplayLinkCallback(CVDisplayLinkRef displayLink,
   BOOL _animating;
   BOOL _metalAvailable;
   NSString *_metalSource;
-  void *_rendererHandle;
+  PetRendererDriver _rendererDriver;
   CVDisplayLinkRef _displayLink;
-  std::atomic<bool> _frameEnqueued;
-  std::atomic<bool> _renderingEnabled;
+  PetFrameDispatchGate _frameGate;
   CFTimeInterval _renderEpoch;
   CFTimeInterval _lastRenderedAt;
   uint32_t _mode;
@@ -243,32 +266,38 @@ static CVReturn PetDisplayLinkCallback(CVDisplayLinkRef displayLink,
     CVDisplayLinkRelease(_displayLink);
     _displayLink = nullptr;
   }
-  if (_rendererHandle != nullptr) {
-    mac_renderer_destroy(_rendererHandle);
-    _rendererHandle = nullptr;
-  }
+  _rendererDriver.shutdown();
 }
 
 - (CALayer *)makeBackingLayer {
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-  _metalAvailable = device != nil;
-  if (_metalAvailable) {
+  if (device != nil) {
     CAMetalLayer *metalLayer = [CAMetalLayer layer];
     metalLayer.device = device;
     metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     metalLayer.framebufferOnly = YES;
     metalLayer.opaque = NO;
-    _rendererHandle =
-        mac_renderer_create(_metalSource.UTF8String,
-                            (__bridge void *)metalLayer);
-    _metalAvailable = _rendererHandle != nullptr;
-    if (!_metalAvailable) {
-      [self.petHost rendererBecameUnavailable];
-    }
+    _metalAvailable = _rendererDriver.initialize(
+        ProductionRendererBackend(), _metalSource.UTF8String,
+        (__bridge void *)metalLayer);
     return metalLayer;
   }
-  [self.petHost rendererBecameUnavailable];
+  _metalAvailable = _rendererDriver.initialize(
+      ProductionRendererBackend(), _metalSource.UTF8String, nullptr);
   return [CALayer layer];
+}
+
+- (void)setPetHost:(BPPetHost *)petHost {
+  _petHost = petHost;
+  if (petHost != nil &&
+      _rendererDriver.bind_host() ==
+          PetRendererStep::kBecameUnavailable) {
+    [petHost rendererBecameUnavailable];
+  }
+}
+
+- (BPPetHost *)petHost {
+  return _petHost;
 }
 
 - (BOOL)metalAvailable {
@@ -385,8 +414,7 @@ static CVReturn PetDisplayLinkCallback(CVDisplayLinkRef displayLink,
 
 - (void)displayLinkTick:(const CVTimeStamp *)outputTime {
   (void)outputTime;
-  if (!_renderingEnabled.load(std::memory_order_acquire) ||
-      _frameEnqueued.exchange(true, std::memory_order_acq_rel)) {
+  if (!_frameGate.try_enqueue()) {
     return;
   }
   __weak BPPetView *weakSelf = self;
@@ -395,15 +423,15 @@ static CVReturn PetDisplayLinkCallback(CVDisplayLinkRef displayLink,
     if (strongSelf == nil) {
       return;
     }
-    strongSelf->_frameEnqueued.store(false, std::memory_order_release);
-    if (strongSelf->_renderingEnabled.load(std::memory_order_acquire)) {
+    strongSelf->_frameGate.complete();
+    if (strongSelf->_frameGate.enabled()) {
       [strongSelf renderFrame];
     }
   });
 }
 
 - (void)renderFrame {
-  if (!_metalAvailable || _rendererHandle == nullptr || !_animating) {
+  if (!_metalAvailable || !_rendererDriver.available() || !_animating) {
     return;
   }
   const CFTimeInterval now = CACurrentMediaTime();
@@ -442,9 +470,19 @@ static CVReturn PetDisplayLinkCallback(CVDisplayLinkRef displayLink,
 
   IOSurfaceRef surface =
       self.petHost == nil ? nullptr : [self.petHost copyLatestSurface];
-  (void)mac_renderer_draw(_rendererHandle, surface, uniforms);
+  const PetRendererStep renderStep =
+      _rendererDriver.draw(surface, uniforms);
   if (surface != nullptr) {
     CFRelease(surface);
+  }
+  if (renderStep == PetRendererStep::kBecameUnavailable) {
+    _metalAvailable = NO;
+    _frameGate.set_enabled(false);
+    if (_displayLink != nullptr) {
+      CVDisplayLinkStop(_displayLink);
+    }
+    [self setNeedsLayout:YES];
+    [self.petHost rendererBecameUnavailable];
   }
 }
 
@@ -514,15 +552,15 @@ static CVReturn PetDisplayLinkCallback(CVDisplayLinkRef displayLink,
     [_pendingDotsLayer removeAllAnimations];
     [_signalLayer removeAllAnimations];
   }
-  _renderingEnabled.store(animating, std::memory_order_release);
+  _frameGate.set_enabled(animating && _metalAvailable);
   if (_displayLink != nullptr) {
-    if (animating) {
+    if (animating && _metalAvailable) {
       _lastRenderedAt = 0.0;
       CVDisplayLinkStart(_displayLink);
       [self renderFrame];
     } else {
       CVDisplayLinkStop(_displayLink);
-      _frameEnqueued.store(false, std::memory_order_release);
+      _frameGate.complete();
     }
   }
 }
@@ -633,7 +671,8 @@ static CVReturn PetDisplayLinkCallback(CVDisplayLinkRef displayLink,
       [CABasicAnimation animationWithKeyPath:@"opacity"];
   fade.fromValue = @1.0;
   fade.toValue = @0.0;
-  fade.duration = _reduceMotion ? 0.28 : 0.42;
+  fade.duration =
+      PetSignalTransitionDuration(_reduceMotion, 0.42);
   [_signalLayer addAnimation:fade forKey:@"pet.signal.fade"];
   if (_reduceMotion) {
     return;
