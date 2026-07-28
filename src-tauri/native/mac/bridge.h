@@ -34,6 +34,8 @@ typedef struct {
   uint32_t pending_count;
   uint8_t reduce_motion;
   uint8_t request_permission;
+  uint8_t visual_style;
+  uint8_t _reserved;
 } PetConfig;
 
 typedef struct {
@@ -80,7 +82,8 @@ typedef struct {
   uint32_t reduce_motion;
   uint32_t drop_phase;
   uint32_t file_kind;
-  uint32_t _padding[3];
+  uint32_t visual_style;
+  uint32_t _padding[2];
 } PetRenderUniforms;
 
 typedef struct {

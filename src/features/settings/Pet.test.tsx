@@ -7,6 +7,7 @@ import { Pet } from "./Pet";
 
 const defaultPet: PetSettings = {
   mode: "lite",
+  visual_style: "gargantua",
   size: 220,
   fps: "auto",
   visible: true,
@@ -52,12 +53,20 @@ it("saves mode size fps and visibility immediately", async () => {
   });
 });
 
-it("uses the exact 120 to 360 size range", async () => {
+it("offers the exact scalable size presets and both visual styles", async () => {
   const api = petApi({ mode: "lite", size: 220, fps: "auto", visible: true });
   renderPet(api);
   const slider = await screen.findByLabelText("Black hole size");
+  expect(screen.getByRole("button", { name: "300 px" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "600 px" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "900 px" })).toBeVisible();
   expect(slider).toHaveAttribute("min", "120");
-  expect(slider).toHaveAttribute("max", "360");
+  expect(slider).toHaveAttribute("max", "900");
+  expect(screen.getByRole("button", { name: "Gargantua" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Fusion" }));
+  await waitFor(() => {
+    expect(api.setPetSettings).toHaveBeenLastCalledWith({ visual_style: "fusion" });
+  });
 });
 
 it("serializes rapid changes before starting the next server write", async () => {

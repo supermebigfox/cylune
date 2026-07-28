@@ -1,4 +1,4 @@
-use super::{PetFps, PetMode, PetSettings};
+use super::{PetFps, PetMode, PetSettings, PetVisualStyle};
 use std::{error::Error, ffi::c_char, fmt};
 
 #[cfg(target_os = "macos")]
@@ -160,9 +160,18 @@ pub enum TestRenderMode {
 }
 
 #[cfg(test)]
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestVisualStyle {
+    Gargantua = 0,
+    Fusion = 1,
+}
+
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TestRenderOptions {
     pub mode: TestRenderMode,
+    pub visual_style: TestVisualStyle,
     pub time_seconds: f32,
     pub hover_progress: f32,
     pub swallow_progress: f32,
@@ -179,6 +188,7 @@ impl Default for TestRenderOptions {
     fn default() -> Self {
         Self {
             mode: TestRenderMode::Lite,
+            visual_style: TestVisualStyle::Gargantua,
             time_seconds: 0.0,
             hover_progress: 0.0,
             swallow_progress: 0.0,
@@ -227,32 +237,18 @@ struct TestNativeRenderUniforms {
     reduce_motion: u32,
     drop_phase: u32,
     file_kind: u32,
-    padding: [u32; 3],
+    visual_style: u32,
+    padding: [u32; 2],
 }
 
 #[cfg(test)]
 impl From<TestRenderOptions> for TestNativeRenderUniforms {
     fn from(options: TestRenderOptions) -> Self {
-        Self {
+        let mut uniforms = Self {
             capture_origin_uv: options.capture_origin_uv,
             capture_extent_uv: options.capture_extent_uv,
             time_seconds: options.time_seconds,
             hole_radius_uv: 0.075,
-            temperature: 4500.0,
-            inclination: 1.52,
-            roll: 0.10,
-            disk_inner: 2.2,
-            disk_outer: 7.0,
-            disk_opacity: 0.85,
-            doppler: 0.35,
-            beaming: 2.0,
-            gain: 1.4,
-            contrast: 0.5,
-            wind: 7.0,
-            speed: 5.0,
-            exposure: 1.20,
-            stars: 0.0,
-            spin: 0.0,
             spin_phase: 0.0,
             drop_origin_uv: [0.5, 0.5],
             drop_progress: options.hover_progress,
@@ -262,8 +258,46 @@ impl From<TestRenderOptions> for TestNativeRenderUniforms {
             pending_count: options.pending_count,
             mode: options.mode as u32,
             reduce_motion: u32::from(options.reduce_motion),
+            visual_style: options.visual_style as u32,
             ..Self::default()
+        };
+        match options.visual_style {
+            TestVisualStyle::Gargantua => {
+                uniforms.temperature = 4500.0;
+                uniforms.inclination = 1.52;
+                uniforms.roll = 0.10;
+                uniforms.disk_inner = 2.2;
+                uniforms.disk_outer = 7.0;
+                uniforms.disk_opacity = 0.85;
+                uniforms.doppler = 0.35;
+                uniforms.beaming = 2.0;
+                uniforms.gain = 1.4;
+                uniforms.contrast = 0.5;
+                uniforms.wind = 7.0;
+                uniforms.speed = 5.0;
+                uniforms.exposure = 1.20;
+                uniforms.stars = 0.0;
+                uniforms.spin = 0.0;
+            }
+            TestVisualStyle::Fusion => {
+                uniforms.temperature = 5200.0;
+                uniforms.inclination = 1.535;
+                uniforms.roll = 0.04;
+                uniforms.disk_inner = 1.9;
+                uniforms.disk_outer = 8.0;
+                uniforms.disk_opacity = 0.88;
+                uniforms.doppler = 0.45;
+                uniforms.beaming = 2.2;
+                uniforms.gain = 2.0;
+                uniforms.contrast = 0.65;
+                uniforms.wind = 7.0;
+                uniforms.speed = 4.0;
+                uniforms.exposure = 1.35;
+                uniforms.stars = 0.0;
+                uniforms.spin = 0.0;
+            }
         }
+        uniforms
     }
 }
 
@@ -300,6 +334,8 @@ pub struct PetNativeConfig {
     pub pending_count: u32,
     pub reduce_motion: u8,
     pub request_permission: u8,
+    pub visual_style: u8,
+    pub _reserved: u8,
 }
 
 impl PetNativeConfig {
@@ -318,6 +354,8 @@ impl PetNativeConfig {
             pending_count: 0,
             reduce_motion: 0,
             request_permission: 0,
+            visual_style: 0,
+            _reserved: 0,
         }
     }
 
@@ -347,6 +385,11 @@ impl PetNativeConfig {
             pending_count: 0,
             reduce_motion: 0,
             request_permission: u8::from(request_permission),
+            visual_style: match settings.visual_style {
+                PetVisualStyle::Gargantua => 0,
+                PetVisualStyle::Fusion => 1,
+            },
+            _reserved: 0,
         }
     }
 
@@ -650,7 +693,9 @@ impl NativePet {
 
 #[cfg(test)]
 mod tests {
-    use super::{NativePet, PetActivity, PetNativeConfig, TestRenderMode, TestRenderOptions};
+    use super::{
+        NativePet, PetActivity, PetNativeConfig, TestRenderMode, TestRenderOptions, TestVisualStyle,
+    };
     use crate::pet::PetFps;
     use std::{
         ffi::c_char,
@@ -754,6 +799,260 @@ mod tests {
             }
         }
         checksum
+    }
+
+    #[cfg(target_os = "macos")]
+    fn render_style(
+        input: &[u8],
+        width: u32,
+        height: u32,
+        mode: TestRenderMode,
+        visual_style: TestVisualStyle,
+    ) -> Vec<u8> {
+        super::test_render_with_options(
+            input,
+            width,
+            height,
+            TestRenderOptions {
+                mode,
+                visual_style,
+                ..TestRenderOptions::default()
+            },
+        )
+        .unwrap()
+        .pixels
+    }
+
+    #[cfg(target_os = "macos")]
+    fn opaque_black_horizon_area(pixels: &[u8], width: usize, height: usize) -> usize {
+        let mut area = 0;
+        for y in 0..height {
+            for x in 0..width {
+                let normalized_x = ((x as f64 + 0.5) / width as f64) * 2.0 - 1.0;
+                let normalized_y = ((y as f64 + 0.5) / height as f64) * 2.0 - 1.0;
+                // hole_radius_uv is 0.075 in panel UV, or 0.15 in these
+                // full-panel coordinates. Exclude black capture pixels beyond it.
+                if normalized_x.hypot(normalized_y) > 0.15 {
+                    continue;
+                }
+                let pixel = rgba_at(pixels, width, x, y);
+                area += usize::from(pixel[3] > 240 && pixel[0] < 8 && pixel[1] < 8 && pixel[2] < 8);
+            }
+        }
+        area
+    }
+
+    #[cfg(target_os = "macos")]
+    #[derive(Debug)]
+    struct EmissionMetrics {
+        coverage: usize,
+        saturated: usize,
+        variance_x: f64,
+        variance_y: f64,
+        red: f64,
+        green: f64,
+        blue: f64,
+    }
+
+    #[cfg(target_os = "macos")]
+    fn emission_metrics(pixels: &[u8], width: usize, height: usize) -> EmissionMetrics {
+        let mut coverage = 0;
+        let mut saturated = 0;
+        let mut total_weight = 0.0;
+        let mut weighted_x = 0.0;
+        let mut weighted_y = 0.0;
+        let mut red = 0.0;
+        let mut green = 0.0;
+        let mut blue = 0.0;
+        let mut samples = Vec::new();
+        for y in 0..height {
+            for x in 0..width {
+                let pixel = rgba_at(pixels, width, x, y);
+                let normalized_x = ((x as f64 + 0.5) / width as f64) * 2.0 - 1.0;
+                let normalized_y = ((y as f64 + 0.5) / height as f64) * 2.0 - 1.0;
+                // The shared photon ring is intentionally circular and is checked
+                // separately. Measure the visible outer accretion annulus here.
+                if normalized_x.hypot(normalized_y) < 0.24
+                    || pixel[..3].iter().copied().max().unwrap() <= 8
+                {
+                    continue;
+                }
+                coverage += 1;
+                saturated += usize::from(pixel[..3].iter().any(|&channel| channel >= 250));
+                red += f64::from(pixel[0]);
+                green += f64::from(pixel[1]);
+                blue += f64::from(pixel[2]);
+                let weight = f64::from(pixel[0]) + f64::from(pixel[1]) + f64::from(pixel[2]);
+                total_weight += weight;
+                weighted_x += normalized_x * weight;
+                weighted_y += normalized_y * weight;
+                samples.push((normalized_x, normalized_y, weight));
+            }
+        }
+        let mean_x = weighted_x / total_weight;
+        let mean_y = weighted_y / total_weight;
+        let (variance_x, variance_y) =
+            samples
+                .into_iter()
+                .fold((0.0, 0.0), |(variance_x, variance_y), (x, y, weight)| {
+                    (
+                        variance_x + (x - mean_x).powi(2) * weight,
+                        variance_y + (y - mean_y).powi(2) * weight,
+                    )
+                });
+        EmissionMetrics {
+            coverage,
+            saturated,
+            variance_x: variance_x / total_weight,
+            variance_y: variance_y / total_weight,
+            red,
+            green,
+            blue,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn switching_styles_preserves_gargantua_and_the_shared_event_horizon() {
+        let input = checkerboard_rgba(256, 256);
+        let gargantua_before = render_style(
+            &input,
+            256,
+            256,
+            TestRenderMode::Real,
+            TestVisualStyle::Gargantua,
+        );
+        let fusion = render_style(
+            &input,
+            256,
+            256,
+            TestRenderMode::Real,
+            TestVisualStyle::Fusion,
+        );
+        let gargantua_after = render_style(
+            &input,
+            256,
+            256,
+            TestRenderMode::Real,
+            TestVisualStyle::Gargantua,
+        );
+
+        assert_eq!(gargantua_before, gargantua_after);
+        assert_eq!(&rgba_at(&gargantua_before, 256, 128, 128)[..3], &[0, 0, 0]);
+        assert_eq!(&rgba_at(&fusion, 256, 128, 128)[..3], &[0, 0, 0]);
+        let gargantua_horizon = opaque_black_horizon_area(&gargantua_before, 256, 256);
+        let fusion_horizon = opaque_black_horizon_area(&fusion, 256, 256);
+        let area_delta = gargantua_horizon.abs_diff(fusion_horizon) as f64
+            / gargantua_horizon.max(fusion_horizon) as f64;
+        assert!(
+            area_delta <= 0.01,
+            "event-horizon area changed by {area_delta:.3}: \
+             Gargantua={gargantua_horizon}, Fusion={fusion_horizon}"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn both_styles_keep_checkerboard_capture_active_in_the_annulus() {
+        let input = checkerboard_rgba(128, 128);
+        let inverted = input
+            .chunks_exact(4)
+            .flat_map(|pixel| [255 - pixel[0], 255 - pixel[1], 255 - pixel[2], 255])
+            .collect::<Vec<_>>();
+
+        for visual_style in [TestVisualStyle::Gargantua, TestVisualStyle::Fusion] {
+            let output = render_style(&input, 128, 128, TestRenderMode::Real, visual_style);
+            let inverted_output =
+                render_style(&inverted, 128, 128, TestRenderMode::Real, visual_style);
+            assert_ne!(
+                checksum_annulus(&output, 128, 128, 0.20, 0.96),
+                checksum_annulus(&inverted_output, 128, 128, 0.20, 0.96),
+                "{visual_style:?} stopped responding to capture input"
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn fusion_emission_is_wider_warmer_and_not_clipped() {
+        let gargantua = render_style(
+            &[],
+            256,
+            256,
+            TestRenderMode::Lite,
+            TestVisualStyle::Gargantua,
+        );
+        let fusion = render_style(&[], 256, 256, TestRenderMode::Lite, TestVisualStyle::Fusion);
+        let gargantua_metrics = emission_metrics(&gargantua, 256, 256);
+        let fusion_metrics = emission_metrics(&fusion, 256, 256);
+        let variance_ratio = fusion_metrics.variance_x / fusion_metrics.variance_y;
+        let green_ratio = fusion_metrics.green / fusion_metrics.red;
+        let blue_ratio = fusion_metrics.blue / fusion_metrics.red;
+        let coverage_ratio = fusion_metrics.coverage as f64 / gargantua_metrics.coverage as f64;
+        let saturated_ratio = fusion_metrics.saturated as f64 / (256.0 * 256.0);
+
+        assert!(
+            variance_ratio >= 2.2,
+            "Fusion variance_x / variance_y was {variance_ratio:.3}: \
+             {fusion_metrics:?}"
+        );
+        assert!(
+            fusion_metrics.red > fusion_metrics.green && fusion_metrics.green > fusion_metrics.blue,
+            "Fusion annulus was not warm: {fusion_metrics:?}"
+        );
+        assert!(
+            (0.78..=0.96).contains(&green_ratio),
+            "Fusion G/R was {green_ratio:.3}"
+        );
+        assert!(
+            (0.45..=0.82).contains(&blue_ratio),
+            "Fusion B/R was {blue_ratio:.3}"
+        );
+        assert!(
+            (1.15..=1.80).contains(&coverage_ratio),
+            "Fusion/Gargantua coverage was {coverage_ratio:.3}: \
+             Fusion={}, Gargantua={}",
+            fusion_metrics.coverage,
+            gargantua_metrics.coverage
+        );
+        assert!(
+            saturated_ratio < 0.12,
+            "Fusion saturated pixel ratio was {saturated_ratio:.3}"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn fusion_outer_alpha_feather_starts_at_point_42_and_is_monotonic() {
+        let input = checkerboard_rgba(256, 256);
+        let output = render_style(
+            &input,
+            256,
+            256,
+            TestRenderMode::Real,
+            TestVisualStyle::Fusion,
+        );
+        let samples = (0..=15)
+            .map(|index| {
+                let radius = 0.42 + 0.075 * f64::from(index) / 15.0;
+                let x = ((radius + 0.5) * 256.0 - 0.5).round().clamp(0.0, 255.0) as usize;
+                rgba_at(&output, 256, x, 128)[3]
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            samples[6] < samples[0],
+            "Fusion alpha did not begin feathering after 0.42: {samples:?}"
+        );
+        assert!(
+            samples
+                .windows(2)
+                .all(|pair| u16::from(pair[1]) <= u16::from(pair[0]) + 1),
+            "Fusion alpha feather was not monotonic: {samples:?}"
+        );
+        for (x, y) in [(0, 0), (255, 0), (0, 255), (255, 255)] {
+            assert_eq!(rgba_at(&output, 256, x, y)[3], 0);
+        }
     }
 
     #[cfg(target_os = "macos")]
@@ -1014,6 +1313,7 @@ mod tests {
         assert_eq!(offset_of!(PetNativeConfig, pending_count), 56);
         assert_eq!(offset_of!(PetNativeConfig, reduce_motion), 60);
         assert_eq!(offset_of!(PetNativeConfig, request_permission), 61);
+        assert_eq!(offset_of!(PetNativeConfig, visual_style), 62);
         assert_eq!(size_of::<super::TestNativeRenderUniforms>(), 152);
         assert_eq!(
             offset_of!(super::TestNativeRenderUniforms, capture_origin_uv),
@@ -1028,10 +1328,47 @@ mod tests {
             offset_of!(super::TestNativeRenderUniforms, pending_count),
             120
         );
+        assert_eq!(
+            offset_of!(super::TestNativeRenderUniforms, visual_style),
+            140
+        );
 
         let pet = NativePet::new(test_callback).unwrap();
         assert!(pet.apply(PetNativeConfig::lite(220.0, PetFps::Auto, true)));
         drop(pet);
+    }
+
+    #[test]
+    fn fusion_resolves_the_exact_cpu_material() {
+        let uniforms = super::TestNativeRenderUniforms::from(TestRenderOptions {
+            visual_style: TestVisualStyle::Fusion,
+            ..TestRenderOptions::default()
+        });
+
+        assert_eq!(uniforms.visual_style, 1);
+        assert_eq!(
+            [
+                uniforms.temperature,
+                uniforms.inclination,
+                uniforms.roll,
+                uniforms.disk_inner,
+                uniforms.disk_outer,
+                uniforms.disk_opacity,
+                uniforms.doppler,
+                uniforms.beaming,
+                uniforms.gain,
+                uniforms.contrast,
+                uniforms.wind,
+                uniforms.speed,
+                uniforms.exposure,
+                uniforms.stars,
+                uniforms.spin,
+            ],
+            [
+                5200.0, 1.535, 0.04, 1.9, 8.0, 0.88, 0.45, 2.2, 2.0, 0.65, 7.0, 4.0, 1.35, 0.0,
+                0.0,
+            ]
+        );
     }
 
     #[test]
@@ -1078,10 +1415,11 @@ mod tests {
 
     #[test]
     fn permission_request_bit_is_set_only_for_an_explicit_real_mode_action() {
-        use crate::pet::{PetFps, PetMode, PetSettings};
+        use crate::pet::{PetFps, PetMode, PetSettings, PetVisualStyle};
 
         let settings = PetSettings {
             mode: PetMode::Real,
+            visual_style: PetVisualStyle::Gargantua,
             size: 220,
             fps: PetFps::Auto,
             visible: true,
@@ -1102,10 +1440,11 @@ mod tests {
 
     #[test]
     fn requested_real_mode_can_render_the_lite_fallback_without_losing_intent() {
-        use crate::pet::{PetFps, PetMode, PetSettings};
+        use crate::pet::{PetFps, PetMode, PetSettings, PetVisualStyle};
 
         let settings = PetSettings {
             mode: PetMode::Real,
+            visual_style: PetVisualStyle::Fusion,
             size: 220,
             fps: PetFps::Fps60,
             visible: true,
@@ -1120,14 +1459,16 @@ mod tests {
         assert_eq!(config.mode, super::MODE_REAL);
         assert_eq!(config.effective_mode, super::MODE_LITE);
         assert_eq!(config.fps, 60);
+        assert_eq!(config.visual_style, 1);
     }
 
     #[test]
     fn persisted_position_is_carried_atomically_in_one_native_config() {
-        use crate::pet::{PetFps, PetMode, PetSettings};
+        use crate::pet::{PetFps, PetMode, PetSettings, PetVisualStyle};
 
         let settings = PetSettings {
             mode: PetMode::Lite,
+            visual_style: PetVisualStyle::Gargantua,
             size: 220,
             fps: PetFps::Auto,
             visible: true,

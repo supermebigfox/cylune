@@ -2,6 +2,8 @@
  Black-hole optics are a Metal port of rrrjqy66/BlackHoleTrash
  commit 229d93213cd3e57364b4c6655cfb2c75b7ea4d18 (MIT).
  Original copyright: Copyright (c) 2026 GreenScreen410.
+ Fusion material parameters are adapted from cabbagehao/blackhole-timer
+ commit f3cc9cc349540ad6d274cd8074cf050b9b0c0200 (MIT).
  This application replaces recycling with acknowledged local import.
  Full notices: THIRD_PARTY_NOTICES.md.
 */
@@ -12,6 +14,8 @@ using namespace metal;
 constant float kLensDepth = 13.0f;
 constant int kGeodesicSteps = 48;
 constant float kCriticalImpact = 2.5980762f;
+constant uint kPetVisualStyleGargantua = 0u;
+constant uint kPetVisualStyleFusion = 1u;
 
 struct PetVertexOutput {
   float4 position [[position]];
@@ -50,7 +54,8 @@ struct PetUniforms {
   uint reduce_motion;
   uint drop_phase;
   uint file_kind;
-  uint padding[3];
+  uint visual_style;
+  uint padding[2];
 };
 
 struct PetPendingInstance {
@@ -195,9 +200,16 @@ float4 shade_crossing(float3 position, float3 velocity,
     return float4(0.0f);
   }
 
+  const bool fusion =
+      uniforms.visual_style == kPetVisualStyleFusion;
   const float band =
-      smoothstep(inner, inner * 1.25f, radius) *
-      (1.0f - smoothstep(outer * 0.70f, outer, radius));
+      fusion
+          ? smoothstep(inner, inner * 1.12f, radius) *
+                (1.0f -
+                 smoothstep(outer * 0.82f, outer, radius))
+          : smoothstep(inner, inner * 1.25f, radius) *
+                (1.0f -
+                 smoothstep(outer * 0.70f, outer, radius));
   const float phi = atan2(dot(position, disk_axis), position.x);
   const float turns = phi / 6.2831853f;
   const float kepler = pow(inner / radius, 1.5f);
@@ -238,10 +250,17 @@ float4 shade_crossing(float3 position, float3 velocity,
   const float temperature_profile =
       pow(inner / radius, 0.75f) * pow(profile_base, 0.25f) /
       0.488f;
-  const float3 thermal =
+  float3 thermal =
       blackbody(uniforms.temperature * temperature_profile * shift);
+  if (fusion) {
+    thermal =
+        mix(thermal, float3(1.0f, 0.91f, 0.70f), 0.12f);
+  }
   const float boost = pow(shift, uniforms.beaming);
-  const float density = band * streaks;
+  float density = band * streaks;
+  if (fusion) {
+    density = band * (0.62f + 0.58f * streaks);
+  }
   const float3 emission =
       transmittance * thermal *
       (uniforms.gain * 2.2f * density * temperature_profile *
@@ -470,8 +489,12 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
   const float2 p =
       (input.uv - 0.5f) * float2(aspect, 1.0f);
   const float panel_radius = length(p);
+  const float feather_start =
+      uniforms.visual_style == kPetVisualStyleFusion
+          ? 0.42f
+          : 0.46f;
   const float outer_mask =
-      1.0f - smoothstep(0.46f, 0.495f, panel_radius);
+      1.0f - smoothstep(feather_start, 0.495f, panel_radius);
   if (outer_mask <= 0.0f) {
     return float4(0.0f);
   }
@@ -497,6 +520,19 @@ fragment float4 pet_fragment(PetVertexOutput input [[stage_in]],
     color =
         trace_schwarzschild(p, capture, capture_sampler,
                             uniforms, alpha);
+  }
+
+  if (uniforms.visual_style == kPetVisualStyleFusion) {
+    const float rim =
+        smoothstep(kCriticalImpact,
+                   kCriticalImpact + 0.05f, impact) *
+        (1.0f -
+         smoothstep(kCriticalImpact + 0.10f,
+                    kCriticalImpact + 0.42f, impact));
+    const float3 rim_color =
+        float3(1.0f, 0.91f, 0.70f) * rim * 0.12f;
+    color += rim_color;
+    alpha = max(alpha, rim * 0.16f);
   }
 
   if (uniforms.absorption_progress > 0.0f) {

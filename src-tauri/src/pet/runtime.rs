@@ -873,6 +873,7 @@ impl RuntimeCore {
             pet: NativeOwner::new(Box::new(native)),
             settings: PetSettings {
                 mode: PetMode::Real,
+                visual_style: crate::pet::PetVisualStyle::Gargantua,
                 size: 220,
                 fps: PetFps::Auto,
                 visible: true,
@@ -1176,7 +1177,7 @@ mod tests {
     use crate::pet::native::{
         NativeCaptureState, NativeRendererState, NativeShutdownState, PetNativeConfig,
     };
-    use crate::pet::{PetFps, PetMode, PetSettings, PetStore};
+    use crate::pet::{PetFps, PetMode, PetSettings, PetStore, PetVisualStyle};
     use crate::{
         db::AppDatabase,
         domain::JobOutcome,
@@ -1414,6 +1415,7 @@ mod tests {
 
         let settings = PetSettings {
             mode: PetMode::Lite,
+            visual_style: PetVisualStyle::Gargantua,
             size: 220,
             fps: PetFps::Auto,
             visible: true,
@@ -1621,6 +1623,7 @@ mod tests {
 
         core.apply_settings(PetSettings {
             mode: PetMode::Real,
+            visual_style: PetVisualStyle::Gargantua,
             size: 300,
             fps: PetFps::Fps60,
             visible: false,

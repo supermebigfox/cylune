@@ -1,13 +1,13 @@
 use crate::{
     db::AppDatabase,
     error::{AppError, Result},
-    pet::{PetFps, PetMode, PetSettings, PetSettingsPatch},
+    pet::{PetFps, PetMode, PetSettings, PetSettingsPatch, PetVisualStyle},
 };
 use rusqlite::{OptionalExtension, Transaction};
 
 const DEFAULT_SIZE: u16 = 220;
 const MIN_SIZE: u16 = 120;
-const MAX_SIZE: u16 = 360;
+const MAX_SIZE: u16 = 900;
 
 pub struct PetStore;
 
@@ -15,6 +15,7 @@ impl PetStore {
     pub fn load(database: &AppDatabase) -> Result<PetSettings> {
         let settings = PetSettings {
             mode: parse_mode(setting(database, "pet_mode")?)?,
+            visual_style: parse_visual_style(setting(database, "pet_visual_style")?)?,
             size: parse_size(setting(database, "pet_size")?)?,
             fps: parse_fps(setting(database, "pet_fps")?)?,
             visible: parse_visible(setting(database, "pet_visible")?)?,
@@ -32,6 +33,9 @@ impl PetStore {
 
         if let Some(mode) = patch.mode {
             next.mode = mode;
+        }
+        if let Some(visual_style) = patch.visual_style {
+            next.visual_style = visual_style;
         }
         if let Some(size) = patch.size {
             next.size = size;
@@ -87,6 +91,14 @@ fn parse_mode(value: Option<String>) -> Result<PetMode> {
     match value.as_deref().unwrap_or("lite") {
         "real" => Ok(PetMode::Real),
         "lite" => Ok(PetMode::Lite),
+        _ => Err(AppError::InvalidPetSettings),
+    }
+}
+
+fn parse_visual_style(value: Option<String>) -> Result<PetVisualStyle> {
+    match value.as_deref().unwrap_or("gargantua") {
+        "gargantua" => Ok(PetVisualStyle::Gargantua),
+        "fusion" => Ok(PetVisualStyle::Fusion),
         _ => Err(AppError::InvalidPetSettings),
     }
 }
@@ -162,6 +174,13 @@ fn write_changes(
     if current.mode != next.mode {
         upsert(transaction, "pet_mode", mode_name(next.mode))?;
     }
+    if current.visual_style != next.visual_style {
+        upsert(
+            transaction,
+            "pet_visual_style",
+            visual_style_name(next.visual_style),
+        )?;
+    }
     if current.size != next.size {
         upsert(transaction, "pet_size", &next.size.to_string())?;
     }
@@ -212,6 +231,13 @@ fn mode_name(mode: PetMode) -> &'static str {
     }
 }
 
+fn visual_style_name(visual_style: PetVisualStyle) -> &'static str {
+    match visual_style {
+        PetVisualStyle::Gargantua => "gargantua",
+        PetVisualStyle::Fusion => "fusion",
+    }
+}
+
 fn fps_name(fps: PetFps) -> &'static str {
     match fps {
         PetFps::Auto => "auto",
@@ -222,11 +248,61 @@ fn fps_name(fps: PetFps) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::PetStore;
+    use super::{parse_size, parse_visual_style, PetStore};
     use crate::{
         db::AppDatabase,
-        pet::{PetFps, PetMode, PetSettings, PetSettingsPatch},
+        pet::{PetFps, PetMode, PetSettings, PetSettingsPatch, PetVisualStyle},
     };
+
+    #[test]
+    fn pet_size_accepts_the_expanded_range_and_rejects_outside_values() {
+        assert!(parse_size(Some("120".to_owned())).is_ok());
+        assert!(parse_size(Some("360".to_owned())).is_ok());
+        assert!(parse_size(Some("600".to_owned())).is_ok());
+        assert!(parse_size(Some("900".to_owned())).is_ok());
+        assert!(parse_size(Some("119".to_owned())).is_err());
+        assert!(parse_size(Some("901".to_owned())).is_err());
+    }
+
+    #[test]
+    fn pet_visual_style_round_trips_and_defaults_to_gargantua() {
+        assert_eq!(parse_visual_style(None).unwrap(), PetVisualStyle::Gargantua);
+        assert_eq!(
+            parse_visual_style(Some("fusion".to_owned())).unwrap(),
+            PetVisualStyle::Fusion
+        );
+        assert!(parse_visual_style(Some("inferno".to_owned())).is_err());
+    }
+
+    #[test]
+    fn pet_visual_style_persists_under_the_stable_setting_key() {
+        let db = AppDatabase::open_in_memory().unwrap();
+
+        let settings = PetStore::apply(
+            &db,
+            PetSettingsPatch {
+                visual_style: Some(PetVisualStyle::Fusion),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(settings.visual_style, PetVisualStyle::Fusion);
+        assert_eq!(
+            PetStore::load(&db).unwrap().visual_style,
+            PetVisualStyle::Fusion
+        );
+        assert_eq!(
+            db.connection
+                .query_row(
+                    "SELECT setting_value FROM app_settings WHERE setting_key = 'pet_visual_style'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "fusion"
+        );
+    }
 
     #[test]
     fn defaults_are_safe_and_valid() {
@@ -236,6 +312,7 @@ mod tests {
             PetStore::load(&db).unwrap(),
             PetSettings {
                 mode: PetMode::Lite,
+                visual_style: PetVisualStyle::Gargantua,
                 size: 220,
                 fps: PetFps::Auto,
                 visible: true,
@@ -284,7 +361,7 @@ mod tests {
             PetStore::apply(
                 &db,
                 PetSettingsPatch {
-                    size: Some(361),
+                    size: Some(901),
                     ..Default::default()
                 },
             )

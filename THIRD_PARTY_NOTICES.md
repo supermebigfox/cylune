@@ -1,11 +1,12 @@
 # Third-party notices
 
 The current black-hole optics in `src-tauri/native/mac/shader.metal` are the
-direct pinned BlackHoleTrash port described first below. The two later entries
-are retained historical notices for sources that informed the application's
-earlier shader. Frame pacing, interaction animations, capture integration, and
-application UI are local adaptations. No timer, terminal, settings, packaging,
-or other unrelated product code was copied.
+direct pinned BlackHoleTrash port described first below, with the active Fusion
+material, parameters, and mask semantics described in the blackhole-timer entry.
+The final entry is retained as a historical notice for a source that informed
+the application's earlier shader. Frame pacing, interaction animations,
+capture integration, and application UI are local adaptations. No timer,
+terminal, settings, packaging, or other unrelated product code was copied.
 
 ## rrrjqy66/BlackHoleTrash
 
@@ -46,7 +47,13 @@ SOFTWARE.
 
 ## cabbagehao/blackhole-timer
 
-Source: https://github.com/cabbagehao/blackhole-timer
+Pinned source:
+https://github.com/cabbagehao/blackhole-timer/tree/f3cc9cc349540ad6d274cd8074cf050b9b0c0200
+
+The Fusion appearance in `src-tauri/native/mac/shader.metal` actively adapts
+material parameters and mask semantics from the pinned source into the
+application's existing single Schwarzschild trace. Browser and Pomodoro
+behavior was not copied.
 
 MIT License
 

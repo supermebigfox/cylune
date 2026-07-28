@@ -4,7 +4,7 @@ import { t, useLocale } from "../../i18n";
 import { api, type PetFps, type PetMode, type PetSettings, type PetSettingsPatch, type TauriApi } from "../../lib/tauri";
 
 const defaultPet: PetSettings = {
-  mode: "lite", size: 220, fps: "auto", visible: true, x: null, y: null,
+  mode: "lite", visual_style: "gargantua", size: 220, fps: "auto", visible: true, x: null, y: null,
   display_id: null, effective_mode: "lite", permission: "unavailable",
   fallback_reason: null,
 };
@@ -82,9 +82,12 @@ export function Pet({ apiClient = api }: { apiClient?: TauriApi }) {
         <button aria-pressed={settings.mode === "real"} className={settings.mode === "real" ? "active" : ""} onClick={() => save({ mode: "real" })}>{copy("pet.real")}</button>
         <button aria-pressed={settings.mode === "lite"} className={settings.mode === "lite" ? "active" : ""} onClick={() => save({ mode: "lite" })}>{copy("pet.lite")}</button>
       </div></fieldset>
+      <fieldset><legend>{copy("pet.visualStyle")}</legend><div className="segmented">
+        {(["gargantua", "fusion"] as const).map((visual_style) => <button key={visual_style} aria-pressed={settings.visual_style === visual_style} className={settings.visual_style === visual_style ? "active" : ""} onClick={() => save({ visual_style })}>{copy(`pet.${visual_style}`)}</button>)}
+      </div></fieldset>
       <fieldset><legend>{copy("pet.size")}</legend><div className="pet-size-presets">
-        {([160, 220, 300] as const).map((size, index) => <button key={size} aria-pressed={settings.size === size} className={settings.size === size ? "active" : ""} onClick={() => save({ size })}>{copy(["pet.small", "pet.medium", "pet.large"][index])}</button>)}
-      </div><input aria-label={copy("pet.size")} min="120" max="360" step="4" type="range" value={settings.size} onChange={(event) => save({ size: Number(event.target.value) })} /></fieldset>
+        {([300, 600, 900] as const).map((size) => <button key={size} aria-pressed={settings.size === size} className={settings.size === size ? "active" : ""} onClick={() => save({ size })}>{copy(`pet.size${size}`)}</button>)}
+      </div><input aria-label={copy("pet.size")} min="120" max="900" step="4" type="range" value={settings.size} onChange={(event) => save({ size: Number(event.target.value) })} /></fieldset>
       <fieldset><legend>{copy("pet.fps")}</legend><div className="segmented three">
         {(["auto", "fps30", "fps60"] as const).map((fps) => <button key={fps} aria-pressed={settings.fps === fps} className={settings.fps === fps ? "active" : ""} onClick={() => save({ fps })}>{copy(`pet.${fps}`)}</button>)}
       </div></fieldset>

@@ -20,6 +20,8 @@ static_assert(offsetof(PetRenderUniforms, drop_origin_uv) == 96,
               "PetRenderUniforms drop origin offset changed");
 static_assert(offsetof(PetRenderUniforms, pending_count) == 120,
               "PetRenderUniforms pending offset changed");
+static_assert(offsetof(PetRenderUniforms, visual_style) == 140,
+              "PetRenderUniforms visual style offset changed");
 static_assert(sizeof(PetRenderStats) == 16,
               "PetRenderStats ABI size changed");
 

@@ -3,6 +3,7 @@
 #include "pet_visual_state.h"
 
 #include <assert.h>
+#include <cstddef>
 #include <chrono>
 #include <initializer_list>
 #include <math.h>
@@ -57,6 +58,17 @@ static PetRendererBackend fake_renderer_backend(FakeRendererBackend *fake) {
           fake_renderer_destroy};
 }
 
+static void visual_style_values_stay_within_stable_native_contract() {
+  static_assert(sizeof(PetConfig) == 64);
+  static_assert(offsetof(PetConfig, visual_style) == 62);
+  static_assert(sizeof(PetRenderUniforms) == 152);
+  static_assert(offsetof(PetRenderUniforms, visual_style) == 140);
+  assert(PetVisualStyleIsValid(0));
+  assert(PetVisualStyleIsValid(1));
+  assert(!PetVisualStyleIsValid(2));
+  assert(!PetVisualStyleIsValid(255));
+}
+
 static void approved_geometry_uses_a_small_circular_core() {
   const PetEffectGeometry small = PetEffectGeometryForSize(120.0);
   const PetEffectGeometry medium = PetEffectGeometryForSize(220.0);
@@ -71,6 +83,27 @@ static void approved_geometry_uses_a_small_circular_core() {
   assert(PetPointInsideCore(81.9, 60.0, small));
   assert(!PetPointInsideCore(82.1, 60.0, small));
   assert(!PetPointInsideCore(0.0, 0.0, small));
+}
+
+static void large_sizes_keep_logical_geometry_but_cap_the_drawable() {
+  const PetEffectGeometry six = PetEffectGeometryForSize(600.0);
+  const PetEffectGeometry nine = PetEffectGeometryForSize(900.0);
+  assert(close_to(six.panel_side, 600.0));
+  assert(close_to(six.shadow_radius, 45.0));
+  assert(close_to(nine.panel_side, 900.0));
+  assert(close_to(nine.shadow_radius, 67.5));
+  assert(close_to(PetDrawableLogicalSide(300.0), 300.0));
+  assert(close_to(PetDrawableLogicalSide(360.0), 360.0));
+  assert(close_to(PetDrawableLogicalSide(600.0), 360.0));
+  assert(close_to(PetDrawableLogicalSide(900.0), 360.0));
+
+  const PetScreenFrame display = {0.0, 0.0, 2560.0, 1600.0, 2.0, 42};
+  const PetCaptureRegion capture =
+      PetCaptureRegionForPanel({800.0, 350.0, 900.0, 900.0}, display);
+  assert(close_to(capture.source_width, 1440.0));
+  assert(close_to(capture.source_height, 1440.0));
+  assert(close_to(capture.panel_extent_uv[0], 0.625));
+  assert(close_to(capture.panel_extent_uv[1], 0.625));
 }
 
 static void centered_capture_maps_the_panel_into_the_middle_five_eighths() {
@@ -657,7 +690,9 @@ static void frame_dispatch_gate_is_initialized_before_the_first_callback() {
 }
 
 int main() {
+  visual_style_values_stay_within_stable_native_contract();
   approved_geometry_uses_a_small_circular_core();
+  large_sizes_keep_logical_geometry_but_cap_the_drawable();
   centered_capture_maps_the_panel_into_the_middle_five_eighths();
   left_edge_capture_does_not_stretch_the_desktop();
   other_screen_edges_preserve_the_clipped_panel_mapping();

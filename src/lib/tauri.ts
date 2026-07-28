@@ -8,8 +8,10 @@ export type ImportState =
   | "new_print_confirmation_required";
 export type PetMode = "real" | "lite";
 export type PetFps = "auto" | "fps30" | "fps60";
+export type PetVisualStyle = "gargantua" | "fusion";
 export interface PetSettings {
   mode: PetMode;
+  visual_style: PetVisualStyle;
   size: number;
   fps: PetFps;
   visible: boolean;
@@ -202,7 +204,7 @@ function demoApi(): TauriApi {
   let spools = demoSpools.map((spool) => ({ ...spool }));
   let slots = demoSlots.map((slot) => ({ ...slot }));
   let pet: PetSettings = {
-    mode: "lite", size: 220, fps: "auto", visible: true, x: null, y: null,
+    mode: "lite", visual_style: "gargantua", size: 220, fps: "auto", visible: true, x: null, y: null,
     display_id: null, effective_mode: "lite", permission: "unavailable",
     fallback_reason: "native_not_started",
   };

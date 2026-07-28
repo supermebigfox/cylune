@@ -31,7 +31,7 @@ static const uint32_t kPetCallbackCaptureFailed = 8;
 static const uint32_t kPetCallbackSleep = 9;
 static const uint32_t kPetCallbackWake = 10;
 static const CGFloat kPetMinimumSize = 120.0;
-static const CGFloat kPetMaximumSize = 360.0;
+static const CGFloat kPetMaximumSize = 900.0;
 static const CGFloat kPetDragThreshold = 4.0;
 static const CGFloat kPetSafeInset = 16.0;
 
@@ -63,6 +63,8 @@ static_assert(offsetof(PetConfig, reduce_motion) == 60,
               "PetConfig reduce_motion offset changed");
 static_assert(offsetof(PetConfig, request_permission) == 61,
               "PetConfig request_permission offset changed");
+static_assert(offsetof(PetConfig, visual_style) == 62,
+              "PetConfig visual_style offset changed");
 
 @class BPPetHost;
 
@@ -74,6 +76,7 @@ static_assert(offsetof(PetConfig, request_permission) == 61,
 - (instancetype)initWithFrame:(NSRect)frame metalSource:(NSString *)metalSource;
 - (BOOL)metalAvailable;
 - (void)setMode:(uint32_t)mode;
+- (void)setVisualStyle:(uint8_t)visualStyle;
 - (void)setFps:(uint32_t)fps;
 - (void)setReduceMotion:(BOOL)reduceMotion;
 - (void)setAnimating:(BOOL)animating;
@@ -218,6 +221,7 @@ static PetRendererBackend ProductionRendererBackend() {
   CFTimeInterval _renderEpoch;
   CFTimeInterval _lastRenderedAt;
   uint32_t _mode;
+  uint32_t _visualStyle;
   uint32_t _fps;
   PetRenderAnimationState _renderAnimation;
 }
@@ -232,6 +236,7 @@ static PetRendererBackend ProductionRendererBackend() {
     _metalSource = [metalSource copy];
     _fps = 0;
     _mode = 1;
+    _visualStyle = 0;
     _renderEpoch = CACurrentMediaTime();
     self.wantsLayer = YES;
     self.layer.backgroundColor = NSColor.clearColor.CGColor;
@@ -413,8 +418,12 @@ static PetRendererBackend ProductionRendererBackend() {
     scale = primary == nil ? 1.0 : primary.backingScaleFactor;
   }
   const CGRect bounds = self.bounds;
+  const CGFloat visualSide =
+      MIN(CGRectGetWidth(bounds), CGRectGetHeight(bounds));
+  const CGFloat drawableLogicalSide =
+      (CGFloat)PetDrawableLogicalSide(visualSide);
   const PetDrawableMetrics metrics = PetDrawableMetricsForLogicalSize(
-      CGRectGetWidth(bounds), CGRectGetHeight(bounds), scale);
+      drawableLogicalSide, drawableLogicalSide, scale);
   metalLayer.contentsScale = metrics.contents_scale;
   metalLayer.drawableSize =
       CGSizeMake(metrics.pixel_width, metrics.pixel_height);
@@ -422,6 +431,11 @@ static PetRendererBackend ProductionRendererBackend() {
 
 - (void)setMode:(uint32_t)mode {
   _mode = mode == 0 ? 0 : 1;
+}
+
+- (void)setVisualStyle:(uint8_t)visualStyle {
+  _visualStyle = visualStyle == 1 ? 1 : 0;
+  _lastRenderedAt = 0.0;
 }
 
 - (void)setFps:(uint32_t)fps {
@@ -504,21 +518,39 @@ static PetRendererBackend ProductionRendererBackend() {
   uniforms.capture_extent_uv[1] = captureRegion.panel_extent_uv[1];
   uniforms.time_seconds = (float)fmod(now - _renderEpoch, 4096.0);
   uniforms.hole_radius_uv = 0.075f;
-  uniforms.temperature = 4500.0f;
-  uniforms.inclination = 1.52f;
-  uniforms.roll = 0.10f;
-  uniforms.disk_inner = 2.2f;
-  uniforms.disk_outer = 7.0f;
-  uniforms.disk_opacity = 0.85f;
-  uniforms.doppler = 0.35f;
-  uniforms.beaming = 2.0f;
-  uniforms.gain = 1.4f;
-  uniforms.contrast = 0.5f;
-  uniforms.wind = 7.0f;
-  uniforms.speed = 5.0f;
-  uniforms.exposure = 1.20f;
-  uniforms.stars = 0.0f;
-  uniforms.spin = 0.0f;
+  if (_visualStyle == 1) {
+    uniforms.temperature = 5200.0f;
+    uniforms.inclination = 1.535f;
+    uniforms.roll = 0.04f;
+    uniforms.disk_inner = 1.9f;
+    uniforms.disk_outer = 8.0f;
+    uniforms.disk_opacity = 0.88f;
+    uniforms.doppler = 0.45f;
+    uniforms.beaming = 2.2f;
+    uniforms.gain = 2.0f;
+    uniforms.contrast = 0.65f;
+    uniforms.wind = 7.0f;
+    uniforms.speed = 4.0f;
+    uniforms.exposure = 1.35f;
+    uniforms.stars = 0.0f;
+    uniforms.spin = 0.0f;
+  } else {
+    uniforms.temperature = 4500.0f;
+    uniforms.inclination = 1.52f;
+    uniforms.roll = 0.10f;
+    uniforms.disk_inner = 2.2f;
+    uniforms.disk_outer = 7.0f;
+    uniforms.disk_opacity = 0.85f;
+    uniforms.doppler = 0.35f;
+    uniforms.beaming = 2.0f;
+    uniforms.gain = 1.4f;
+    uniforms.contrast = 0.5f;
+    uniforms.wind = 7.0f;
+    uniforms.speed = 5.0f;
+    uniforms.exposure = 1.20f;
+    uniforms.stars = 0.0f;
+    uniforms.spin = 0.0f;
+  }
   uniforms.spin_phase = 0.0f;
   uniforms.drop_origin_uv[0] = 0.5f;
   uniforms.drop_origin_uv[1] = 0.5f;
@@ -531,6 +563,7 @@ static PetRendererBackend ProductionRendererBackend() {
   uniforms.reduce_motion = _reduceMotion ? 1 : 0;
   uniforms.drop_phase = 0;
   uniforms.file_kind = 0;
+  uniforms.visual_style = _visualStyle;
   const PetRendererStep renderStep =
       _rendererDriver.draw(surface, uniforms);
   if (surface != nullptr) {
@@ -1054,6 +1087,7 @@ static PetRendererBackend ProductionRendererBackend() {
   [self updateDisplaySelectionAndEmit:NO];
   [self.petView setReduceMotion:config.reduce_motion != 0];
   [self.petView setMode:config.effective_mode];
+  [self.petView setVisualStyle:config.visual_style];
   [self.petView setFps:config.fps];
   [self.petView setPendingCount:config.pending_count];
 
@@ -1508,7 +1542,8 @@ static bool IsValidConfig(PetConfig config) {
          config.size <= kPetMaximumSize &&
          (!config.has_position || (isfinite(config.x) && isfinite(config.y))) &&
          validFps && config.visible <= 1 &&
-         config.reduce_motion <= 1 && config.request_permission <= 1;
+         config.reduce_motion <= 1 && config.request_permission <= 1 &&
+         PetVisualStyleIsValid(config.visual_style);
 }
 
 extern "C" void *pet_create(PetCallback callback,

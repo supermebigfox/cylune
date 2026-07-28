@@ -28,9 +28,17 @@ pub enum PetFps {
     Fps60,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PetVisualStyle {
+    Gargantua,
+    Fusion,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PetSettings {
     pub mode: PetMode,
+    pub visual_style: PetVisualStyle,
     pub size: u16,
     pub fps: PetFps,
     pub visible: bool,
@@ -68,6 +76,7 @@ pub struct PetView {
 #[serde(deny_unknown_fields)]
 pub struct PetSettingsPatch {
     pub mode: Option<PetMode>,
+    pub visual_style: Option<PetVisualStyle>,
     pub size: Option<u16>,
     pub fps: Option<PetFps>,
     pub visible: Option<bool>,

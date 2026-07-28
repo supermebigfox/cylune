@@ -472,6 +472,14 @@ inline PetEffectGeometry PetEffectGeometryForSize(double size) {
   return {side, shadow, std::max(22.0, shadow * 1.15)};
 }
 
+inline double PetDrawableLogicalSide(double pet_size) {
+  return std::min(360.0, std::clamp(pet_size, 120.0, 900.0));
+}
+
+inline constexpr bool PetVisualStyleIsValid(uint8_t visual_style) {
+  return visual_style <= 1;
+}
+
 inline bool PetPointInsideCore(double x, double y,
                                PetEffectGeometry geometry) {
   const double dx = x - geometry.panel_side * 0.5;
