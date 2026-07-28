@@ -117,6 +117,76 @@ static void capture_region_is_bounded_and_uses_retina_pixels() {
   assert(region.pixel_height == 544);
 }
 
+static void greatest_intersection_selects_the_new_display() {
+  const PetScreenFrame displays[] = {
+      {0.0, 0.0, 1512.0, 982.0, 2.0, 1},
+      {1512.0, 0.0, 1920.0, 1080.0, 1.0, 2},
+  };
+  const PetPanelFrame panel = {1450.0, 100.0, 220.0, 220.0};
+
+  assert(PetGreatestIntersectionDisplayIndex(panel, displays, 2) == 1);
+}
+
+static void disconnected_panel_returns_to_primary_with_safe_inset() {
+  const PetScreenFrame primary = {0.0, 0.0, 1512.0, 982.0, 2.0, 7};
+  const PetPanelFrame disconnected = {5000.0, -80.0, 220.0, 220.0};
+
+  const PetPanelFrame placed =
+      PetClampPanelToDisplay(disconnected, primary, 16.0);
+
+  assert(placed.x == 1276.0);
+  assert(placed.y == 16.0);
+  assert(placed.width == 220.0);
+  assert(placed.height == 220.0);
+}
+
+static void drag_persistence_is_emitted_only_once_on_mouse_up() {
+  PetDragPersistenceGate gate;
+
+  gate.begin();
+  assert(!gate.dragged());
+  assert(!gate.should_persist(false));
+  gate.mark_dragged();
+  assert(gate.dragged());
+  assert(!gate.should_persist(false));
+  assert(gate.should_persist(true));
+  assert(!gate.should_persist(true));
+}
+
+static void live_capture_reconfiguration_ignores_fps_and_pending_only_updates() {
+  PetCaptureConfigurationGate gate;
+  const PetCaptureRegion region = {42, 154.0, 454.0, 272.0, 272.0, 544, 544};
+  const PetCaptureConfigurationKey real = {0, true, region};
+
+  assert(gate.should_configure(real, false));
+  assert(!gate.should_configure(real, false));
+  // FPS and pending count are intentionally absent from the capture key.
+  assert(!gate.should_configure(real, false));
+  assert(gate.should_configure(real, true));
+
+  PetCaptureConfigurationKey resized = real;
+  resized.region.pixel_width = 744;
+  resized.region.pixel_height = 744;
+  resized.region.source_width = 372.0;
+  resized.region.source_height = 372.0;
+  assert(gate.should_configure(resized, false));
+
+  PetCaptureConfigurationKey hidden = resized;
+  hidden.visible = false;
+  assert(gate.should_configure(hidden, false));
+}
+
+static void native_failure_reason_is_published_once_until_an_allowed_retry() {
+  PetFaultLatch failure;
+
+  assert(failure.report_once());
+  assert(!failure.report_once());
+  assert(!failure.report_once());
+
+  failure.reset();
+  assert(failure.report_once());
+}
+
 static void capture_policy_excludes_media_and_retains_only_the_newest_frame() {
   const PetCapturePolicy policy = PetSafeCapturePolicy();
 
@@ -481,6 +551,11 @@ int main() {
   core_hit_target_corners_stay_inside_decorative_effect_circle();
   pet_visual_and_core_hit_target_windows_share_lifecycle();
   capture_region_is_bounded_and_uses_retina_pixels();
+  greatest_intersection_selects_the_new_display();
+  disconnected_panel_returns_to_primary_with_safe_inset();
+  drag_persistence_is_emitted_only_once_on_mouse_up();
+  live_capture_reconfiguration_ignores_fps_and_pending_only_updates();
+  native_failure_reason_is_published_once_until_an_allowed_retry();
   capture_policy_excludes_media_and_retains_only_the_newest_frame();
   metal_unavailable_disables_real_capture_and_requests_stop();
   stopped_capture_rejects_late_frame_delivery();

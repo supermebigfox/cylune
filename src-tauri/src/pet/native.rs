@@ -245,7 +245,12 @@ pub struct TestRenderResult {
 pub struct PetNativeConfig {
     pub abi_version: u32,
     pub mode: u32,
+    pub effective_mode: u32,
+    pub has_position: u8,
     pub size: f64,
+    pub x: f64,
+    pub y: f64,
+    pub display_id: u64,
     pub fps: u32,
     pub visible: u8,
     pub pending_count: u32,
@@ -258,7 +263,12 @@ impl PetNativeConfig {
         Self {
             abi_version: ABI_VERSION,
             mode: MODE_LITE,
+            effective_mode: MODE_LITE,
+            has_position: 0,
             size,
+            x: 0.0,
+            y: 0.0,
+            display_id: 0,
             fps: fps_value(fps),
             visible: u8::from(visible),
             pending_count: 0,
@@ -268,19 +278,39 @@ impl PetNativeConfig {
     }
 
     pub fn from_settings(settings: &PetSettings, request_permission: bool) -> Self {
+        let position = settings
+            .x
+            .zip(settings.y)
+            .zip(settings.display_id)
+            .map(|((x, y), display_id)| (x, y, display_id));
         Self {
             abi_version: ABI_VERSION,
             mode: match settings.mode {
                 PetMode::Real => MODE_REAL,
                 PetMode::Lite => MODE_LITE,
             },
+            effective_mode: match settings.mode {
+                PetMode::Real => MODE_REAL,
+                PetMode::Lite => MODE_LITE,
+            },
+            has_position: u8::from(position.is_some()),
             size: f64::from(settings.size),
+            x: position.map_or(0.0, |value| value.0),
+            y: position.map_or(0.0, |value| value.1),
+            display_id: position.map_or(0, |value| value.2),
             fps: fps_value(settings.fps),
             visible: u8::from(settings.visible),
             pending_count: 0,
             reduce_motion: 0,
             request_permission: u8::from(request_permission),
         }
+    }
+
+    pub fn set_effective_mode(&mut self, mode: PetMode) {
+        self.effective_mode = match mode {
+            PetMode::Real => MODE_REAL,
+            PetMode::Lite => MODE_LITE,
+        };
     }
 }
 
@@ -778,16 +808,21 @@ mod tests {
     #[test]
     fn native_abi_and_raii_handle_are_stable() {
         assert_eq!(super::abi_version(), 1);
-        assert_eq!(size_of::<PetNativeConfig>(), 32);
+        assert_eq!(size_of::<PetNativeConfig>(), 64);
         assert_eq!(align_of::<PetNativeConfig>(), 8);
         assert_eq!(offset_of!(PetNativeConfig, abi_version), 0);
         assert_eq!(offset_of!(PetNativeConfig, mode), 4);
-        assert_eq!(offset_of!(PetNativeConfig, size), 8);
-        assert_eq!(offset_of!(PetNativeConfig, fps), 16);
-        assert_eq!(offset_of!(PetNativeConfig, visible), 20);
-        assert_eq!(offset_of!(PetNativeConfig, pending_count), 24);
-        assert_eq!(offset_of!(PetNativeConfig, reduce_motion), 28);
-        assert_eq!(offset_of!(PetNativeConfig, request_permission), 29);
+        assert_eq!(offset_of!(PetNativeConfig, effective_mode), 8);
+        assert_eq!(offset_of!(PetNativeConfig, size), 16);
+        assert_eq!(offset_of!(PetNativeConfig, has_position), 12);
+        assert_eq!(offset_of!(PetNativeConfig, x), 24);
+        assert_eq!(offset_of!(PetNativeConfig, y), 32);
+        assert_eq!(offset_of!(PetNativeConfig, display_id), 40);
+        assert_eq!(offset_of!(PetNativeConfig, fps), 48);
+        assert_eq!(offset_of!(PetNativeConfig, visible), 52);
+        assert_eq!(offset_of!(PetNativeConfig, pending_count), 56);
+        assert_eq!(offset_of!(PetNativeConfig, reduce_motion), 60);
+        assert_eq!(offset_of!(PetNativeConfig, request_permission), 61);
 
         let pet = NativePet::new(test_callback).unwrap();
         assert!(pet.apply(PetNativeConfig::lite(220.0, PetFps::Auto, true)));
@@ -858,5 +893,47 @@ mod tests {
             PetNativeConfig::from_settings(&settings, true).request_permission,
             1
         );
+    }
+
+    #[test]
+    fn requested_real_mode_can_render_the_lite_fallback_without_losing_intent() {
+        use crate::pet::{PetFps, PetMode, PetSettings};
+
+        let settings = PetSettings {
+            mode: PetMode::Real,
+            size: 220,
+            fps: PetFps::Fps60,
+            visible: true,
+            x: None,
+            y: None,
+            display_id: None,
+        };
+        let mut config = PetNativeConfig::from_settings(&settings, false);
+
+        config.set_effective_mode(PetMode::Lite);
+
+        assert_eq!(config.mode, super::MODE_REAL);
+        assert_eq!(config.effective_mode, super::MODE_LITE);
+        assert_eq!(config.fps, 60);
+    }
+
+    #[test]
+    fn persisted_position_is_carried_atomically_in_one_native_config() {
+        use crate::pet::{PetFps, PetMode, PetSettings};
+
+        let settings = PetSettings {
+            mode: PetMode::Lite,
+            size: 220,
+            fps: PetFps::Auto,
+            visible: true,
+            x: Some(-940.5),
+            y: Some(88.25),
+            display_id: Some(42),
+        };
+
+        let config = PetNativeConfig::from_settings(&settings, false);
+
+        assert_eq!(config.has_position, 1);
+        assert_eq!((config.x, config.y, config.display_id), (-940.5, 88.25, 42));
     }
 }

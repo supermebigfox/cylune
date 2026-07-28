@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 
@@ -25,6 +26,140 @@ struct PetScreenFrame {
   double height;
   double scale;
   uint32_t display_id;
+};
+
+inline double PetPanelIntersectionArea(PetPanelFrame panel,
+                                       PetScreenFrame display) {
+  const double left = std::max(panel.x, display.x);
+  const double bottom = std::max(panel.y, display.y);
+  const double right =
+      std::min(panel.x + panel.width, display.x + display.width);
+  const double top =
+      std::min(panel.y + panel.height, display.y + display.height);
+  return std::max(0.0, right - left) * std::max(0.0, top - bottom);
+}
+
+inline size_t PetGreatestIntersectionDisplayIndex(
+    PetPanelFrame panel, const PetScreenFrame *displays, size_t count) {
+  if (displays == nullptr || count == 0) {
+    return 0;
+  }
+  size_t selected = 0;
+  double greatest_area = PetPanelIntersectionArea(panel, displays[0]);
+  for (size_t index = 1; index < count; ++index) {
+    const double area = PetPanelIntersectionArea(panel, displays[index]);
+    if (area > greatest_area) {
+      selected = index;
+      greatest_area = area;
+    }
+  }
+  return selected;
+}
+
+inline PetPanelFrame PetClampPanelToDisplay(PetPanelFrame panel,
+                                            PetScreenFrame display,
+                                            double safe_inset) {
+  const double minimum_x = display.x + safe_inset;
+  const double maximum_x =
+      display.x + display.width - panel.width - safe_inset;
+  const double minimum_y = display.y + safe_inset;
+  const double maximum_y =
+      display.y + display.height - panel.height - safe_inset;
+  panel.x = minimum_x <= maximum_x
+                ? std::clamp(panel.x, minimum_x, maximum_x)
+                : display.x + (display.width - panel.width) / 2.0;
+  panel.y = minimum_y <= maximum_y
+                ? std::clamp(panel.y, minimum_y, maximum_y)
+                : display.y + (display.height - panel.height) / 2.0;
+  return panel;
+}
+
+class PetDragPersistenceGate {
+ public:
+  void begin() {
+    active_ = true;
+    dragged_ = false;
+    persisted_ = false;
+  }
+
+  void mark_dragged() {
+    if (active_) {
+      dragged_ = true;
+    }
+  }
+
+  bool dragged() const { return dragged_; }
+
+  bool should_persist(bool mouse_up) {
+    if (!active_ || !dragged_ || !mouse_up || persisted_) {
+      return false;
+    }
+    persisted_ = true;
+    active_ = false;
+    return true;
+  }
+
+ private:
+  bool active_ = false;
+  bool dragged_ = false;
+  bool persisted_ = false;
+};
+
+struct PetCaptureConfigurationKey {
+  uint32_t mode;
+  bool visible;
+  PetCaptureRegion region;
+};
+
+inline bool PetCaptureRegionsEqual(PetCaptureRegion lhs,
+                                   PetCaptureRegion rhs) {
+  return lhs.display_id == rhs.display_id &&
+         lhs.source_x == rhs.source_x && lhs.source_y == rhs.source_y &&
+         lhs.source_width == rhs.source_width &&
+         lhs.source_height == rhs.source_height &&
+         lhs.pixel_width == rhs.pixel_width &&
+         lhs.pixel_height == rhs.pixel_height;
+}
+
+inline bool PetCaptureConfigurationKeysEqual(
+    PetCaptureConfigurationKey lhs, PetCaptureConfigurationKey rhs) {
+  return lhs.mode == rhs.mode && lhs.visible == rhs.visible &&
+         PetCaptureRegionsEqual(lhs.region, rhs.region);
+}
+
+class PetCaptureConfigurationGate {
+ public:
+  bool should_configure(PetCaptureConfigurationKey key, bool force) {
+    if (!force && has_key_ &&
+        PetCaptureConfigurationKeysEqual(key_, key)) {
+      return false;
+    }
+    key_ = key;
+    has_key_ = true;
+    return true;
+  }
+
+  void invalidate() { has_key_ = false; }
+
+ private:
+  bool has_key_ = false;
+  PetCaptureConfigurationKey key_ = {};
+};
+
+class PetFaultLatch {
+ public:
+  bool report_once() {
+    if (reported_) {
+      return false;
+    }
+    reported_ = true;
+    return true;
+  }
+
+  void reset() { reported_ = false; }
+
+ private:
+  bool reported_ = false;
 };
 
 struct PetCapturePolicy {

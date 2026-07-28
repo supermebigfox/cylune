@@ -43,9 +43,13 @@ it("saves mode size fps and visibility immediately", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Real distortion" }));
   fireEvent.change(screen.getByLabelText("Black hole size"), { target: { value: "280" } });
   fireEvent.click(screen.getByRole("button", { name: "60 FPS" }));
-  await waitFor(() => expect(api.setPetSettings).toHaveBeenLastCalledWith(
-    expect.objectContaining({ fps: "fps60" }),
-  ));
+  fireEvent.click(screen.getByRole("button", { name: "Hide black hole" }));
+  await waitFor(() => {
+    expect(api.setPetSettings).toHaveBeenNthCalledWith(1, { mode: "real" });
+    expect(api.setPetSettings).toHaveBeenNthCalledWith(2, { size: 280 });
+    expect(api.setPetSettings).toHaveBeenNthCalledWith(3, { fps: "fps60" });
+    expect(api.setPetSettings).toHaveBeenNthCalledWith(4, { visible: false });
+  });
 });
 
 it("uses the exact 120 to 360 size range", async () => {

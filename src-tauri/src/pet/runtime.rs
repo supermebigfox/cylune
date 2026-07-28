@@ -357,6 +357,7 @@ struct RuntimeState {
 impl RuntimeState {
     fn config(&self, request_permission: bool) -> PetNativeConfig {
         let mut config = PetNativeConfig::from_settings(&self.settings, request_permission);
+        config.set_effective_mode(self.status().effective_mode);
         config.pending_count = self.pending_count;
         config
     }
@@ -386,6 +387,24 @@ impl RuntimeState {
 
         #[cfg(target_os = "macos")]
         return capture_status(self.settings.mode, self.capture_state, self.renderer_state);
+    }
+
+    fn reduce_native_status(&mut self, event: &NativeEvent) -> bool {
+        match event {
+            NativeEvent::PermissionChanged(capture_state) => {
+                self.capture_state = *capture_state;
+                true
+            }
+            NativeEvent::CaptureFailed => {
+                self.capture_state = NativeCaptureState::Failed;
+                true
+            }
+            NativeEvent::RendererUnavailable => {
+                self.renderer_state = NativeRendererState::Unavailable;
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -626,33 +645,227 @@ fn handle_native_event(app: &AppHandle, state: &Arc<Mutex<RuntimeState>>, event:
                 .lock()
                 .map_err(|_| AppError::Database("print lock poisoned".to_owned()))
                 .and_then(|mut service| persist_native_position(&mut service, x, y, display_id));
-            if let Err(error) = persisted {
-                eprintln!("pet position failed: {}", error.code());
+            match persisted {
+                Ok(()) => {
+                    let mut state = state
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    state.settings.x = Some(x);
+                    state.settings.y = Some(y);
+                    state.settings.display_id = Some(display_id);
+                }
+                Err(error) => {
+                    eprintln!("pet position failed: {}", error.code());
+                }
             }
         }
         NativeEvent::FileDropped(path) => import_from_pet(app, state, &path),
         // Enter/exit animations are applied synchronously by the native hit
         // target; consuming them here keeps business work off AppKit.
         NativeEvent::DropEntered | NativeEvent::DropExited => {}
-        NativeEvent::PermissionChanged(capture_state) => {
-            state
+        NativeEvent::PermissionChanged(_)
+        | NativeEvent::CaptureFailed
+        | NativeEvent::RendererUnavailable => {
+            let mut state = state
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .capture_state = capture_state;
-        }
-        NativeEvent::CaptureFailed => {
-            state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .capture_state = NativeCaptureState::Failed;
-        }
-        NativeEvent::RendererUnavailable => {
-            state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .renderer_state = NativeRendererState::Unavailable;
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.reduce_native_status(&event) {
+                // Keep the requested mode in the capture key while applying
+                // the effective Lite renderer after permission/capture/Metal
+                // failures. The native capture gate suppresses unchanged
+                // retries, so unrelated business events cannot spin capture.
+                state.apply(false);
+            }
         }
         NativeEvent::Sleep | NativeEvent::Wake => {}
+    }
+}
+
+#[cfg(test)]
+struct RecordingRuntimeNative {
+    configs: Arc<Mutex<Vec<PetNativeConfig>>>,
+    _identity: Arc<()>,
+}
+
+#[cfg(test)]
+impl RuntimeNative for RecordingRuntimeNative {
+    fn apply(&self, config: PetNativeConfig) -> bool {
+        self.configs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(config);
+        true
+    }
+
+    fn show(&self) {}
+    fn hide(&self) {}
+    fn reset(&self) {}
+    fn signal(&self, _signal: u32) {}
+
+    fn shutdown(self: Box<Self>) -> NativeShutdownState {
+        NativeShutdownState::Complete
+    }
+}
+
+#[cfg(test)]
+struct RuntimeCore {
+    service: PrintService,
+    state: Arc<Mutex<RuntimeState>>,
+    configs: Arc<Mutex<Vec<PetNativeConfig>>>,
+    native_identity: Arc<()>,
+    fixture: PathBuf,
+}
+
+#[cfg(test)]
+impl RuntimeCore {
+    fn for_test_with_mapped_fixture() -> Self {
+        use crate::{
+            imports::ToolMapping,
+            inventory::{InventoryService, NewSpool},
+            pet::PetFps,
+        };
+        use std::time::Duration;
+
+        let database = crate::db::AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+        let basic = inventory
+            .create_spool(NewSpool {
+                display_name: "Basic red".to_owned(),
+                preset_id: Some("Bambu PLA Basic @BBL A1".to_owned()),
+                brand: "Bambu Lab".to_owned(),
+                material: "PLA".to_owned(),
+                series: "Basic".to_owned(),
+                color_hex: "#FF0000".to_owned(),
+                remaining_grams: 1000.0,
+            })
+            .unwrap();
+        let matte = inventory
+            .create_spool(NewSpool {
+                display_name: "Matte green".to_owned(),
+                preset_id: Some("Bambu PLA Matte @BBL A1".to_owned()),
+                brand: "Bambu Lab".to_owned(),
+                material: "PLA".to_owned(),
+                series: "Matte".to_owned(),
+                color_hex: "#00FF00".to_owned(),
+                remaining_grams: 1000.0,
+            })
+            .unwrap();
+        inventory.mount_spool(1, basic).unwrap();
+        inventory.mount_spool(3, matte).unwrap();
+
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("bambu_multicolor.3mf");
+        let mut service =
+            PrintService::with_stability_delay(inventory.into_database(), Duration::ZERO);
+        let imported = service.import_print_file(&fixture).unwrap();
+        service
+            .confirm_job_mapping(
+                imported.job_id,
+                vec![
+                    ToolMapping {
+                        tool: 0,
+                        spool_id: basic,
+                    },
+                    ToolMapping {
+                        tool: 1,
+                        spool_id: matte,
+                    },
+                ],
+            )
+            .unwrap();
+
+        let configs = Arc::new(Mutex::new(Vec::new()));
+        let native_identity = Arc::new(());
+        let native = RecordingRuntimeNative {
+            configs: Arc::clone(&configs),
+            _identity: Arc::clone(&native_identity),
+        };
+        let state = Arc::new(Mutex::new(RuntimeState {
+            pet: NativeOwner::new(Box::new(native)),
+            settings: PetSettings {
+                mode: PetMode::Real,
+                size: 220,
+                fps: PetFps::Auto,
+                visible: true,
+                x: None,
+                y: None,
+                display_id: None,
+            },
+            pending_count: 1,
+            capture_state: NativeCaptureState::Ready,
+            renderer_state: NativeRendererState::Ready,
+        }));
+        state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .apply(false);
+
+        Self {
+            service,
+            state,
+            configs,
+            native_identity,
+            fixture,
+        }
+    }
+
+    fn reduce(&mut self, event: NativeEvent) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.reduce_native_status(&event) {
+            state.apply(false);
+        }
+    }
+
+    fn import_fixture(&mut self) -> Result<crate::imports::ImportPreview> {
+        self.service.import_print_file(&self.fixture)
+    }
+
+    fn settle_success(&mut self, job_id: Uuid) -> Result<()> {
+        self.service
+            .settle_job(job_id, crate::domain::JobOutcome::Success)?;
+        Ok(())
+    }
+
+    fn pending_summary(&self) -> Result<PendingSummary> {
+        self.service.pending_summary()
+    }
+
+    fn status(&self) -> PetStatus {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .status()
+    }
+
+    fn apply_settings(&mut self, settings: PetSettings) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.settings = settings;
+        state.apply(false);
+    }
+
+    fn last_native_config(&self) -> PetNativeConfig {
+        *self
+            .configs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .last()
+            .expect("recording native received a config")
+    }
+
+    fn service_identity(&self) -> usize {
+        std::ptr::from_ref(&self.service) as usize
+    }
+
+    fn native_identity(&self) -> usize {
+        Arc::as_ptr(&self.native_identity) as usize
     }
 }
 
@@ -870,7 +1083,7 @@ mod tests {
         capture_status, copy_native_event, handle_file_drop, pending_transition,
         persist_native_position, second_launch_actions, CallbackRegistration, CaptureEvent,
         CaptureState, InstanceAction, InstanceRecall, LifeAction, LifeEvent, LifeState,
-        NativeEvent, NativeOwner, PetRuntime, PetSignal, RuntimeNative, RuntimeState,
+        NativeEvent, NativeOwner, PetRuntime, PetSignal, RuntimeCore, RuntimeNative, RuntimeState,
     };
     use crate::pet::native::{
         NativeCaptureState, NativeRendererState, NativeShutdownState, PetNativeConfig,
@@ -1273,5 +1486,65 @@ mod tests {
             life.reduce(LifeEvent::Wake),
             vec![LifeAction::EnumerateDisplays, LifeAction::CheckPermission]
         );
+    }
+
+    #[test]
+    fn render_failure_does_not_block_import_or_settlement() {
+        let mut core = RuntimeCore::for_test_with_mapped_fixture();
+
+        core.reduce(NativeEvent::RendererUnavailable);
+        let imported = core.import_fixture().unwrap();
+        core.settle_success(imported.job_id).unwrap();
+
+        assert_eq!(core.pending_summary().unwrap().count, 0);
+        assert_eq!(core.status().effective_mode, PetMode::Lite);
+        assert_eq!(
+            core.status().fallback_reason.as_deref(),
+            Some("metal_unavailable")
+        );
+        assert_eq!(core.last_native_config().effective_mode, 1);
+    }
+
+    #[test]
+    fn capture_failure_keeps_the_same_import_and_settlement_core_alive() {
+        let mut core = RuntimeCore::for_test_with_mapped_fixture();
+        let service_identity = core.service_identity();
+
+        core.reduce(NativeEvent::CaptureFailed);
+        let imported = core.import_fixture().unwrap();
+        core.settle_success(imported.job_id).unwrap();
+
+        assert_eq!(core.service_identity(), service_identity);
+        assert_eq!(core.pending_summary().unwrap().count, 0);
+        assert_eq!(core.status().effective_mode, PetMode::Lite);
+        assert_eq!(
+            core.status().fallback_reason.as_deref(),
+            Some("capture_failed")
+        );
+        assert_eq!(core.last_native_config().effective_mode, 1);
+    }
+
+    #[test]
+    fn live_settings_reuse_the_business_service_and_native_owner() {
+        let mut core = RuntimeCore::for_test_with_mapped_fixture();
+        let service_identity = core.service_identity();
+        let native_identity = core.native_identity();
+
+        core.apply_settings(PetSettings {
+            mode: PetMode::Real,
+            size: 300,
+            fps: PetFps::Fps60,
+            visible: false,
+            x: None,
+            y: None,
+            display_id: None,
+        });
+
+        assert_eq!(core.service_identity(), service_identity);
+        assert_eq!(core.native_identity(), native_identity);
+        assert_eq!(core.last_native_config().size, 300.0);
+        assert_eq!(core.last_native_config().fps, 60);
+        assert_eq!(core.last_native_config().visible, 0);
+        assert!(core.import_fixture().is_ok());
     }
 }

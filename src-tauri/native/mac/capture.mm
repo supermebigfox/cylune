@@ -116,6 +116,7 @@ API_AVAILABLE(macos(12.3))
   BOOL _shuttingDown;
   dispatch_queue_t _shutdownQueue;
   std::vector<std::shared_ptr<PetStopCompletion>> _pendingStops;
+  PetFaultLatch _failure;
 }
 
 - (instancetype)initWithCallback:(PetCallback)callback {
@@ -150,9 +151,10 @@ API_AVAILABLE(macos(12.3))
 }
 
 - (void)failCapture {
+  const BOOL shouldReport = _failure.report_once();
   [self stopStreamAndReleaseFrame];
   [self setCaptureState:PET_CAPTURE_FAILED];
-  if (_callback != nullptr) {
+  if (shouldReport && _callback != nullptr) {
     _callback(kPetCallbackCaptureFailed, "capture_failed", 0.0, 0.0, 0);
   }
 }
@@ -194,6 +196,11 @@ API_AVAILABLE(macos(12.3))
       return;
     }
 
+    // BPPetHost calls this only for mode/visibility/display/region changes,
+    // explicit user permission actions, wake, or display reconfiguration.
+    // Those are the bounded retry points; ordinary FPS/pending updates never
+    // reach this service.
+    _failure.reset();
     [self enumerateAndStartRegion:region fps:fps];
   } else {
     [self stopStreamAndReleaseFrame];

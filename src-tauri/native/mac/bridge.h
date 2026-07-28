@@ -23,7 +23,12 @@ typedef void (*PetCallback)(uint32_t kind, const char *payload,
 typedef struct {
   uint32_t abi_version;
   uint32_t mode;
+  uint32_t effective_mode;
+  uint8_t has_position;
   double size;
+  double x;
+  double y;
+  uint64_t display_id;
   uint32_t fps;
   uint8_t visible;
   uint32_t pending_count;

@@ -12,6 +12,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <atomic>
+#include <vector>
 
 // CVDisplayLink remains the frame clock on macOS 10.15–14. The replacement
 // NSDisplayLink APIs start at macOS 14, so suppress only this intentional SDK
@@ -34,23 +35,33 @@ static const CGFloat kPetMaximumSize = 360.0;
 static const CGFloat kPetDragThreshold = 4.0;
 static const CGFloat kPetSafeInset = 16.0;
 
-static_assert(sizeof(PetConfig) == 32, "PetConfig ABI size changed");
+static_assert(sizeof(PetConfig) == 64, "PetConfig ABI size changed");
 static_assert(alignof(PetConfig) == 8, "PetConfig ABI alignment changed");
 static_assert(offsetof(PetConfig, abi_version) == 0,
               "PetConfig abi_version offset changed");
 static_assert(offsetof(PetConfig, mode) == 4,
               "PetConfig mode offset changed");
-static_assert(offsetof(PetConfig, size) == 8,
+static_assert(offsetof(PetConfig, effective_mode) == 8,
+              "PetConfig effective_mode offset changed");
+static_assert(offsetof(PetConfig, has_position) == 12,
+              "PetConfig has_position offset changed");
+static_assert(offsetof(PetConfig, size) == 16,
               "PetConfig size offset changed");
-static_assert(offsetof(PetConfig, fps) == 16,
+static_assert(offsetof(PetConfig, x) == 24,
+              "PetConfig x offset changed");
+static_assert(offsetof(PetConfig, y) == 32,
+              "PetConfig y offset changed");
+static_assert(offsetof(PetConfig, display_id) == 40,
+              "PetConfig display_id offset changed");
+static_assert(offsetof(PetConfig, fps) == 48,
               "PetConfig fps offset changed");
-static_assert(offsetof(PetConfig, visible) == 20,
+static_assert(offsetof(PetConfig, visible) == 52,
               "PetConfig visible offset changed");
-static_assert(offsetof(PetConfig, pending_count) == 24,
+static_assert(offsetof(PetConfig, pending_count) == 56,
               "PetConfig pending_count offset changed");
-static_assert(offsetof(PetConfig, reduce_motion) == 28,
+static_assert(offsetof(PetConfig, reduce_motion) == 60,
               "PetConfig reduce_motion offset changed");
-static_assert(offsetof(PetConfig, request_permission) == 29,
+static_assert(offsetof(PetConfig, request_permission) == 61,
               "PetConfig request_permission offset changed");
 
 @class BPPetHost;
@@ -805,6 +816,8 @@ static PetRendererBackend ProductionRendererBackend() {
   PetConfig _config;
   BOOL _hasConfig;
   BOOL _sleeping;
+  PetDragPersistenceGate _dragPersistence;
+  PetCaptureConfigurationGate _captureConfiguration;
 }
 
 - (instancetype)initWithCallback:(PetCallback)callback
@@ -898,27 +911,43 @@ static PetRendererBackend ProductionRendererBackend() {
   const NSRect oldFrame = self.panel.frame;
   const NSPoint center = NSMakePoint(NSMidX(oldFrame), NSMidY(oldFrame));
   const CGFloat size = (CGFloat)config.size;
-  NSRect frame =
-      NSMakeRect(center.x - size / 2.0, center.y - size / 2.0, size, size);
-  NSScreen *screen = [self screenForPanel];
+  const BOOL applyPersistedPosition =
+      config.has_position != 0 && !self.gestureActive;
+  NSRect frame = NSMakeRect(
+      applyPersistedPosition ? config.x : center.x - size / 2.0,
+      applyPersistedPosition ? config.y : center.y - size / 2.0, size, size);
+  NSScreen *screen = nil;
+  if (applyPersistedPosition) {
+    for (NSScreen *candidate in NSScreen.screens) {
+      NSNumber *number =
+          candidate.deviceDescription[@"NSScreenNumber"];
+      if (number.unsignedLongLongValue == config.display_id) {
+        screen = candidate;
+        break;
+      }
+    }
+    if (screen == nil) {
+      // A persisted secondary display disappeared while the app was closed.
+      // The first screen is the primary/menu-bar display on AppKit.
+      screen = NSScreen.mainScreen ?: NSScreen.screens.firstObject;
+    }
+  } else {
+    screen = [self screenForPanel];
+  }
   if (screen != nil) {
     const NSRect safeFrame = screen.visibleFrame;
-    const CGFloat minimumX = NSMinX(safeFrame) + kPetSafeInset;
-    const CGFloat maximumX = NSMaxX(safeFrame) - size - kPetSafeInset;
-    const CGFloat minimumY = NSMinY(safeFrame) + kPetSafeInset;
-    const CGFloat maximumY = NSMaxY(safeFrame) - size - kPetSafeInset;
-    frame.origin.x =
-        minimumX <= maximumX ? MIN(MAX(frame.origin.x, minimumX), maximumX)
-                             : NSMidX(safeFrame) - size / 2.0;
-    frame.origin.y =
-        minimumY <= maximumY ? MIN(MAX(frame.origin.y, minimumY), maximumY)
-                             : NSMidY(safeFrame) - size / 2.0;
+    const PetPanelFrame clamped = PetClampPanelToDisplay(
+        {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height},
+        {safeFrame.origin.x, safeFrame.origin.y, safeFrame.size.width,
+         safeFrame.size.height, screen.backingScaleFactor, 0},
+        kPetSafeInset);
+    frame.origin = NSMakePoint(clamped.x, clamped.y);
   }
   [self.panel setFrame:frame display:YES animate:NO];
   [self syncCoreHitTargetFrame];
   [self updateDisplaySelectionAndEmit:NO];
   [self.petView setReduceMotion:config.reduce_motion != 0];
-  [self.petView setMode:config.mode];
+  [self.petView setMode:config.effective_mode];
   [self.petView setFps:config.fps];
   [self.petView setPendingCount:config.pending_count];
 
@@ -957,6 +986,7 @@ static PetRendererBackend ProductionRendererBackend() {
   _windowLifecycle.hide();
   [self.petView setAnimating:NO];
   mac_capture_stop(_captureHandle);
+  _captureConfiguration.invalidate();
   [self.coreHitTargetPanel orderOut:nil];
   [self.panel orderOut:nil];
 }
@@ -984,6 +1014,7 @@ static PetRendererBackend ProductionRendererBackend() {
 - (void)beginGestureAt:(NSPoint)screenPoint {
   self.gestureActive = YES;
   self.gestureMoved = NO;
+  _dragPersistence.begin();
   self.gestureMouseOrigin = screenPoint;
   self.gesturePanelOrigin = self.panel.frame.origin;
 }
@@ -1000,11 +1031,12 @@ static PetRendererBackend ProductionRendererBackend() {
     return;
   }
   self.gestureMoved = YES;
+  _dragPersistence.mark_dragged();
   [self.panel
       setFrameOrigin:NSMakePoint(self.gesturePanelOrigin.x + delta.x,
                                  self.gesturePanelOrigin.y + delta.y)];
   [self syncCoreHitTargetFrame];
-  [self updateDisplaySelectionAndEmit:YES];
+  [self updateDisplaySelectionAndEmit:NO];
 }
 
 - (void)endGesture {
@@ -1012,6 +1044,7 @@ static PetRendererBackend ProductionRendererBackend() {
     return;
   }
   const BOOL moved = self.gestureMoved;
+  const BOOL shouldPersist = _dragPersistence.should_persist(true);
   self.gestureActive = NO;
   self.gestureMoved = NO;
   if (!moved) {
@@ -1025,24 +1058,18 @@ static PetRendererBackend ProductionRendererBackend() {
   if (screen != nil) {
     NSRect frame = self.panel.frame;
     const NSRect safeFrame = screen.visibleFrame;
-    const CGFloat minimumX = NSMinX(safeFrame) + kPetSafeInset;
-    const CGFloat maximumX =
-        NSMaxX(safeFrame) - NSWidth(frame) - kPetSafeInset;
-    const CGFloat minimumY = NSMinY(safeFrame) + kPetSafeInset;
-    const CGFloat maximumY =
-        NSMaxY(safeFrame) - NSHeight(frame) - kPetSafeInset;
-    frame.origin.x =
-        minimumX <= maximumX ? MIN(MAX(frame.origin.x, minimumX), maximumX)
-                             : NSMidX(safeFrame) - NSWidth(frame) / 2.0;
-    frame.origin.y =
-        minimumY <= maximumY ? MIN(MAX(frame.origin.y, minimumY), maximumY)
-                             : NSMidY(safeFrame) - NSHeight(frame) / 2.0;
+    const PetPanelFrame clamped = PetClampPanelToDisplay(
+        {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height},
+        {safeFrame.origin.x, safeFrame.origin.y, safeFrame.size.width,
+         safeFrame.size.height, screen.backingScaleFactor, 0},
+        kPetSafeInset);
+    frame.origin = NSMakePoint(clamped.x, clamped.y);
     [self.panel setFrameOrigin:frame.origin];
     [self syncCoreHitTargetFrame];
   }
-  [self updateDisplaySelectionAndEmit:YES];
+  [self updateDisplaySelectionAndEmit:NO];
   [self refreshCaptureWithPermissionRequest:NO];
-  if (_callback != nullptr) {
+  if (shouldPersist && _callback != nullptr) {
     const NSPoint origin = self.panel.frame.origin;
     _callback(kPetCallbackMoved, nullptr, origin.x, origin.y, self.displayID);
   }
@@ -1079,19 +1106,25 @@ static PetRendererBackend ProductionRendererBackend() {
 
 - (NSScreen *)screenForPanel {
   NSArray<NSScreen *> *screens = NSScreen.screens;
-  NSScreen *selected = screens.firstObject;
-  CGFloat greatestArea = -1.0;
-  const NSRect petFrame = self.panel.frame;
-  for (NSScreen *screen in screens) {
-    const NSRect intersection = NSIntersectionRect(petFrame, screen.frame);
-    const CGFloat area =
-        NSWidth(intersection) * NSHeight(intersection);
-    if (area > greatestArea) {
-      greatestArea = area;
-      selected = screen;
-    }
+  if (screens.count == 0) {
+    return nil;
   }
-  return selected;
+  const NSRect petFrame = self.panel.frame;
+  std::vector<PetScreenFrame> frames;
+  frames.reserve(screens.count);
+  for (NSScreen *screen in screens) {
+    const NSRect screenFrame = screen.frame;
+    NSNumber *screenNumber = screen.deviceDescription[@"NSScreenNumber"];
+    frames.push_back({screenFrame.origin.x, screenFrame.origin.y,
+                      screenFrame.size.width, screenFrame.size.height,
+                      screen.backingScaleFactor,
+                      screenNumber.unsignedIntValue});
+  }
+  const PetPanelFrame panel = {petFrame.origin.x, petFrame.origin.y,
+                               petFrame.size.width, petFrame.size.height};
+  const size_t selected =
+      PetGreatestIntersectionDisplayIndex(panel, frames.data(), frames.size());
+  return screens[selected];
 }
 
 - (void)updateDisplaySelectionAndEmit:(BOOL)emit {
@@ -1124,21 +1157,16 @@ static PetRendererBackend ProductionRendererBackend() {
   }
   NSRect frame = self.panel.frame;
   const NSRect safeFrame = screen.visibleFrame;
-  const CGFloat minimumX = NSMinX(safeFrame) + kPetSafeInset;
-  const CGFloat maximumX =
-      NSMaxX(safeFrame) - NSWidth(frame) - kPetSafeInset;
-  const CGFloat minimumY = NSMinY(safeFrame) + kPetSafeInset;
-  const CGFloat maximumY =
-      NSMaxY(safeFrame) - NSHeight(frame) - kPetSafeInset;
-  frame.origin.x =
-      minimumX <= maximumX ? MIN(MAX(frame.origin.x, minimumX), maximumX)
-                           : NSMidX(safeFrame) - NSWidth(frame) / 2.0;
-  frame.origin.y =
-      minimumY <= maximumY ? MIN(MAX(frame.origin.y, minimumY), maximumY)
-                           : NSMidY(safeFrame) - NSHeight(frame) / 2.0;
+  const PetPanelFrame clamped = PetClampPanelToDisplay(
+      {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height},
+      {safeFrame.origin.x, safeFrame.origin.y, safeFrame.size.width,
+       safeFrame.size.height, screen.backingScaleFactor, 0},
+      kPetSafeInset);
+  frame.origin = NSMakePoint(clamped.x, clamped.y);
   [self.panel setFrameOrigin:frame.origin];
   [self syncCoreHitTargetFrame];
   [self updateDisplaySelectionAndEmit:NO];
+  _captureConfiguration.invalidate();
   [self refreshCaptureWithPermissionRequest:NO];
   if (_callback != nullptr) {
     _callback(kPetCallbackDisplayChanged, nullptr, frame.origin.x,
@@ -1153,6 +1181,7 @@ static PetRendererBackend ProductionRendererBackend() {
   }
   _sleeping = YES;
   mac_capture_stop(_captureHandle);
+  _captureConfiguration.invalidate();
   [self.petView setAnimating:NO];
   if (_callback != nullptr) {
     _callback(kPetCallbackSleep, nullptr, 0.0, 0.0, self.displayID);
@@ -1187,15 +1216,23 @@ static PetRendererBackend ProductionRendererBackend() {
                               renderer.real_effect_available &&
                               !renderer.stop_capture;
   if (!captureVisible || _config.mode != 0) {
-    mac_capture_configure(_captureHandle, {}, _config.mode == 0,
-                          captureVisible, requestPermission,
-                          _config.fps);
+    const PetCaptureRegion emptyRegion = {};
+    const PetCaptureConfigurationKey key = {
+        _config.mode, captureVisible != NO, emptyRegion};
+    if (_captureConfiguration.should_configure(key, requestPermission)) {
+      mac_capture_configure(_captureHandle, emptyRegion, _config.mode == 0,
+                            captureVisible, requestPermission, _config.fps);
+    }
     return;
   }
   NSScreen *screen = [self screenForPanel];
   if (screen == nil) {
-    mac_capture_configure(_captureHandle, {}, true, false, requestPermission,
-                          _config.fps);
+    const PetCaptureRegion emptyRegion = {};
+    const PetCaptureConfigurationKey key = {_config.mode, false, emptyRegion};
+    if (_captureConfiguration.should_configure(key, requestPermission)) {
+      mac_capture_configure(_captureHandle, emptyRegion, true, false,
+                            requestPermission, _config.fps);
+    }
     return;
   }
   NSNumber *screenNumber = screen.deviceDescription[@"NSScreenNumber"];
@@ -1216,8 +1253,11 @@ static PetRendererBackend ProductionRendererBackend() {
       screenNumber.unsignedIntValue,
   };
   const PetCaptureRegion region = PetCaptureRegionForPanel(panel, display);
-  mac_capture_configure(_captureHandle, region, true, true, requestPermission,
-                        _config.fps);
+  const PetCaptureConfigurationKey key = {_config.mode, true, region};
+  if (_captureConfiguration.should_configure(key, requestPermission)) {
+    mac_capture_configure(_captureHandle, region, true, true,
+                          requestPermission, _config.fps);
+  }
 }
 
 - (void)rendererBecameUnavailable {
@@ -1343,8 +1383,12 @@ static bool IsValidConfig(PetConfig config) {
   const bool validFps =
       config.fps == 0 || config.fps == 30 || config.fps == 60;
   return config.abi_version == kPetAbiVersion && config.mode <= 1 &&
+         config.effective_mode <= 1 &&
+         config.has_position <= 1 &&
          isfinite(config.size) && config.size >= kPetMinimumSize &&
-         config.size <= kPetMaximumSize && validFps && config.visible <= 1 &&
+         config.size <= kPetMaximumSize &&
+         (!config.has_position || (isfinite(config.x) && isfinite(config.y))) &&
+         validFps && config.visible <= 1 &&
          config.reduce_motion <= 1 && config.request_permission <= 1;
 }
 
