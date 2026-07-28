@@ -503,6 +503,46 @@ class PetFrameRetention {
   std::atomic<bool> accepting_{false};
 };
 
+inline constexpr double PetMaximumCaptureFrameAgeSeconds() {
+  return 0.5;
+}
+
+class PetCaptureFrameFreshness {
+ public:
+  void complete_at(double now) {
+    if (!std::isfinite(now)) {
+      invalidate();
+      return;
+    }
+    has_frame_ = true;
+    last_observed_at_ = now;
+  }
+
+  void idle_at(double now) {
+    if (!has_frame_ || !std::isfinite(now) ||
+        now < last_observed_at_) {
+      return;
+    }
+    last_observed_at_ = now;
+  }
+
+  void invalidate() {
+    has_frame_ = false;
+    last_observed_at_ = 0.0;
+  }
+
+  bool reusable_at(double now) const {
+    return has_frame_ && std::isfinite(now) &&
+           now >= last_observed_at_ &&
+           now - last_observed_at_ <=
+               PetMaximumCaptureFrameAgeSeconds();
+  }
+
+ private:
+  bool has_frame_ = false;
+  double last_observed_at_ = 0.0;
+};
+
 enum class PetPermissionAction {
   kNone,
   kRequestSystemPermission,
@@ -648,6 +688,26 @@ inline bool PetPointInsideCore(double x, double y,
   const double dy = y - geometry.panel_side * 0.5;
   return std::isfinite(dx) && std::isfinite(dy) &&
          std::hypot(dx, dy) <= geometry.hit_radius;
+}
+
+enum class PetWindowLayer {
+  kDesktop,
+  kFloating,
+};
+
+struct PetWindowPresentation {
+  PetWindowLayer layer;
+  bool full_screen_auxiliary;
+  int core_level_offset;
+};
+
+inline constexpr PetWindowPresentation
+PetWindowPresentationForAlwaysOnTop(bool always_on_top) {
+  return always_on_top
+             ? PetWindowPresentation{
+                   PetWindowLayer::kFloating, true, 1}
+             : PetWindowPresentation{
+                   PetWindowLayer::kDesktop, false, 1};
 }
 
 class PetWindowLifecycle {

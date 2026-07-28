@@ -35,6 +35,25 @@ static const CGFloat kPetMinimumSize = 120.0;
 static const CGFloat kPetMaximumSize = 900.0;
 static const CGFloat kPetDragThreshold = 4.0;
 
+static NSWindowLevel PetVisualWindowLevel(
+    PetWindowPresentation presentation) {
+  return presentation.layer == PetWindowLayer::kFloating
+             ? NSFloatingWindowLevel
+             : CGWindowLevelForKey(kCGDesktopIconWindowLevelKey) + 1;
+}
+
+static NSWindowCollectionBehavior PetWindowBehavior(
+    PetWindowPresentation presentation) {
+  NSWindowCollectionBehavior behavior =
+      NSWindowCollectionBehaviorCanJoinAllSpaces |
+      NSWindowCollectionBehaviorStationary |
+      NSWindowCollectionBehaviorIgnoresCycle;
+  if (presentation.full_screen_auxiliary) {
+    behavior |= NSWindowCollectionBehaviorFullScreenAuxiliary;
+  }
+  return behavior;
+}
+
 typedef struct {
   BOOL valid;
   uint32_t fileKind;
@@ -1376,14 +1395,18 @@ static PetRendererBackend ProductionRendererBackend() {
     _coreHitTargetPanel.opaque = NO;
     _coreHitTargetPanel.backgroundColor = NSColor.clearColor;
     _coreHitTargetPanel.hasShadow = NO;
-    _coreHitTargetPanel.level = NSFloatingWindowLevel;
+    const PetWindowPresentation windowPresentation =
+        PetWindowPresentationForAlwaysOnTop(false);
+    const NSWindowLevel visualWindowLevel =
+        PetVisualWindowLevel(windowPresentation);
+    _coreHitTargetPanel.level =
+        visualWindowLevel + windowPresentation.core_level_offset;
     _coreHitTargetPanel.hidesOnDeactivate = NO;
     _coreHitTargetPanel.releasedWhenClosed = NO;
     _coreHitTargetPanel.restorable = NO;
     _coreHitTargetPanel.ignoresMouseEvents = NO;
     _coreHitTargetPanel.collectionBehavior =
-        NSWindowCollectionBehaviorCanJoinAllSpaces |
-        NSWindowCollectionBehaviorFullScreenAuxiliary;
+        PetWindowBehavior(windowPresentation);
 
     _coreHitTargetView =
         [[BPCoreHitTargetView alloc] initWithFrame:coreHitTargetFrame];
@@ -1633,15 +1656,15 @@ static PetRendererBackend ProductionRendererBackend() {
     pane.panel.opaque = NO;
     pane.panel.backgroundColor = NSColor.clearColor;
     pane.panel.hasShadow = NO;
-    pane.panel.level = NSFloatingWindowLevel;
+    const PetWindowPresentation windowPresentation =
+        PetWindowPresentationForAlwaysOnTop(false);
+    pane.panel.level = PetVisualWindowLevel(windowPresentation);
     pane.panel.hidesOnDeactivate = NO;
     pane.panel.releasedWhenClosed = NO;
     pane.panel.restorable = NO;
     pane.panel.ignoresMouseEvents = YES;
     pane.panel.collectionBehavior =
-        NSWindowCollectionBehaviorCanJoinAllSpaces |
-        NSWindowCollectionBehaviorFullScreenAuxiliary |
-        NSWindowCollectionBehaviorStationary;
+        PetWindowBehavior(windowPresentation);
 
     pane.petView =
         [[BPPetView alloc] initWithFrame:NSMakeRect(

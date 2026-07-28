@@ -512,6 +512,38 @@ static void stopped_capture_rejects_late_frame_delivery() {
   assert(!gate.accepting());
 }
 
+static void stale_or_suspended_capture_frames_are_never_reused() {
+  PetCaptureFrameFreshness freshness;
+  assert(!freshness.reusable_at(10.0));
+
+  freshness.complete_at(10.0);
+  assert(freshness.reusable_at(10.49));
+  assert(!freshness.reusable_at(10.51));
+
+  freshness.complete_at(20.0);
+  freshness.idle_at(20.4);
+  assert(freshness.reusable_at(20.89));
+  assert(!freshness.reusable_at(20.91));
+
+  freshness.complete_at(30.0);
+  freshness.invalidate();
+  assert(!freshness.reusable_at(30.01));
+}
+
+static void desktop_pet_stays_below_normal_application_windows() {
+  const PetWindowPresentation desktop =
+      PetWindowPresentationForAlwaysOnTop(false);
+  assert(desktop.layer == PetWindowLayer::kDesktop);
+  assert(!desktop.full_screen_auxiliary);
+  assert(desktop.core_level_offset == 1);
+
+  const PetWindowPresentation floating =
+      PetWindowPresentationForAlwaysOnTop(true);
+  assert(floating.layer == PetWindowLayer::kFloating);
+  assert(floating.full_screen_auxiliary);
+  assert(floating.core_level_offset == 1);
+}
+
 static void shutdown_waits_for_delayed_stop_before_release_and_destroy() {
   using namespace std::chrono_literals;
 
@@ -1091,6 +1123,8 @@ int main() {
   capture_policy_excludes_media_and_retains_only_the_newest_frame();
   metal_unavailable_disables_real_capture_and_requests_stop();
   stopped_capture_rejects_late_frame_delivery();
+  stale_or_suspended_capture_frames_are_never_reused();
+  desktop_pet_stays_below_normal_application_windows();
   shutdown_waits_for_delayed_stop_before_release_and_destroy();
   shutdown_timeout_is_stable_and_keeps_the_frame_gate_closed();
   shutdown_stop_error_is_stable();

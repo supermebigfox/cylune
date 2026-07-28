@@ -5,6 +5,7 @@
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <IOSurface/IOSurface.h>
+#import <QuartzCore/QuartzCore.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <dispatch/dispatch.h>
 #import <os/lock.h>
@@ -106,6 +107,20 @@ API_AVAILABLE(macos(12.3))
 - (instancetype)initWithCallback:(PetCallback)callback;
 @end
 
+static SCFrameStatus CaptureFrameStatus(
+    CMSampleBufferRef sampleBuffer) API_AVAILABLE(macos(12.3)) {
+  CFArrayRef attachments =
+      CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, false);
+  if (attachments == nullptr || CFArrayGetCount(attachments) == 0) {
+    return SCFrameStatusComplete;
+  }
+  NSDictionary *metadata =
+      (__bridge NSDictionary *)CFArrayGetValueAtIndex(attachments, 0);
+  NSNumber *status = metadata[SCStreamFrameInfoStatus];
+  return status == nil ? SCFrameStatusComplete
+                       : (SCFrameStatus)status.integerValue;
+}
+
 @implementation BPScreenCaptureService {
   PetCallback _callback;
   SCStream *_stream;
@@ -117,6 +132,7 @@ API_AVAILABLE(macos(12.3))
   BOOL _hasFrameRegion;
   void *_activeStreamIdentity;
   PetFrameRetention _frameRetention;
+  PetCaptureFrameFreshness _frameFreshness;
   NSUInteger _generation;
   uint32_t _captureState;
   PetCaptureRegion _activeRegion;
@@ -482,6 +498,7 @@ API_AVAILABLE(macos(12.3))
     os_unfair_lock_lock(&_surfaceLock);
     _activeStreamIdentity = (__bridge void *)stream;
     _frameRetention.start();
+    _frameFreshness.invalidate();
     os_unfair_lock_unlock(&_surfaceLock);
     __weak BPScreenCaptureService *weakSelf = self;
     [stream startCaptureWithCompletionHandler:^(NSError *startError) {
@@ -509,8 +526,27 @@ API_AVAILABLE(macos(12.3))
     didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
                   ofType:(SCStreamOutputType)type {
   if (@available(macOS 12.3, *)) {
-    if (type != SCStreamOutputTypeScreen ||
-        !CMSampleBufferDataIsReady(sampleBuffer)) {
+    if (type != SCStreamOutputTypeScreen) {
+      return;
+    }
+    const SCFrameStatus status = CaptureFrameStatus(sampleBuffer);
+    const double observedAt = CACurrentMediaTime();
+    if (status == SCFrameStatusIdle) {
+      os_unfair_lock_lock(&_surfaceLock);
+      if (_frameRetention.accepting() &&
+          _activeStreamIdentity == (__bridge void *)stream &&
+          _latestSurface != nullptr) {
+        _frameFreshness.idle_at(observedAt);
+      }
+      os_unfair_lock_unlock(&_surfaceLock);
+      return;
+    }
+    if (status != SCFrameStatusComplete &&
+        status != SCFrameStatusStarted) {
+      [self clearLatestSurfacePreservingStream];
+      return;
+    }
+    if (!CMSampleBufferDataIsReady(sampleBuffer)) {
       return;
     }
     CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
@@ -538,6 +574,7 @@ API_AVAILABLE(macos(12.3))
     if (acceptFrame) {
       _latestSurface = surface;
       _latestSurfaceRegion = _frameRegion;
+      _frameFreshness.complete_at(observedAt);
     }
     os_unfair_lock_unlock(&_surfaceLock);
     if (!acceptFrame) {
@@ -547,6 +584,18 @@ API_AVAILABLE(macos(12.3))
     if (previous != nullptr) {
       CFRelease(previous);
     }
+  }
+}
+
+- (void)clearLatestSurfacePreservingStream {
+  os_unfair_lock_lock(&_surfaceLock);
+  IOSurfaceRef previous = _latestSurface;
+  _latestSurface = nullptr;
+  _latestSurfaceRegion = {};
+  _frameFreshness.invalidate();
+  os_unfair_lock_unlock(&_surfaceLock);
+  if (previous != nullptr) {
+    CFRelease(previous);
   }
 }
 
@@ -597,6 +646,7 @@ API_AVAILABLE(macos(12.3))
   IOSurfaceRef previous = _latestSurface;
   _latestSurface = nullptr;
   _latestSurfaceRegion = {};
+  _frameFreshness.invalidate();
   _activeStreamIdentity = nullptr;
   os_unfair_lock_unlock(&_surfaceLock);
   if (previous != nullptr) {
@@ -622,6 +672,7 @@ API_AVAILABLE(macos(12.3))
   _frameRetention.stop();
   os_unfair_lock_lock(&_surfaceLock);
   _activeStreamIdentity = nullptr;
+  _frameFreshness.invalidate();
   os_unfair_lock_unlock(&_surfaceLock);
 
   if (@available(macOS 12.3, *)) {
@@ -683,13 +734,24 @@ API_AVAILABLE(macos(12.3))
   }
   os_unfair_lock_lock(&_surfaceLock);
   IOSurfaceRef surface = _latestSurface;
-  if (surface != nullptr) {
+  IOSurfaceRef expired = nullptr;
+  if (surface != nullptr &&
+      !_frameFreshness.reusable_at(CACurrentMediaTime())) {
+    expired = surface;
+    surface = nullptr;
+    _latestSurface = nullptr;
+    _latestSurfaceRegion = {};
+    _frameFreshness.invalidate();
+  } else if (surface != nullptr) {
     CFRetain(surface);
     if (regionOut != nullptr) {
       *regionOut = _latestSurfaceRegion;
     }
   }
   os_unfair_lock_unlock(&_surfaceLock);
+  if (expired != nullptr) {
+    CFRelease(expired);
+  }
   return surface;
 }
 
