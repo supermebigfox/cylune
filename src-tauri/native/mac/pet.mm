@@ -84,6 +84,7 @@ static_assert(offsetof(PetConfig, request_permission) == 61,
 - (void)pulse;
 - (void)displayLinkTick:(const CVTimeStamp *)outputTime;
 - (void)renderFrame;
+- (void)updateDrawableSize;
 @end
 
 @interface BPCoreHitTargetView : NSView
@@ -322,16 +323,7 @@ static PetRendererBackend ProductionRendererBackend() {
 - (void)layout {
   [super layout];
   const CGRect bounds = self.bounds;
-  if (_metalAvailable && [self.layer isKindOfClass:CAMetalLayer.class]) {
-    CAMetalLayer *metalLayer = (CAMetalLayer *)self.layer;
-    const CGFloat scale = self.window.backingScaleFactor > 0.0
-                              ? self.window.backingScaleFactor
-                              : NSScreen.mainScreen.backingScaleFactor;
-    metalLayer.contentsScale = scale;
-    metalLayer.drawableSize =
-        CGSizeMake(CGRectGetWidth(bounds) * scale,
-                   CGRectGetHeight(bounds) * scale);
-  }
+  [self updateDrawableSize];
   const CGFloat effectDiameter =
       MIN(CGRectGetWidth(bounds), CGRectGetHeight(bounds));
   const PetEventHorizonGeometry geometry =
@@ -401,6 +393,29 @@ static PetRendererBackend ProductionRendererBackend() {
   _signalLayer.path = signalPath;
   CGPathRelease(signalPath);
   [CATransaction commit];
+}
+
+- (void)viewDidChangeBackingProperties {
+  [super viewDidChangeBackingProperties];
+  [self updateDrawableSize];
+}
+
+- (void)updateDrawableSize {
+  if (!_metalAvailable || ![self.layer isKindOfClass:CAMetalLayer.class]) {
+    return;
+  }
+  CAMetalLayer *metalLayer = (CAMetalLayer *)self.layer;
+  CGFloat scale = self.window.backingScaleFactor;
+  if (scale <= 0.0) {
+    NSScreen *primary = NSScreen.screens.firstObject;
+    scale = primary == nil ? 1.0 : primary.backingScaleFactor;
+  }
+  const CGRect bounds = self.bounds;
+  const PetDrawableMetrics metrics = PetDrawableMetricsForLogicalSize(
+      CGRectGetWidth(bounds), CGRectGetHeight(bounds), scale);
+  metalLayer.contentsScale = metrics.contents_scale;
+  metalLayer.drawableSize =
+      CGSizeMake(metrics.pixel_width, metrics.pixel_height);
 }
 
 - (void)setMode:(uint32_t)mode {
@@ -918,18 +933,22 @@ static PetRendererBackend ProductionRendererBackend() {
       applyPersistedPosition ? config.y : center.y - size / 2.0, size, size);
   NSScreen *screen = nil;
   if (applyPersistedPosition) {
-    for (NSScreen *candidate in NSScreen.screens) {
+    NSArray<NSScreen *> *screens = NSScreen.screens;
+    std::vector<PetScreenFrame> frames;
+    frames.reserve(screens.count);
+    for (NSScreen *candidate in screens) {
+      const NSRect candidateFrame = candidate.frame;
       NSNumber *number =
           candidate.deviceDescription[@"NSScreenNumber"];
-      if (number.unsignedLongLongValue == config.display_id) {
-        screen = candidate;
-        break;
-      }
+      frames.push_back({candidateFrame.origin.x, candidateFrame.origin.y,
+                        candidateFrame.size.width, candidateFrame.size.height,
+                        candidate.backingScaleFactor,
+                        number.unsignedIntValue});
     }
-    if (screen == nil) {
-      // A persisted secondary display disappeared while the app was closed.
-      // The first screen is the primary/menu-bar display on AppKit.
-      screen = NSScreen.mainScreen ?: NSScreen.screens.firstObject;
+    if (!frames.empty()) {
+      const size_t selected = PetSavedDisplayOrPrimaryIndex(
+          config.display_id, frames.data(), frames.size());
+      screen = screens[selected];
     }
   } else {
     screen = [self screenForPanel];
@@ -992,7 +1011,7 @@ static PetRendererBackend ProductionRendererBackend() {
 }
 
 - (void)reset {
-  NSScreen *screen = NSScreen.mainScreen ?: NSScreen.screens.firstObject;
+  NSScreen *screen = NSScreen.screens.firstObject;
   if (screen == nil) {
     return;
   }

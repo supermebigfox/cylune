@@ -140,6 +140,37 @@ static void disconnected_panel_returns_to_primary_with_safe_inset() {
   assert(placed.height == 220.0);
 }
 
+static void missing_saved_display_uses_system_primary_not_focused_screen() {
+  const PetScreenFrame displays[] = {
+      {0.0, 0.0, 1512.0, 982.0, 2.0, 1},
+      {1512.0, 0.0, 1920.0, 1080.0, 1.0, 2},
+      {-1280.0, 0.0, 1280.0, 800.0, 1.0, 3},
+  };
+  const size_t focused_display_index = 2;
+
+  const size_t selected =
+      PetSavedDisplayOrPrimaryIndex(99, displays, 3);
+
+  assert(focused_display_index != 0);
+  assert(selected == 0);
+}
+
+static void backing_scale_updates_drawable_pixels_without_logical_resize() {
+  const PetDrawableMetrics one_x =
+      PetDrawableMetricsForLogicalSize(220.0, 220.0, 1.0);
+  const PetDrawableMetrics two_x =
+      PetDrawableMetricsForLogicalSize(220.0, 220.0, 2.0);
+
+  assert(one_x.contents_scale == 1.0);
+  assert(one_x.pixel_width == 220.0);
+  assert(one_x.pixel_height == 220.0);
+  assert(two_x.contents_scale == 2.0);
+  assert(two_x.pixel_width == 440.0);
+  assert(two_x.pixel_height == 440.0);
+  assert(one_x.logical_width == two_x.logical_width);
+  assert(one_x.logical_height == two_x.logical_height);
+}
+
 static void drag_persistence_is_emitted_only_once_on_mouse_up() {
   PetDragPersistenceGate gate;
 
@@ -553,6 +584,8 @@ int main() {
   capture_region_is_bounded_and_uses_retina_pixels();
   greatest_intersection_selects_the_new_display();
   disconnected_panel_returns_to_primary_with_safe_inset();
+  missing_saved_display_uses_system_primary_not_focused_screen();
+  backing_scale_updates_drawable_pixels_without_logical_resize();
   drag_persistence_is_emitted_only_once_on_mouse_up();
   live_capture_reconfiguration_ignores_fps_and_pending_only_updates();
   native_failure_reason_is_published_once_until_an_allowed_retry();

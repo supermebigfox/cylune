@@ -103,6 +103,8 @@ pub fn set_pet_settings(
 ) -> Result<PetView> {
     let request_permission = patch.mode == Some(PetMode::Real);
     let reset_position = patch.reset_position == Some(true);
+    let replace_position =
+        reset_position || patch.x.is_some() || patch.y.is_some() || patch.display_id.is_some();
     let service = state
         .lock()
         .map_err(|_| AppError::Database("print lock poisoned".to_owned()))?;
@@ -111,6 +113,10 @@ pub fn set_pet_settings(
     if reset_position {
         runtime.reset();
     }
-    runtime.apply_with_permission_request(settings.clone(), request_permission);
+    if replace_position && !reset_position {
+        runtime.apply_replacing_position(settings.clone(), request_permission);
+    } else {
+        runtime.apply_with_permission_request(settings.clone(), request_permission);
+    }
     Ok(pet_view(settings, runtime.status()))
 }

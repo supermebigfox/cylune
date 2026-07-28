@@ -354,6 +354,74 @@ struct RuntimeState {
     renderer_state: NativeRendererState,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PositionMerge {
+    PreserveRuntime,
+    Replace,
+}
+
+#[derive(Default)]
+struct RuntimeMutation {
+    serial: Mutex<()>,
+}
+
+impl RuntimeMutation {
+    fn apply_settings(
+        &self,
+        state: &Arc<Mutex<RuntimeState>>,
+        incoming: PetSettings,
+        request_permission: bool,
+        position_merge: PositionMerge,
+    ) -> bool {
+        let _serial = self
+            .serial
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let runtime_position = (
+            state.settings.x,
+            state.settings.y,
+            state.settings.display_id,
+        );
+        state.settings = incoming;
+        if position_merge == PositionMerge::PreserveRuntime {
+            state.settings.x = runtime_position.0;
+            state.settings.y = runtime_position.1;
+            state.settings.display_id = runtime_position.2;
+        }
+        state.apply(request_permission)
+    }
+
+    fn persist_position(
+        &self,
+        service: &mut PrintService,
+        state: &Arc<Mutex<RuntimeState>>,
+        x: f64,
+        y: f64,
+        display_id: u64,
+    ) -> Result<()> {
+        let _serial = self
+            .serial
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        persist_native_position(service, x, y, display_id)?;
+        let mut state = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.settings.x = Some(x);
+        state.settings.y = Some(y);
+        state.settings.display_id = Some(display_id);
+        // The native panel already moved, but this re-submission orders the
+        // newest position after any concurrent settings snapshot queued from
+        // another thread. The capture key suppresses a duplicate stream
+        // reconfiguration when the region is already current.
+        state.apply(false);
+        Ok(())
+    }
+}
+
 impl RuntimeState {
     fn config(&self, request_permission: bool) -> PetNativeConfig {
         let mut config = PetNativeConfig::from_settings(&self.settings, request_permission);
@@ -411,6 +479,7 @@ impl RuntimeState {
 pub struct PetRuntime {
     app: Option<AppHandle>,
     state: Arc<Mutex<RuntimeState>>,
+    mutation: Arc<RuntimeMutation>,
     callback: CallbackRegistration,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
@@ -437,12 +506,16 @@ impl PetRuntime {
             capture_state: initial_capture_state,
             renderer_state: NativeRendererState::Ready,
         }));
-        state
+        let mutation = Arc::new(RuntimeMutation::default());
+        let initial_settings = state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .apply(false);
+            .settings
+            .clone();
+        mutation.apply_settings(&state, initial_settings, false, PositionMerge::Replace);
         let worker_app = app.clone();
         let worker_state = Arc::downgrade(&state);
+        let worker_mutation = Arc::clone(&mutation);
         let worker = thread::Builder::new()
             .name("pet-runtime".to_owned())
             .spawn(move || {
@@ -450,13 +523,14 @@ impl PetRuntime {
                     let Some(state) = worker_state.upgrade() else {
                         break;
                     };
-                    handle_native_event(&worker_app, &state, event);
+                    handle_native_event(&worker_app, &state, &worker_mutation, event);
                 }
             })
             .expect("failed to start pet runtime worker");
         Ok(Self {
             app: Some(app),
             state,
+            mutation,
             callback,
             worker: Mutex::new(Some(worker)),
         })
@@ -472,18 +546,34 @@ impl PetRuntime {
         request_permission: bool,
     ) -> bool {
         let visible = settings.visible;
-        let applied = {
-            let mut state = self
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            state.settings = settings;
-            state.apply(request_permission)
-        };
+        let applied = self.mutation.apply_settings(
+            &self.state,
+            settings,
+            request_permission,
+            PositionMerge::PreserveRuntime,
+        );
         crate::tray::sync_pet_visibility(
             self.app.as_ref().expect("production runtime has an app"),
             visible,
         );
+        applied
+    }
+
+    pub fn apply_replacing_position(
+        &self,
+        settings: PetSettings,
+        request_permission: bool,
+    ) -> bool {
+        let visible = settings.visible;
+        let applied = self.mutation.apply_settings(
+            &self.state,
+            settings,
+            request_permission,
+            PositionMerge::Replace,
+        );
+        if let Some(app) = self.app.as_ref() {
+            crate::tray::sync_pet_visibility(app, visible);
+        }
         applied
     }
 
@@ -533,7 +623,7 @@ impl PetRuntime {
             });
         match saved {
             Ok(settings) => {
-                self.apply(settings);
+                self.apply_replacing_position(settings, false);
                 let state = self
                     .state
                     .lock()
@@ -635,7 +725,12 @@ impl Drop for PetRuntime {
     }
 }
 
-fn handle_native_event(app: &AppHandle, state: &Arc<Mutex<RuntimeState>>, event: NativeEvent) {
+fn handle_native_event(
+    app: &AppHandle,
+    state: &Arc<Mutex<RuntimeState>>,
+    mutation: &RuntimeMutation,
+    event: NativeEvent,
+) {
     match event {
         NativeEvent::Clicked => open_from_pet(app),
         NativeEvent::Moved { x, y, display_id }
@@ -644,19 +739,11 @@ fn handle_native_event(app: &AppHandle, state: &Arc<Mutex<RuntimeState>>, event:
                 .state::<PrintState>()
                 .lock()
                 .map_err(|_| AppError::Database("print lock poisoned".to_owned()))
-                .and_then(|mut service| persist_native_position(&mut service, x, y, display_id));
-            match persisted {
-                Ok(()) => {
-                    let mut state = state
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    state.settings.x = Some(x);
-                    state.settings.y = Some(y);
-                    state.settings.display_id = Some(display_id);
-                }
-                Err(error) => {
-                    eprintln!("pet position failed: {}", error.code());
-                }
+                .and_then(|mut service| {
+                    mutation.persist_position(&mut service, state, x, y, display_id)
+                });
+            if let Err(error) = persisted {
+                eprintln!("pet position failed: {}", error.code());
             }
         }
         NativeEvent::FileDropped(path) => import_from_pet(app, state, &path),
@@ -1083,7 +1170,8 @@ mod tests {
         capture_status, copy_native_event, handle_file_drop, pending_transition,
         persist_native_position, second_launch_actions, CallbackRegistration, CaptureEvent,
         CaptureState, InstanceAction, InstanceRecall, LifeAction, LifeEvent, LifeState,
-        NativeEvent, NativeOwner, PetRuntime, PetSignal, RuntimeCore, RuntimeNative, RuntimeState,
+        NativeEvent, NativeOwner, PetRuntime, PetSignal, PositionMerge, RuntimeCore,
+        RuntimeMutation, RuntimeNative, RuntimeState,
     };
     use crate::pet::native::{
         NativeCaptureState, NativeRendererState, NativeShutdownState, PetNativeConfig,
@@ -1098,7 +1186,7 @@ mod tests {
     use std::{
         ffi::CString,
         path::{Path, PathBuf},
-        sync::{atomic::AtomicBool, mpsc, Arc, Condvar, Mutex},
+        sync::{atomic::AtomicBool, mpsc, Arc, Barrier, Condvar, Mutex},
         thread,
         time::Duration,
     };
@@ -1372,6 +1460,7 @@ mod tests {
         let runtime = PetRuntime {
             app: None,
             state,
+            mutation: Arc::new(RuntimeMutation::default()),
             callback: CallbackRegistration {
                 active: AtomicBool::new(false),
             },
@@ -1546,5 +1635,131 @@ mod tests {
         assert_eq!(core.last_native_config().fps, 60);
         assert_eq!(core.last_native_config().visible, 0);
         assert!(core.import_fixture().is_ok());
+    }
+
+    #[test]
+    fn stale_settings_snapshot_cannot_overwrite_a_newer_mouse_up_position() {
+        let core = RuntimeCore::for_test_with_mapped_fixture();
+        {
+            let mut state = core
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.settings.x = Some(100.0);
+            state.settings.y = Some(80.0);
+            state.settings.display_id = Some(1);
+            state.apply(false);
+        }
+        PetStore::apply(
+            &core.service.database,
+            crate::pet::PetSettingsPatch {
+                x: Some(100.0),
+                y: Some(80.0),
+                display_id: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let service = Arc::new(Mutex::new(core.service));
+        let state = Arc::clone(&core.state);
+        let mutation = Arc::new(RuntimeMutation::default());
+        let settings_saved = Arc::new(Barrier::new(2));
+        let move_completed = Arc::new(Barrier::new(2));
+
+        let settings_thread = {
+            let service = Arc::clone(&service);
+            let state = Arc::clone(&state);
+            let mutation = Arc::clone(&mutation);
+            let settings_saved = Arc::clone(&settings_saved);
+            let move_completed = Arc::clone(&move_completed);
+            thread::spawn(move || {
+                let stale_snapshot = {
+                    let service = service
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    PetStore::apply(
+                        &service.database,
+                        crate::pet::PetSettingsPatch {
+                            size: Some(300),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap()
+                };
+                settings_saved.wait();
+                move_completed.wait();
+                mutation.apply_settings(
+                    &state,
+                    stale_snapshot,
+                    false,
+                    PositionMerge::PreserveRuntime,
+                );
+            })
+        };
+        let move_thread = {
+            let service = Arc::clone(&service);
+            let state = Arc::clone(&state);
+            let mutation = Arc::clone(&mutation);
+            let settings_saved = Arc::clone(&settings_saved);
+            let move_completed = Arc::clone(&move_completed);
+            thread::spawn(move || {
+                settings_saved.wait();
+                mutation
+                    .persist_position(
+                        &mut service
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner),
+                        &state,
+                        1700.0,
+                        120.0,
+                        2,
+                    )
+                    .unwrap();
+                move_completed.wait();
+            })
+        };
+
+        settings_thread.join().unwrap();
+        move_thread.join().unwrap();
+
+        let saved = PetStore::load(
+            &service
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .database,
+        )
+        .unwrap();
+        let runtime_settings = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .settings
+            .clone();
+        let last_config = *core
+            .configs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .last()
+            .unwrap();
+
+        assert_eq!(saved.size, 300);
+        assert_eq!(
+            (saved.x, saved.y, saved.display_id),
+            (Some(1700.0), Some(120.0), Some(2))
+        );
+        assert_eq!(runtime_settings.size, 300);
+        assert_eq!(
+            (
+                runtime_settings.x,
+                runtime_settings.y,
+                runtime_settings.display_id,
+            ),
+            (Some(1700.0), Some(120.0), Some(2))
+        );
+        assert_eq!(last_config.size, 300.0);
+        assert_eq!(
+            (last_config.x, last_config.y, last_config.display_id),
+            (1700.0, 120.0, 2)
+        );
     }
 }

@@ -28,6 +28,29 @@ struct PetScreenFrame {
   uint32_t display_id;
 };
 
+struct PetDrawableMetrics {
+  double logical_width;
+  double logical_height;
+  double contents_scale;
+  double pixel_width;
+  double pixel_height;
+};
+
+inline PetDrawableMetrics PetDrawableMetricsForLogicalSize(
+    double logical_width, double logical_height, double backing_scale) {
+  const double scale =
+      std::isfinite(backing_scale) && backing_scale > 0.0
+          ? backing_scale
+          : 1.0;
+  return {
+      logical_width,
+      logical_height,
+      scale,
+      logical_width * scale,
+      logical_height * scale,
+  };
+}
+
 inline double PetPanelIntersectionArea(PetPanelFrame panel,
                                        PetScreenFrame display) {
   const double left = std::max(panel.x, display.x);
@@ -54,6 +77,21 @@ inline size_t PetGreatestIntersectionDisplayIndex(
     }
   }
   return selected;
+}
+
+inline size_t PetSavedDisplayOrPrimaryIndex(
+    uint64_t saved_display_id, const PetScreenFrame *displays, size_t count) {
+  if (displays == nullptr || count == 0) {
+    return 0;
+  }
+  for (size_t index = 0; index < count; ++index) {
+    if (displays[index].display_id == saved_display_id) {
+      return index;
+    }
+  }
+  // AppKit guarantees NSScreen.screens[0] is the system primary/menu-bar
+  // display. Focus/key-window state must not affect recovery placement.
+  return 0;
 }
 
 inline PetPanelFrame PetClampPanelToDisplay(PetPanelFrame panel,
