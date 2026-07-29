@@ -36,6 +36,13 @@ int main() {
   assert(!drop.waitingForAck());
   assert(drop.enter(nullptr, PET_FILE_3MF) == 0);
 
+  PetDropSession cancelledHover;
+  assert(cancelledHover.enter("/tmp/cancelled.3mf", PET_FILE_3MF) != 0);
+  cancelledHover.cancelHover();
+  assert(cancelledHover.generation() == 0);
+  assert(cancelledHover.fileKind() == PET_FILE_NONE);
+  assert(!cancelledHover.waitingForAck());
+
   PetDropSession unsupported;
   const uint64_t unsupported_generation =
       unsupported.enter("/tmp/reference.png", PET_FILE_OTHER);

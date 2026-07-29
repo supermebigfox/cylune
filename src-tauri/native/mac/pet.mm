@@ -284,6 +284,7 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
   if (self.fileHovering) {
     self.fileHovering = NO;
     self.needsDisplay = YES;
+    [self.host dragExited];
   }
 }
 
