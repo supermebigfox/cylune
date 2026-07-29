@@ -1,10 +1,10 @@
 import { ArrowsClockwise, Eye, EyeSlash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { t, useLocale } from "../../i18n";
-import { api, type PetFps, type PetMode, type PetSettings, type PetSettingsPatch, type TauriApi } from "../../lib/tauri";
+import { api, type PetSettings, type PetSettingsPatch, type TauriApi } from "../../lib/tauri";
 
 const defaultPet: PetSettings = {
-  mode: "lite", visual_style: "gargantua", size: 220, fps: "auto", visible: true, x: null, y: null,
+  mode: "lite", visual_style: "gargantua", size: 220, fps: "auto", visible: false, x: null, y: null,
   display_id: null, effective_mode: "lite", permission: "unavailable",
   fallback_reason: null,
 };
@@ -59,7 +59,10 @@ export function Pet({ apiClient = api }: { apiClient?: TauriApi }) {
     });
   };
 
-  const statusCopy = settings.permission === "denied"
+  const enabled = settings.mode === "real";
+  const statusCopy = !enabled
+    ? null
+    : settings.permission === "denied"
     ? copy("pet.permissionDenied")
     : settings.permission === "restart_required"
       ? copy("pet.restartRequired")
@@ -79,8 +82,8 @@ export function Pet({ apiClient = api }: { apiClient?: TauriApi }) {
     <div className="pet-heading"><div><h2 id="pet-title">{copy("pet.title")}</h2><p>{copy("pet.powerHint")}</p></div></div>
     <div className="pet-controls">
       <fieldset><legend>{copy("pet.mode")}</legend><div className="segmented">
-        <button aria-pressed={settings.mode === "real"} className={settings.mode === "real" ? "active" : ""} onClick={() => save({ mode: "real" })}>{copy("pet.real")}</button>
-        <button aria-pressed={settings.mode === "lite"} className={settings.mode === "lite" ? "active" : ""} onClick={() => save({ mode: "lite" })}>{copy("pet.lite")}</button>
+        <button aria-pressed={enabled} className={enabled ? "active" : ""} onClick={() => save({ mode: "real", visible: true })}>{copy("pet.on")}</button>
+        <button aria-pressed={!enabled} className={!enabled ? "active" : ""} onClick={() => save({ mode: "lite", visible: false })}>{copy("pet.off")}</button>
       </div></fieldset>
       <fieldset><legend>{copy("pet.visualStyle")}</legend><div className="segmented">
         {(["gargantua", "fusion"] as const).map((visual_style) => <button key={visual_style} aria-pressed={settings.visual_style === visual_style} className={settings.visual_style === visual_style ? "active" : ""} onClick={() => save({ visual_style })}>{copy(`pet.${visual_style}`)}</button>)}
@@ -93,7 +96,7 @@ export function Pet({ apiClient = api }: { apiClient?: TauriApi }) {
       </div></fieldset>
     </div>
     <div className="pet-actions">
-      <button className="secondary small" onClick={() => save({ visible: !settings.visible })}>{settings.visible ? <EyeSlash size={16} /> : <Eye size={16} />}{settings.visible ? copy("pet.hide") : copy("pet.show")}</button>
+      <button className="secondary small" disabled={!enabled} onClick={() => save({ visible: !settings.visible })}>{settings.visible ? <EyeSlash size={16} /> : <Eye size={16} />}{settings.visible ? copy("pet.hide") : copy("pet.show")}</button>
       <button className="ghost small" onClick={() => save({ reset_position: true })}><ArrowsClockwise size={16} />{copy("pet.reset")}</button>
     </div>
     {statusCopy ? <p className="pet-notice">{statusCopy}</p> : null}

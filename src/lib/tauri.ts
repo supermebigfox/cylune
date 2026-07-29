@@ -204,9 +204,9 @@ function demoApi(): TauriApi {
   let spools = demoSpools.map((spool) => ({ ...spool }));
   let slots = demoSlots.map((slot) => ({ ...slot }));
   let pet: PetSettings = {
-    mode: "lite", visual_style: "gargantua", size: 220, fps: "auto", visible: true, x: null, y: null,
+    mode: "lite", visual_style: "gargantua", size: 220, fps: "auto", visible: false, x: null, y: null,
     display_id: null, effective_mode: "lite", permission: "unavailable",
-    fallback_reason: "native_not_started",
+    fallback_reason: null,
   };
   const refreshDemoStatuses = () => {
     const mounted = new Set(slots.flatMap((slot) => slot.spool_id ? [slot.spool_id] : []));

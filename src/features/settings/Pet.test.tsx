@@ -10,7 +10,7 @@ const defaultPet: PetSettings = {
   visual_style: "gargantua",
   size: 220,
   fps: "auto",
-  visible: true,
+  visible: false,
   x: null,
   y: null,
   display_id: null,
@@ -37,16 +37,52 @@ function renderPet(apiClient: TauriApi) {
   return render(<Theme><Pet apiClient={apiClient} /></Theme>);
 }
 
-it("saves mode size fps and visibility immediately", async () => {
-  const api = petApi({ mode: "lite", size: 220, fps: "auto", visible: true });
+it("starts off and disables hide or show for fresh settings", async () => {
+  renderPet(petApi({ mode: "lite", visible: false }));
+
+  expect(await screen.findByRole("button", { name: "Turn off" }))
+    .toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Show black hole" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Lightweight mode" }))
+    .not.toBeInTheDocument();
+});
+
+it("turns on atomically and unlocks visibility controls", async () => {
+  const apiClient = petApi({ mode: "lite", visible: false });
+  renderPet(apiClient);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Turn on" }));
+
+  await waitFor(() => {
+    expect(apiClient.setPetSettings)
+      .toHaveBeenLastCalledWith({ mode: "real", visible: true });
+  });
+  expect(screen.getByRole("button", { name: "Hide black hole" })).toBeEnabled();
+});
+
+it("turns off atomically and disables visibility controls", async () => {
+  const apiClient = petApi({ mode: "real", visible: true });
+  renderPet(apiClient);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Turn off" }));
+
+  await waitFor(() => {
+    expect(apiClient.setPetSettings)
+      .toHaveBeenLastCalledWith({ mode: "lite", visible: false });
+  });
+  expect(screen.getByRole("button", { name: "Show black hole" })).toBeDisabled();
+});
+
+it("saves enabled state size fps and visibility immediately", async () => {
+  const api = petApi({ mode: "lite", size: 220, fps: "auto", visible: false });
   renderPet(api);
   await screen.findByRole("heading", { name: "Desktop black hole" });
-  fireEvent.click(screen.getByRole("button", { name: "Real distortion" }));
+  fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
   fireEvent.change(screen.getByLabelText("Black hole size"), { target: { value: "280" } });
   fireEvent.click(screen.getByRole("button", { name: "60 FPS" }));
   fireEvent.click(screen.getByRole("button", { name: "Hide black hole" }));
   await waitFor(() => {
-    expect(api.setPetSettings).toHaveBeenNthCalledWith(1, { mode: "real" });
+    expect(api.setPetSettings).toHaveBeenNthCalledWith(1, { mode: "real", visible: true });
     expect(api.setPetSettings).toHaveBeenNthCalledWith(2, { size: 280 });
     expect(api.setPetSettings).toHaveBeenNthCalledWith(3, { fps: "fps60" });
     expect(api.setPetSettings).toHaveBeenNthCalledWith(4, { visible: false });
@@ -54,7 +90,7 @@ it("saves mode size fps and visibility immediately", async () => {
 });
 
 it("offers the exact scalable size presets and both visual styles", async () => {
-  const api = petApi({ mode: "lite", size: 220, fps: "auto", visible: true });
+  const api = petApi({ mode: "lite", size: 220, fps: "auto", visible: false });
   renderPet(api);
   const slider = await screen.findByLabelText("Black hole size");
   expect(screen.getByRole("button", { name: "300 px" })).toBeVisible();
@@ -80,14 +116,14 @@ it("serializes rapid changes before starting the next server write", async () =>
   const api = petApi({});
   api.setPetSettings = vi.fn().mockImplementationOnce(() => new Promise<PetSettings>((resolve) => {
     finishFirst = resolve;
-  })).mockResolvedValueOnce({ ...defaultPet, mode: "real", fps: "fps60" });
+  })).mockResolvedValueOnce({ ...defaultPet, mode: "real", fps: "fps60", visible: true });
   renderPet(api);
   await screen.findByRole("heading", { name: "Desktop black hole" });
-  fireEvent.click(screen.getByRole("button", { name: "Real distortion" }));
+  fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
   fireEvent.click(screen.getByRole("button", { name: "60 FPS" }));
 
   await waitFor(() => expect(api.setPetSettings).toHaveBeenCalledTimes(1));
-  finishFirst({ ...defaultPet, mode: "real" });
+  finishFirst({ ...defaultPet, mode: "real", visible: true });
   await waitFor(() => expect(api.setPetSettings).toHaveBeenLastCalledWith({ fps: "fps60" }));
 });
 
@@ -102,13 +138,14 @@ it("ignores a stale initial load after a newer save", async () => {
   await screen.findByRole("heading", { name: "Desktop black hole" });
   await waitFor(() => expect(api.getPetSettings).toHaveBeenCalledTimes(1));
 
-  fireEvent.click(screen.getByRole("button", { name: "Hide black hole" }));
-  await waitFor(() => expect(api.setPetSettings).toHaveBeenLastCalledWith({ visible: false }));
+  fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
+  await waitFor(() => expect(api.setPetSettings)
+    .toHaveBeenLastCalledWith({ mode: "real", visible: true }));
   resolveLoad(defaultPet);
 
-  expect(await screen.findByRole("button", { name: "Show black hole" })).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Show black hole" }));
-  await waitFor(() => expect(api.setPetSettings).toHaveBeenLastCalledWith({ visible: true }));
+  expect(await screen.findByRole("button", { name: "Hide black hole" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Hide black hole" }));
+  await waitFor(() => expect(api.setPetSettings).toHaveBeenLastCalledWith({ visible: false }));
 });
 
 it("rolls back optimistic changes and shows a localized error when saving fails", async () => {
@@ -118,21 +155,21 @@ it("rolls back optimistic changes and shows a localized error when saving fails"
   });
   renderPet(api);
   await screen.findByRole("heading", { name: "Desktop black hole" });
-  fireEvent.click(screen.getByRole("button", { name: "Real distortion" }));
+  fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
 
-  expect(screen.getByRole("button", { name: "Real distortion" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Turn on" })).toHaveAttribute("aria-pressed", "true");
   expect(await screen.findByRole("alert")).toHaveTextContent("Could not save desktop black hole settings");
-  expect(screen.getByRole("button", { name: "Lightweight mode" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Turn off" })).toHaveAttribute("aria-pressed", "true");
 });
 
 it.each([
-  ["native_not_started", "unavailable", "Desktop capture is not available; lightweight mode is active"],
-  ["platform_unsupported", "unavailable", "Real distortion is unavailable on this platform; lightweight mode is active"],
-  ["permission_not_determined", "not_determined", "Choose Real distortion to request Screen Recording access"],
-  ["permission_denied", "denied", "Screen recording permission is off; lightweight mode is active"],
+  ["native_not_started", "unavailable", "Desktop capture is unavailable; the black hole is using a compatible background"],
+  ["platform_unsupported", "unavailable", "Live distortion is unavailable on this platform; the black hole is using a compatible background"],
+  ["permission_not_determined", "not_determined", "Turn on the black hole to request Screen Recording access"],
+  ["permission_denied", "denied", "Screen Recording access is off; the black hole is using a compatible background"],
   ["permission_restart_required", "restart_required", "Permission changed. Restart the app."],
-  ["capture_failed", "granted", "Desktop capture stopped unexpectedly; lightweight mode is still active"],
-  ["metal_unavailable", "granted", "Metal is unavailable; lightweight mode is active"],
+  ["capture_failed", "granted", "Desktop capture stopped unexpectedly; the black hole is using a compatible background"],
+  ["metal_unavailable", "granted", "Metal is unavailable; the black hole is using a compatible background"],
 ] as const)("localizes stable fallback %s instead of rendering its raw code", async (
   fallbackReason,
   permission,
@@ -153,7 +190,7 @@ it.each([
   [
     "denied",
     "permission_denied",
-    "Screen recording permission is off; lightweight mode is active",
+    "Screen Recording access is off; the black hole is using a compatible background",
   ],
   [
     "restart_required",
@@ -173,8 +210,20 @@ it.each([
   }));
 
   expect(await screen.findByText(instruction)).toBeVisible();
-  expect(screen.getByRole("button", { name: "Real distortion" }))
+  expect(screen.getByRole("button", { name: "Turn on" }))
     .toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByRole("button", { name: "Lightweight mode" }))
+  expect(screen.getByRole("button", { name: "Turn off" }))
     .toHaveAttribute("aria-pressed", "false");
+});
+
+it.each([
+  ["zh-CN", "开启黑洞", "关闭黑洞"],
+  ["zh-TW", "開啟黑洞", "關閉黑洞"],
+  ["en", "Turn on", "Turn off"],
+] as const)("renders the black hole power control in %s", async (locale, on, off) => {
+  await setLocale(locale);
+  renderPet(petApi({ mode: "lite", visible: false }));
+
+  expect(await screen.findByRole("button", { name: on })).toBeVisible();
+  expect(screen.getByRole("button", { name: off })).toBeVisible();
 });
