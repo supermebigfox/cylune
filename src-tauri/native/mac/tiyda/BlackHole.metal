@@ -2,7 +2,7 @@
 #include <metal_stdlib>
 using namespace metal;
 
-struct Params { float2 resolution; float time, size, brightness, speed; uint style; float2 center; float ingestProgress, ejectProgress; };
+struct Params { float2 resolution; float time, size, brightness, speed; uint style; float2 center; float ingestProgress, ejectProgress, pullGain; };
 struct VertexOut { float4 position [[position]]; float2 uv; };
 struct Preset {
     float diskTemp, diskIncl, diskRoll, diskInner, diskOuter, diskOpacity, dopplerMix;
@@ -84,7 +84,7 @@ fragment float4 blackHoleFragment(VertexOut in [[stage_in]], texture2d<float> de
     Preset S=presetForStyle(P.style);
     float ingest=clamp(P.ingestProgress,0.0,1.0), eject=clamp(P.ejectProgress,0.0,1.0);
     float ingestPulse=sin(3.14159265*ingest), ejectPulse=sin(3.14159265*eject);
-    float activityGain=1.0+1.70*ingestPulse+1.10*ejectPulse;
+    float activityGain=max(P.pullGain,1.0)+1.70*ingestPulse+1.10*ejectPulse;
     float flowDirection=1.0-2.15*ejectPulse;
     float2 uv=in.uv, res=P.resolution; float aspect=res.x/res.y;
     float t=P.time*P.speed+ingest*5.50-eject*4.80;

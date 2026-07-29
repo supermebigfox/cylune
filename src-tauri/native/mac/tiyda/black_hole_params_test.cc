@@ -28,6 +28,14 @@ int main() {
   assert(BHShaderSizeForPixels(630.0f, 1000.0f) == 0.6f);
   assert(BHShaderSizeForPixels(630.0f, 0.0f) == 0.0f);
 
+  const BHHoverEffect idle = BHResolveHoverEffect(0.0f);
+  const BHHoverEffect nearbyFile = BHResolveHoverEffect(1.0f);
+  assert(nearbyFile.rotationRate > idle.rotationRate);
+  assert(nearbyFile.pullGain > idle.pullGain);
+  assert(BHHoverVisualDiameter(300.0f, nearbyFile) == 300.0f);
+  assert(BHAdvanceAnimationTime(4.0, 0.5, nearbyFile.rotationRate) >
+         BHAdvanceAnimationTime(4.0, 0.5, idle.rotationRate));
+
   const BHHostSettings fixed = {0.33f, 0.61f, 500.0f, 0, 1};
   for (unsigned refresh = 30; refresh <= 120; refresh += 30) {
     const BHResolvedSettings resolved = BHResolveSettings(fixed, refresh);

@@ -78,6 +78,7 @@ static const CGFloat kPetDragThreshold = 4.0;
 - (void)dragExited;
 - (void)setIngestProgress:(CGFloat)ingestProgress
             ejectProgress:(CGFloat)ejectProgress;
+- (void)setDropHovering:(BOOL)hovering;
 - (void)tickIngestAnimation;
 @end
 
@@ -411,6 +412,7 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
   CFAbsoluteTime _ingestStartedAt;
   CGFloat _ingestProgress;
   CGFloat _ejectProgress;
+  BOOL _dropHovering;
   BOOL _pendingDropSupported;
   uint64_t _pendingDropGeneration;
   NSString *_pendingDropPath;
@@ -538,14 +540,17 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
       _lifecycle.visible() && !_lifecycle.sleeping();
   const BOOL captureEnabled =
       activeRendering && _hasConfig && _config.effective_mode == 0;
+  const BHHoverEffect hoverEffect =
+      BHResolveHoverEffect(_dropHovering ? 1.0f : 0.0f);
   for (BHPetPane *pane in _panes) {
     const BOOL active = pane.displayID == _displayID;
     MetalBlackHoleView *view = pane.blackHoleView;
     view.hidden = !active;
     view.blackHoleCenterInScreen = _centerScreenPoint;
-    view.blackHoleSize = _visualSize;
+    view.blackHoleSize = BHHoverVisualDiameter(_visualSize, hoverEffect);
     view.blackHoleBrightness = 1.0f;
-    view.blackHoleSpeed = 1.0f;
+    view.blackHoleSpeed = hoverEffect.rotationRate;
+    view.blackHolePullGain = hoverEffect.pullGain;
     view.blackHoleIngestProgress = _ingestProgress;
     view.blackHoleEjectProgress = _ejectProgress;
     view.blackHoleStyle =
@@ -700,6 +705,7 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
   if (_callback != nullptr) {
     _callback(kPetCallbackDropEntered, nullptr, 0, 0, _displayID);
   }
+  [self setDropHovering:YES];
   return NSDragOperationCopy;
 }
 
@@ -708,6 +714,7 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
   const uint64_t generation = _dropSession.generation();
   const char *path = url.path.fileSystemRepresentation;
   if (!_dropSession.submit(generation, path)) return NO;
+  [self setDropHovering:NO];
   _pendingDropSupported =
       fileKind == PET_FILE_3MF || fileKind == PET_FILE_GCODE;
   _pendingDropGeneration = generation;
@@ -738,6 +745,12 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
     pane.blackHoleView.blackHoleIngestProgress = _ingestProgress;
     pane.blackHoleView.blackHoleEjectProgress = _ejectProgress;
   }
+}
+
+- (void)setDropHovering:(BOOL)hovering {
+  if (_dropHovering == hovering) return;
+  _dropHovering = hovering;
+  [self updatePanes];
 }
 
 - (void)tickIngestAnimation {
@@ -781,6 +794,7 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
 }
 
 - (void)dragExited {
+  [self setDropHovering:NO];
   _dropSession.cancelHover();
   if (_callback != nullptr) {
     _callback(kPetCallbackDropExited, nullptr, 0, 0, _displayID);
@@ -789,6 +803,7 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
 
 - (void)finishDrop:(uint64_t)generation result:(uint32_t)result {
   if (_dropSession.finish(generation, result)) {
+    [self setDropHovering:NO];
     _pendingDropGeneration = 0;
     _pendingDropPath = nil;
     _pendingDropSupported = NO;

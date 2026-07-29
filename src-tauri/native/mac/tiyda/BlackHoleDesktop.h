@@ -10,6 +10,7 @@ typedef NS_ENUM(uint32_t, BHStyle) {
 @property(nonatomic) CGFloat blackHoleSize;
 @property(nonatomic) float blackHoleBrightness;
 @property(nonatomic) float blackHoleSpeed;
+@property(nonatomic) float blackHolePullGain;
 @property(nonatomic) float blackHoleIngestProgress;
 @property(nonatomic) float blackHoleEjectProgress;
 @property(nonatomic) BHStyle blackHoleStyle;

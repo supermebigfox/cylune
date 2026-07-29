@@ -15,6 +15,7 @@ typedef struct {
     vector_float2 center;
     float ingestProgress;
     float ejectProgress;
+    float pullGain;
 } RenderParams;
 
 @interface MetalBlackHoleView () <MTKViewDelegate>
@@ -36,7 +37,8 @@ typedef struct {
     BOOL _captureErrorLogged;
     BOOL _captureEnabledLogged;
     CFAbsoluteTime _lastCaptureTime;
-    CFAbsoluteTime _startTime;
+    double _animationTime;
+    CFAbsoluteTime _lastFrameTime;
     BOOL _captureEnabled;
     uint64_t _captureGeneration;
 }
@@ -50,11 +52,13 @@ typedef struct {
     _blackHoleSize = 420.0;
     _blackHoleBrightness = 1.0f;
     _blackHoleSpeed = 1.0f;
+    _blackHolePullGain = 1.0f;
     _blackHoleIngestProgress = 0.0f;
     _blackHoleEjectProgress = 0.0f;
     _blackHoleStyle = BHStyleGargantua;
     _captureEnabled = YES;
-    _startTime = CFAbsoluteTimeGetCurrent();
+    _animationTime = 0.0;
+    _lastFrameTime = CFAbsoluteTimeGetCurrent();
     self.wantsLayer = YES;
     self.layer.opaque = NO;
 
@@ -108,6 +112,7 @@ typedef struct {
 
 - (void)setRenderingPaused:(BOOL)paused {
     _metalView.paused = paused;
+    _lastFrameTime = CFAbsoluteTimeGetCurrent();
 }
 
 - (BOOL)rendererAvailable {
@@ -290,18 +295,23 @@ typedef struct {
                                 (_blackHoleCenterInScreen.y - NSMinY(screenFrame)) /
                                     NSHeight(screenFrame)
                           : 0.5;
+    const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    _animationTime = BHAdvanceAnimationTime(
+        _animationTime, now - _lastFrameTime, _blackHoleSpeed);
+    _lastFrameTime = now;
     RenderParams params = {
         .resolution = {(float)view.drawableSize.width, (float)view.drawableSize.height},
-        .time = (float)(CFAbsoluteTimeGetCurrent() - _startTime),
+        .time = (float)_animationTime,
         .size = BHShaderSizeForPixels(
             (float)(_blackHoleSize * (screen ? screen.backingScaleFactor : 1.0)),
             (float)view.drawableSize.height),
         .brightness = _blackHoleBrightness,
-        .speed = _blackHoleSpeed,
+        .speed = 1.0f,
         .style = (uint32_t)_blackHoleStyle,
         .center = {(float)centerX, (float)centerY},
         .ingestProgress = _blackHoleIngestProgress,
         .ejectProgress = _blackHoleEjectProgress,
+        .pullGain = _blackHolePullGain,
     };
     id<MTLCommandBuffer> command = [_queue commandBuffer];
     id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:view.currentRenderPassDescriptor];
