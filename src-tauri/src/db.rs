@@ -6,7 +6,29 @@ const INITIAL_MIGRATION: &str = include_str!("../migrations/001_init.sql");
 const LEDGER_CREATION_MIGRATION: &str = include_str!("../migrations/002_ledger_creation.sql");
 const PRINT_JOBS_MIGRATION: &str = include_str!("../migrations/003_print_jobs.sql");
 const REPEAT_JOBS_MIGRATION: &str = include_str!("../migrations/004_repeat_jobs.sql");
-const CATALOG_MIGRATION: &str = include_str!("../migrations/005_catalog.sql");
+const CATALOG_INDEX_MIGRATION: &str = include_str!("../migrations/005_catalog.sql");
+const CATALOG_COLUMN_MIGRATIONS: [(&str, &str); 5] = [
+    (
+        "catalog_id",
+        "ALTER TABLE spools ADD COLUMN catalog_id TEXT",
+    ),
+    (
+        "color_name",
+        "ALTER TABLE spools ADD COLUMN color_name TEXT",
+    ),
+    (
+        "color_code",
+        "ALTER TABLE spools ADD COLUMN color_code TEXT",
+    ),
+    (
+        "color_hexes",
+        "ALTER TABLE spools ADD COLUMN color_hexes TEXT",
+    ),
+    (
+        "preset_base",
+        "ALTER TABLE spools ADD COLUMN preset_base TEXT",
+    ),
+];
 
 pub struct AppDatabase {
     pub(crate) connection: Connection,
@@ -22,7 +44,7 @@ impl AppDatabase {
         Self::from_connection(Connection::open_in_memory()?)
     }
 
-    fn from_connection(connection: Connection) -> Result<Self> {
+    fn from_connection(mut connection: Connection) -> Result<Self> {
         connection.execute_batch(INITIAL_MIGRATION)?;
         if !ledger_supports_creation(&connection)? {
             connection.execute_batch(LEDGER_CREATION_MIGRATION)?;
@@ -36,9 +58,7 @@ impl AppDatabase {
         if table_exists(&connection, "job_imports")? && !table_exists(&connection, "parse_cache")? {
             connection.execute_batch(REPEAT_JOBS_MIGRATION)?;
         }
-        if !column_exists(&connection, "spools", "catalog_id")? {
-            connection.execute_batch(CATALOG_MIGRATION)?;
-        }
+        ensure_catalog_schema(&mut connection)?;
         Ok(Self { connection })
     }
 
@@ -71,6 +91,18 @@ fn column_exists(connection: &Connection, table: &str, column: &str) -> Result<b
     Ok(exists != 0)
 }
 
+fn ensure_catalog_schema(connection: &mut Connection) -> Result<()> {
+    let transaction = connection.transaction()?;
+    for (column, migration) in CATALOG_COLUMN_MIGRATIONS {
+        if !column_exists(&transaction, "spools", column)? {
+            transaction.execute(migration, [])?;
+        }
+    }
+    transaction.execute_batch(CATALOG_INDEX_MIGRATION)?;
+    transaction.commit()?;
+    Ok(())
+}
+
 fn ledger_supports_creation(connection: &Connection) -> Result<bool> {
     let definition: String = connection.query_row(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ledger_events'",
@@ -85,6 +117,30 @@ mod tests {
     use super::{column_exists, AppDatabase, INITIAL_MIGRATION, PRINT_JOBS_MIGRATION};
     use crate::{domain::SpoolStatus, inventory::InventoryService};
     use rusqlite::{Connection, OptionalExtension};
+
+    const CATALOG_COLUMNS: [&str; 5] = [
+        "catalog_id",
+        "color_name",
+        "color_code",
+        "color_hexes",
+        "preset_base",
+    ];
+
+    fn legacy_connection_with_catalog_sql(sql: &str) -> Connection {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INITIAL_MIGRATION).unwrap();
+        connection.execute_batch(sql).unwrap();
+        connection
+    }
+
+    fn assert_all_catalog_columns_exist(connection: &Connection) {
+        for column in CATALOG_COLUMNS {
+            assert!(
+                column_exists(connection, "spools", column).unwrap(),
+                "missing catalog column {column}"
+            );
+        }
+    }
 
     #[test]
     fn migration_creates_inventory_tables() {
@@ -105,15 +161,207 @@ mod tests {
     #[test]
     fn catalog_migration_adds_nullable_spool_metadata() {
         let database = AppDatabase::open_in_memory().unwrap();
-        for column in [
-            "catalog_id",
-            "color_name",
-            "color_code",
-            "color_hexes",
-            "preset_base",
-        ] {
-            assert!(column_exists(&database.connection, "spools", column).unwrap());
+        assert_all_catalog_columns_exist(&database.connection);
+    }
+
+    #[test]
+    fn catalog_migration_repairs_schema_with_only_catalog_id() {
+        let connection =
+            legacy_connection_with_catalog_sql("ALTER TABLE spools ADD COLUMN catalog_id TEXT;");
+
+        let database = AppDatabase::from_connection(connection).unwrap();
+
+        assert_all_catalog_columns_exist(&database.connection);
+    }
+
+    #[test]
+    fn catalog_migration_repairs_schema_with_color_name_but_no_catalog_id() {
+        let connection =
+            legacy_connection_with_catalog_sql("ALTER TABLE spools ADD COLUMN color_name TEXT;");
+
+        let database = AppDatabase::from_connection(connection).unwrap();
+
+        assert_all_catalog_columns_exist(&database.connection);
+    }
+
+    #[test]
+    fn catalog_migration_preserves_existing_spool_in_a_partial_schema() {
+        let connection = legacy_connection_with_catalog_sql(
+            "
+            ALTER TABLE spools ADD COLUMN catalog_id TEXT;
+            ALTER TABLE spools ADD COLUMN color_name TEXT;
+            INSERT INTO spools (
+                spool_id,
+                display_name,
+                catalog_id,
+                color_name,
+                brand,
+                material,
+                series,
+                color_hex,
+                remaining_grams,
+                status
+            ) VALUES (
+                '11111111-1111-4111-8111-111111111111',
+                'Existing catalog spool',
+                'bambu:GFA00:10100',
+                'Jade White',
+                'Bambu Lab',
+                'PLA',
+                'Basic',
+                '#FFFFFF',
+                812.5,
+                'available'
+            );
+            ",
+        );
+
+        let database = AppDatabase::from_connection(connection).unwrap();
+
+        assert_all_catalog_columns_exist(&database.connection);
+        let spool = database
+            .connection
+            .query_row(
+                "SELECT display_name, catalog_id, color_name, brand, material, series, color_hex, remaining_grams, status
+                 FROM spools
+                 WHERE spool_id = '11111111-1111-4111-8111-111111111111'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, f64>(7)?,
+                        row.get::<_, String>(8)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            spool,
+            (
+                "Existing catalog spool".to_owned(),
+                Some("bambu:GFA00:10100".to_owned()),
+                Some("Jade White".to_owned()),
+                "Bambu Lab".to_owned(),
+                "PLA".to_owned(),
+                "Basic".to_owned(),
+                "#FFFFFF".to_owned(),
+                812.5,
+                "available".to_owned(),
+            )
+        );
+    }
+
+    #[test]
+    fn complete_catalog_schema_can_be_initialized_again_without_side_effects() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        database
+            .connection
+            .execute(
+                "INSERT INTO spools (
+                    spool_id,
+                    display_name,
+                    preset_id,
+                    catalog_id,
+                    color_name,
+                    color_code,
+                    color_hexes,
+                    preset_base,
+                    brand,
+                    material,
+                    series,
+                    color_hex,
+                    remaining_grams,
+                    status
+                ) VALUES (
+                    '11111111-1111-4111-8111-111111111111',
+                    'Complete catalog spool',
+                    'Bambu PLA Basic @BBL A1',
+                    'bambu:GFA00:10100',
+                    'Jade White',
+                    '10100',
+                    '[\"#FFFFFF\"]',
+                    'Bambu PLA Basic',
+                    'Bambu Lab',
+                    'PLA',
+                    'Basic',
+                    '#FFFFFF',
+                    812.5,
+                    'available'
+                )",
+                [],
+            )
+            .unwrap();
+        let before_schema: Vec<(String, String)> = database
+            .connection
+            .prepare("SELECT name, type FROM pragma_table_info('spools') ORDER BY cid")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+
+        let reopened = AppDatabase::from_connection(database.connection).unwrap();
+
+        assert_all_catalog_columns_exist(&reopened.connection);
+        let after_schema: Vec<(String, String)> = reopened
+            .connection
+            .prepare("SELECT name, type FROM pragma_table_info('spools') ORDER BY cid")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(after_schema, before_schema);
+        assert_eq!(
+            reopened
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM spools
+                     WHERE spool_id = '11111111-1111-4111-8111-111111111111'
+                       AND catalog_id = 'bambu:GFA00:10100'
+                       AND color_name = 'Jade White'
+                       AND color_code = '10100'
+                       AND color_hexes = '[\"#FFFFFF\"]'
+                       AND preset_base = 'Bambu PLA Basic'",
+                    [],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn catalog_migration_rolls_back_all_columns_when_a_later_statement_fails() {
+        let path = std::env::temp_dir().join(format!(
+            "bambu-pools-catalog-rollback-{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        {
+            let connection = Connection::open(&path).unwrap();
+            connection.execute_batch(INITIAL_MIGRATION).unwrap();
+            connection
+                .execute("CREATE TABLE idx_spools_catalog (marker TEXT)", [])
+                .unwrap();
         }
+
+        assert!(AppDatabase::open(&path).is_err());
+
+        let connection = Connection::open(&path).unwrap();
+        for column in CATALOG_COLUMNS {
+            assert!(
+                !column_exists(&connection, "spools", column).unwrap(),
+                "catalog migration left {column} behind after rollback"
+            );
+        }
+        drop(connection);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
