@@ -14,3 +14,11 @@ test("keeps every gradient color in order", () => {
     "linear-gradient(135deg, #8EC9E9 0%, #E7C1D5 100%)",
   );
 });
+
+test("exposes its primary color to the theme-aware outline", () => {
+  render(<Swatch colors={["#8EC9E9", "#E7C1D5"]} />);
+
+  expect(screen.getByTestId("swatch")).toHaveStyle({
+    "--swatch": "#8EC9E9",
+  });
+});

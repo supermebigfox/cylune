@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 export function Swatch({
   colors,
   size = "small",
@@ -21,7 +23,7 @@ export function Swatch({
       data-testid="swatch"
       aria-hidden="true"
       className={`swatch swatch-${size}`}
-      style={{ background }}
+      style={{ "--swatch": safe[0], background } as CSSProperties}
     />
   );
 }
