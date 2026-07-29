@@ -64,18 +64,18 @@ float2 inwardAccretionFlow(float2 p, float plen, float rh, float t) {
     // appear at a smaller output radius: a one-way inward pull. The noise
     // coordinates advance toward smaller radii while rotating in one
     // direction, so the flow spirals inward without a water-wave reversal.
-    float stream=noise(float2(angle*1.65-t*.72,normalizedRadius*2.10+t*2.05));
-    float filament=noise(float2(angle*4.60-t*1.18,normalizedRadius*3.70+t*2.85));
+    float stream=noise(float2(angle*1.65-t*.96,normalizedRadius*2.10+t*2.62));
+    float filament=noise(float2(angle*4.60-t*1.52,normalizedRadius*3.70+t*3.48));
     float spiralInflow=contour;
-    float radialPull=safeRadius*fullSurfaceEnvelope*(1.18+1.12*spiralInflow+.70*stream);
-    float rotationalPull=safeRadius*fullSurfaceEnvelope*(.78+.68*spiralInflow+.38*filament);
+    float radialPull=safeRadius*fullSurfaceEnvelope*(1.38+1.30*spiralInflow+.82*stream);
+    float rotationalPull=safeRadius*fullSurfaceEnvelope*(1.02+.92*spiralInflow+.52*filament);
     return radial*radialPull+tangent*rotationalPull;
 }
 float3 blackbody(float T) { float t=clamp(T,1500.0f,40000.0f)/100.0f; float r=t<=66?1.0:clamp(1.292936*pow(t-60.0,-0.1332047),0.0,1.0); float g=t<=66?clamp(0.3900816*log(t)-0.6318414,0.0,1.0):clamp(1.1298909*pow(t-60.0,-0.0755148),0.0,1.0); float b=t>=66?1.0:(t<=19?0.0:clamp(0.5432068*log(t-10.0)-1.196254,0.0,1.0)); return float3(r,g,b); }
 float3 diskTintForStyle(uint style, float heat) {
     float h=clamp(heat,0.0,1.0);
-    if(style==1) return mix(float3(1.00,.13,.015),float3(1.00,.64,.075),h);
-    return mix(float3(.18,.24,1.00),float3(.76,.16,1.00),h);
+    if(style==1) return mix(float3(.46,.012,.002),float3(1.00,.25,.012),h);
+    return mix(float3(.025,.012,.34),float3(.40,.025,.92),h);
 }
 
 fragment float4 blackHoleFragment(VertexOut in [[stage_in]], texture2d<float> desktop [[texture(0)]], constant Params &P [[buffer(0)]]) {
@@ -93,7 +93,7 @@ fragment float4 blackHoleFragment(VertexOut in [[stage_in]], texture2d<float> de
     float W=B/max(rh,0.0001); float2 pr=rot(float2(p.x,-p.y),S.diskRoll)*W; float b=length(pr);
     if (b>S.diskOuter+3.0) { float defl=(2.0/(W*W))/max(plen,.0001)*(13.0/window*window)*window; float2 s=mirrorUV(center+(p+spacetimeFlow-normalize(p)*defl)/float2(aspect,1)); return float4(desktop.sample(linearSampler,wallpaperUV(s,desktop,res)).rgb,mask); }
     float3 x=float3(pr,Z0), v=float3(0,0,-1), prev=x; float h2=dot(pr,pr); float3 n=float3(0,sin(S.diskIncl),cos(S.diskIncl)); float prevPlane=dot(x,n); float3 emission=0; float trans=1; bool captured=false;
-    for(uint i=0;i<40;i++) { float r2=dot(x,x); if(r2<1){captured=true;break;} if(x.z < -Z0 && v.z<0) break; float r=sqrt(r2), dt=clamp(.16*r,.03,1.5); float3 a=-1.5*h2*x/(r2*r2*r); v+=a*.5*dt; x+=v*dt; r2=dot(x,x); r=sqrt(r2); a=-1.5*h2*x/(r2*r2*r); v+=a*.5*dt; float plane=dot(x,n); if(plane*prevPlane<0 && trans>.02) { float f=prevPlane/(prevPlane-plane); float3 hit=mix(prev,x,f); float rc=length(hit); if(rc>S.diskInner && rc<S.diskOuter) { float phi=atan2(dot(hit,float3(0,cos(S.diskIncl),-sin(S.diskIncl))),hit.x); float grain=noise(float2(rc*2.8+phi*S.diskWind*.12,phi*3.0-t*S.diskSpeed*.55)); float contrastMix=clamp(S.diskContrast*.5,0.0,1.0); float streak=mix(1.0,.25+1.9*pow(grain,1.0+S.diskContrast),contrastMix); float band=smoothstep(S.diskInner,S.diskInner+.45,rc)*(1.0-smoothstep(max(S.diskInner+.5,S.diskOuter-2.4),S.diskOuter,rc)); float beta=clamp(rsqrt(max(2.0*(rc-1.0),.2)),0.0,.99); float gPhysics=sqrt(max(1.0-1.5/rc,.02))/max(1.0+beta*dot(normalize(cross(n,hit)),normalize(v)),.05); float g=mix(1.0,gPhysics,S.dopplerMix); float temp=pow(S.diskInner/rc,.75)*pow(max(1.0-sqrt(S.diskInner/rc),0.0),.25)/.488; float diskLuminousFlow=.68+1.18*pow(.5+.5*cos(phi*2.0-t*S.diskSpeed*1.35+rc*.82),8.0); float density=band*streak; emission+=trans*blackbody(S.diskTemp*temp*g)*(4.8*S.diskGain*density*diskLuminousFlow*temp*temp*pow(g,S.diskBeam)); trans*=1.0-clamp(S.diskOpacity*density,0.0,.95); } } prevPlane=plane; prev=x; }
+    for(uint i=0;i<40;i++) { float r2=dot(x,x); if(r2<1){captured=true;break;} if(x.z < -Z0 && v.z<0) break; float r=sqrt(r2), dt=clamp(.16*r,.03,1.5); float3 a=-1.5*h2*x/(r2*r2*r); v+=a*.5*dt; x+=v*dt; r2=dot(x,x); r=sqrt(r2); a=-1.5*h2*x/(r2*r2*r); v+=a*.5*dt; float plane=dot(x,n); if(plane*prevPlane<0 && trans>.02) { float f=prevPlane/(prevPlane-plane); float3 hit=mix(prev,x,f); float rc=length(hit); if(rc>S.diskInner && rc<S.diskOuter) { float phi=atan2(dot(hit,float3(0,cos(S.diskIncl),-sin(S.diskIncl))),hit.x); float grain=noise(float2(rc*2.8+phi*S.diskWind*.12,phi*3.0-t*S.diskSpeed*.55)); float contrastMix=clamp(S.diskContrast*.5,0.0,1.0); float streak=mix(1.0,.25+1.9*pow(grain,1.0+S.diskContrast),contrastMix); float band=smoothstep(S.diskInner,S.diskInner+.45,rc)*(1.0-smoothstep(max(S.diskInner+.5,S.diskOuter-2.4),S.diskOuter,rc)); float beta=clamp(rsqrt(max(2.0*(rc-1.0),.2)),0.0,.99); float gPhysics=sqrt(max(1.0-1.5/rc,.02))/max(1.0+beta*dot(normalize(cross(n,hit)),normalize(v)),.05); float g=mix(1.0,gPhysics,S.dopplerMix); float temp=pow(S.diskInner/rc,.75)*pow(max(1.0-sqrt(S.diskInner/rc),0.0),.25)/.488; float diskLuminousFlow=.24+2.82*pow(.5+.5*cos(phi*2.0-t*S.diskSpeed*1.82+rc*.92),10.0); float density=band*streak; emission+=trans*blackbody(S.diskTemp*temp*g)*(4.8*S.diskGain*density*diskLuminousFlow*temp*temp*pow(g,S.diskBeam)); trans*=1.0-clamp(S.diskOpacity*density,0.0,.95); } } prevPlane=plane; prev=x; }
     float2 flowingUV=center+(p+spacetimeFlow)/float2(aspect,1);
     float3 bg=desktop.sample(linearSampler,wallpaperUV(flowingUV,desktop,res)).rgb;
     bool shadow=captured && plen<rh*1.06;
@@ -104,9 +104,10 @@ fragment float4 blackHoleFragment(VertexOut in [[stage_in]], texture2d<float> de
     float3 physicalDisk=(1.0-exp(-emission*1.4*S.exposure))*P.brightness;
     float diskPeak=max(physicalDisk.r,max(physicalDisk.g,physicalDisk.b));
     float heat=clamp(length(emission)*.055,0.0,1.0);
-    float3 tintedDisk=diskTintForStyle(P.style,heat)*diskPeak;
-    float3 diskLight=mix(physicalDisk,tintedDisk,.90);
-    float3 lit=bg*(1.0-diskAbsorption)+diskLight;
+    float luminousBreath=.82+.18*sin(t*2.05);
+    float3 diskLight=diskTintForStyle(P.style,heat)*diskPeak*luminousBreath;
+    float diskOcclusion=clamp(diskAbsorption+diskPeak*.82,0.0,.92);
+    float3 lit=bg*(1.0-diskOcclusion)+diskLight;
     float shadowEdge=shadow ? 1.0-smoothstep(rh*0.90,rh*1.06,plen) : 0.0;
     return float4(mix(lit,float3(0),shadowEdge),mask);
 }

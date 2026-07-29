@@ -18,9 +18,11 @@ grep -Fq 'spiralInflow' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'inflowContour' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'fullSurfaceEnvelope' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'diskLuminousFlow' src-tauri/native/mac/tiyda/BlackHole.metal
+grep -Fq 'diskOcclusion' src-tauri/native/mac/tiyda/BlackHole.metal
 ! grep -Fq 'flowBoundary' src-tauri/native/mac/tiyda/BlackHole.metal
 ! grep -Fq 'streamMask' src-tauri/native/mac/tiyda/BlackHole.metal
 ! grep -Fq 'strandWeight' src-tauri/native/mac/tiyda/BlackHole.metal
+! grep -Fq 'bg*(1.0-diskAbsorption)+diskLight' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'diskTintForStyle' src-tauri/native/mac/tiyda/BlackHole.metal
 ! grep -Fq 'dynamicSpacetimeFlow' src-tauri/native/mac/tiyda/BlackHole.metal
 ! grep -Fq 'radialWave' src-tauri/native/mac/tiyda/BlackHole.metal
