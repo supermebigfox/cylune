@@ -102,6 +102,14 @@ typedef struct {
     _metalView.preferredFramesPerSecond = MAX(1, fps);
 }
 
+- (void)setRenderingPaused:(BOOL)paused {
+    _metalView.paused = paused;
+}
+
+- (BOOL)rendererAvailable {
+    return _pipeline != nil;
+}
+
 - (void)refreshBackgroundNow {
     _lastCaptureTime = 0;
     [self refreshScreenTextureIfNeeded];

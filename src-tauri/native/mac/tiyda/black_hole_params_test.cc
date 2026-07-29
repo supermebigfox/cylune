@@ -3,17 +3,17 @@
 #include <cassert>
 
 int main() {
-  const BHResolvedSettings fusion =
-      BHResolveSettings({0.25f, 0.75f, 420.0f, 30, 0}, 60);
-  assert(fusion.upstreamStyle == 0);
-  assert(fusion.framesPerSecond == 30);
-  assert(fusion.centerX == 0.25f);
-  assert(fusion.centerY == 0.75f);
-
   const BHResolvedSettings gargantua =
-      BHResolveSettings({0.5f, 0.5f, 640.0f, 60, 1}, 120);
+      BHResolveSettings({0.25f, 0.75f, 420.0f, 30, 0}, 60);
   assert(gargantua.upstreamStyle == 1);
-  assert(gargantua.framesPerSecond == 60);
+  assert(gargantua.framesPerSecond == 30);
+  assert(gargantua.centerX == 0.25f);
+  assert(gargantua.centerY == 0.75f);
+
+  const BHResolvedSettings fusion =
+      BHResolveSettings({0.5f, 0.5f, 640.0f, 60, 1}, 120);
+  assert(fusion.upstreamStyle == 0);
+  assert(fusion.framesPerSecond == 60);
 
   assert(BHResolveSettings({0.5f, 0.5f, 120.0f, 0, 0}, 24).size ==
          300.0f);

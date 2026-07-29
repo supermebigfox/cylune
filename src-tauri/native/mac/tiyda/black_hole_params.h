@@ -35,7 +35,9 @@ static inline BHResolvedSettings BHResolveSettings(
   resolved.centerY = input.centerY;
   resolved.size = resolvedSize;
   resolved.framesPerSecond = framesPerSecond;
-  resolved.upstreamStyle = input.cyluneStyle == 1 ? 1u : 0u;
+  // CYLUNE persists Gargantua as 0 and Fusion as 1. The upstream renderer
+  // uses 1 for Gargantua and 0 for its Default/Fusion presentation.
+  resolved.upstreamStyle = input.cyluneStyle == 0 ? 1u : 0u;
   return resolved;
 }
 
