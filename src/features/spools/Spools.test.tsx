@@ -139,6 +139,29 @@ it("opens the catalog dialog instead of the inline color form", async () => {
   expect(container.querySelector('input[type="color"]')).toBeNull();
 });
 
+it.each(["close button", "Escape"])(
+  "restores focus to the add button after closing with %s",
+  async (method) => {
+    const user = userEvent.setup();
+    renderSpools();
+    const opener = screen.getByRole("button", { name: "添加一卷耗材" });
+
+    await user.click(opener);
+    expect(screen.getByRole("button", { name: "关闭" })).toHaveFocus();
+
+    if (method === "Escape") {
+      await user.keyboard("{Escape}");
+    } else {
+      await user.click(screen.getByRole("button", { name: "关闭" }));
+    }
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(opener).toHaveFocus();
+  },
+);
+
 it("creates identical official colors as separate rolls", async () => {
   const user = userEvent.setup();
   const onCreate = vi.fn().mockResolvedValue(true);

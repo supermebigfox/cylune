@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
   type FormEvent,
-  type KeyboardEvent,
 } from "react";
 import {
   colorsFor,
@@ -18,6 +17,49 @@ import {
 import { Swatch } from "../../components/Swatch";
 import { t, useLocale } from "../../i18n";
 import type { NewSpool, Spool } from "../../lib/tauri";
+
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled]):not([type='hidden'])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function focusableElements(dialog: HTMLElement): HTMLElement[] {
+  return Array.from(
+    dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+  ).filter((element) => {
+    if (element.tabIndex < 0) return false;
+    if (element.closest("[hidden], [aria-hidden='true']")) return false;
+
+    let current: HTMLElement | null = element;
+    while (current && dialog.contains(current)) {
+      const style = window.getComputedStyle(current);
+      if (style.display === "none" || style.visibility === "hidden") {
+        return false;
+      }
+      current = current.parentElement;
+    }
+    return true;
+  });
+}
+
+function backgroundRoots(dialog: HTMLElement): HTMLElement[] {
+  let dialogHost = dialog;
+  while (
+    dialogHost.parentElement
+    && dialogHost.parentElement !== document.body
+  ) {
+    dialogHost = dialogHost.parentElement;
+  }
+
+  return Array.from(document.body.children).filter(
+    (element): element is HTMLElement =>
+      element instanceof HTMLElement && element !== dialogHost,
+  );
+}
 
 export function Add({
   open,
@@ -35,7 +77,10 @@ export function Add({
   const locale = useLocale();
   const copy = (key: string) => t(key, {}, locale);
   const titleId = useId();
+  const dialog = useRef<HTMLDivElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const [group, setGroup] = useState<string | null>(null);
   const [series, setSeries] = useState<string | null>(null);
   const [selected, setSelected] = useState<FilamentColor | null>(null);
@@ -44,7 +89,62 @@ export function Add({
   const [grams, setGrams] = useState("1000");
 
   useEffect(() => {
-    if (open) closeButton.current?.focus();
+    if (!open || !dialog.current) return;
+
+    const dialogElement = dialog.current;
+    const activeElement = document.activeElement;
+    const opener =
+      activeElement instanceof HTMLElement && activeElement !== document.body
+        ? activeElement
+        : null;
+    const background = backgroundRoots(dialogElement).map((element) => ({
+      element,
+      inert: element.getAttribute("inert"),
+    }));
+
+    for (const { element } of background) {
+      element.setAttribute("inert", "");
+    }
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = focusableElements(dialogElement);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      const focusLeftDialog =
+        !(active instanceof HTMLElement && focusable.includes(active));
+
+      if (event.shiftKey && (active === first || focusLeftDialog)) {
+        event.preventDefault();
+        event.stopPropagation();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || focusLeftDialog)) {
+        event.preventDefault();
+        event.stopPropagation();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    closeButton.current?.focus();
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      for (const { element, inert } of background) {
+        if (inert === null) element.removeAttribute("inert");
+        else element.setAttribute("inert", inert);
+      }
+      if (opener?.isConnected) opener.focus();
+    };
   }, [open]);
 
   const availableColors = useMemo(() => {
@@ -113,20 +213,13 @@ export function Add({
     onClose();
   };
 
-  const closeFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    event.stopPropagation();
-    onClose();
-  };
-
   return (
     <div
+      ref={dialog}
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
       className="add-dialog"
-      onKeyDown={closeFromKeyboard}
     >
       <form onSubmit={submit}>
         <header>

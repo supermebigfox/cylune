@@ -1,11 +1,27 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { setLocale } from "../../i18n";
 import type { Spool, SpoolStatus } from "../../lib/tauri";
 import { Add } from "./Add";
 
 beforeEach(async () => setLocale("zh-CN"));
+
+afterEach(() => {
+  document
+    .querySelectorAll("[data-modal-test-background]")
+    .forEach((element) => element.remove());
+});
+
+function addFocusableBackground() {
+  const background = document.createElement("main");
+  const button = document.createElement("button");
+  background.dataset.modalTestBackground = "";
+  button.textContent = "Background action";
+  background.append(button);
+  document.body.prepend(background);
+  return { background, button };
+}
 
 function jadeWhiteSpool(
   spoolId: string,
@@ -205,6 +221,149 @@ test("exposes a labelled modal and focuses its close button when opened", async 
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "关闭" })).toHaveFocus(),
   );
+});
+
+test("makes the page background inert while the dialog is open", () => {
+  const { background } = addFocusableBackground();
+  render(
+    <Add
+      open
+      spools={[]}
+      busy={false}
+      onClose={() => undefined}
+      onCreate={vi.fn()}
+    />,
+  );
+
+  expect(background).toHaveAttribute("inert");
+});
+
+test("cycles Tab from the last enabled control to the close button", async () => {
+  const user = userEvent.setup();
+  addFocusableBackground();
+  render(
+    <Add
+      open
+      spools={[]}
+      busy={false}
+      onClose={() => undefined}
+      onCreate={vi.fn()}
+    />,
+  );
+
+  const close = screen.getByRole("button", { name: "关闭" });
+  const cancel = screen.getByRole("button", { name: "取消" });
+  expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  cancel.focus();
+
+  await user.tab();
+
+  expect(close).toHaveFocus();
+});
+
+test("cycles Shift+Tab from the close button to the last enabled control", async () => {
+  const user = userEvent.setup();
+  addFocusableBackground();
+  render(
+    <Add
+      open
+      spools={[]}
+      busy={false}
+      onClose={() => undefined}
+      onCreate={vi.fn()}
+    />,
+  );
+
+  const close = screen.getByRole("button", { name: "关闭" });
+  const cancel = screen.getByRole("button", { name: "取消" });
+  close.focus();
+
+  await user.tab({ shift: true });
+
+  expect(cancel).toHaveFocus();
+});
+
+test("returns to the first control when the focused control becomes disabled", async () => {
+  const user = userEvent.setup();
+  render(
+    <Add
+      open
+      spools={[]}
+      busy={false}
+      onClose={() => undefined}
+      onCreate={vi.fn()}
+    />,
+  );
+  await selectJadeWhite(user);
+  const close = screen.getByRole("button", { name: "关闭" });
+  const save = screen.getByRole("button", { name: "保存" });
+  save.focus();
+  save.setAttribute("disabled", "");
+  expect(save).toHaveFocus();
+  const tab = new KeyboardEvent("keydown", {
+    key: "Tab",
+    bubbles: true,
+    cancelable: true,
+  });
+
+  save.dispatchEvent(tab);
+
+  expect(tab.defaultPrevented).toBe(true);
+  expect(close).toHaveFocus();
+});
+
+test("closes on Escape even when focus escaped the dialog", async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  const onCreate = vi.fn();
+  const { button: backgroundButton } = addFocusableBackground();
+  render(
+    <Add
+      open
+      spools={[]}
+      busy={false}
+      onClose={onClose}
+      onCreate={onCreate}
+    />,
+  );
+  backgroundButton.focus();
+  expect(backgroundButton).toHaveFocus();
+
+  await user.keyboard("{Escape}");
+
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(onCreate).not.toHaveBeenCalled();
+});
+
+test("restores previous inert attributes after close and unmount", () => {
+  const { background } = addFocusableBackground();
+  const alreadyInert = document.createElement("aside");
+  alreadyInert.dataset.modalTestBackground = "";
+  alreadyInert.setAttribute("inert", "preserved");
+  document.body.prepend(alreadyInert);
+  const props = {
+    spools: [],
+    busy: false,
+    onClose: () => undefined,
+    onCreate: vi.fn(),
+  };
+  const { rerender, unmount } = render(<Add {...props} open={false} />);
+
+  expect(background).not.toHaveAttribute("inert");
+  expect(alreadyInert).toHaveAttribute("inert", "preserved");
+
+  rerender(<Add {...props} open />);
+  expect(background).toHaveAttribute("inert");
+  expect(alreadyInert).toHaveAttribute("inert");
+
+  rerender(<Add {...props} open={false} />);
+  expect(background).not.toHaveAttribute("inert");
+  expect(alreadyInert).toHaveAttribute("inert", "preserved");
+
+  rerender(<Add {...props} open />);
+  unmount();
+  expect(background).not.toHaveAttribute("inert");
+  expect(alreadyInert).toHaveAttribute("inert", "preserved");
 });
 
 test("uses exact catalog fields and numbers duplicate active spools", async () => {
