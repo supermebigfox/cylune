@@ -41,11 +41,15 @@ float2 wallpaperUV(float2 u, texture2d<float> desktop, float2 resolution) {
 float2 rot(float2 p, float a) { float c=cos(a), s=sin(a); return float2(c*p.x-s*p.y,s*p.x+c*p.y); }
 float hash21(float2 p) { p=fract(p*float2(234.34,435.345)); p+=dot(p,p+34.23); return fract(p.x*p.y); }
 float noise(float2 p) { float2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(hash21(i),hash21(i+float2(1,0)),f.x),mix(hash21(i+float2(0,1)),hash21(i+1),f.x),f.y); }
-float flowBoundary(float angle, float t) {
-    float broad=sin(angle*4.0-t*1.32);
-    float fine=sin(angle*7.0+t*.91);
-    float organic=noise(float2(cos(angle)*2.35+t*.18,sin(angle)*2.35-t*.14))-.5;
-    return 3.70+.44*broad+.24*fine+.30*organic;
+float inflowContour(float angle, float normalizedRadius, float t) {
+    float logarithmicRadius=log(max(normalizedRadius,1.02));
+    // Constant-phase points travel toward a smaller radius as time advances.
+    // The logarithmic radius bends each strand into a black-hole spiral
+    // instead of making a scalloped or pulsating circular perimeter.
+    float primary=pow(.5+.5*cos(angle*3.0+logarithmicRadius*7.2+t*3.35),7.0);
+    float secondary=pow(.5+.5*cos(angle*5.0+logarithmicRadius*11.0+t*4.60),10.0);
+    float organic=noise(float2(angle*1.35-t*.31,logarithmicRadius*4.20+t*1.16));
+    return clamp(primary*.78+secondary*.34+organic*.13,0.0,1.0);
 }
 float2 inwardAccretionFlow(float2 p, float plen, float rh, float t) {
     float safeRadius=max(rh,0.0001), normalizedRadius=plen/safeRadius;
@@ -53,18 +57,17 @@ float2 inwardAccretionFlow(float2 p, float plen, float rh, float t) {
     float2 radial=plen>.0001?p/plen:float2(1,0);
     float2 tangent=float2(-radial.y,radial.x);
     float angle=atan2(p.y,p.x);
-    float boundary=flowBoundary(angle,t);
-    float outerFade=1.0-smoothstep(boundary-.88,boundary,normalizedRadius);
-    float envelope=coreGuard*outerFade;
+    float radialFade=1.0-smoothstep(3.45,5.0,normalizedRadius);
+    float contour=inflowContour(angle,normalizedRadius,t);
+    float strandWeight=mix(1.0,.18+1.15*contour,smoothstep(1.85,3.0,normalizedRadius));
+    float envelope=coreGuard*radialFade*strandWeight;
     // Sampling farther from the event horizon makes the sampled desktop
     // appear at a smaller output radius: a one-way inward pull. The noise
     // coordinates advance toward smaller radii while rotating in one
     // direction, so the flow spirals inward without a water-wave reversal.
     float stream=noise(float2(angle*1.65-t*.72,normalizedRadius*2.10+t*2.05));
     float filament=noise(float2(angle*4.60-t*1.18,normalizedRadius*3.70+t*2.85));
-    // A narrow helical stream, rather than a concentric radial ripple.
-    // Its constant-phase path moves to a smaller radius as time advances.
-    float spiralInflow=pow(.5+.5*cos(normalizedRadius*3.85+angle*4.25+t*3.75),5.0);
+    float spiralInflow=contour;
     float radialPull=safeRadius*envelope*(.95+1.00*spiralInflow+.60*stream);
     float rotationalPull=safeRadius*envelope*(.62+.56*spiralInflow+.30*filament);
     return radial*radialPull+tangent*rotationalPull;
@@ -83,8 +86,12 @@ fragment float4 blackHoleFragment(VertexOut in [[stage_in]], texture2d<float> de
     float rh=0.125*P.size; float2 center = clamp(P.center, float2(0.0), float2(1.0));
     float2 p=(uv-center)*float2(aspect,1); float plen=length(p); float window=exp(-pow(plen/(7.0*rh),2.0));
     float2 spacetimeFlow=inwardAccretionFlow(p,plen,rh,t);
-    float edgeRadius=flowBoundary(atan2(p.y,p.x),t)*rh;
-    float mask=1.0-smoothstep(edgeRadius-.82*rh,edgeRadius,plen);
+    float normalizedRadius=plen/max(rh,.0001);
+    float contour=inflowContour(atan2(p.y,p.x),normalizedRadius,t);
+    float coreMask=1.0-smoothstep(2.35,3.10,normalizedRadius);
+    float streamFade=(1.0-smoothstep(3.30,5.0,normalizedRadius))*smoothstep(2.10,2.70,normalizedRadius);
+    float streamMask=streamFade*smoothstep(.13,.82,contour);
+    float mask=clamp(max(coreMask,streamMask),0.0,1.0);
     if (mask<0.002) return float4(0);
     constexpr float B=2.5980762, Z0=14.0;
     float W=B/max(rh,0.0001); float2 pr=rot(float2(p.x,-p.y),S.diskRoll)*W; float b=length(pr);

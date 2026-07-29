@@ -15,7 +15,8 @@ grep -Fq 'float2 center = clamp(P.center' src-tauri/native/mac/tiyda/BlackHole.m
 grep -Fq 'P.time' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'inwardAccretionFlow' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'spiralInflow' src-tauri/native/mac/tiyda/BlackHole.metal
-grep -Fq 'flowBoundary' src-tauri/native/mac/tiyda/BlackHole.metal
+grep -Fq 'inflowContour' src-tauri/native/mac/tiyda/BlackHole.metal
+! grep -Fq 'flowBoundary' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'diskTintForStyle' src-tauri/native/mac/tiyda/BlackHole.metal
 ! grep -Fq 'dynamicSpacetimeFlow' src-tauri/native/mac/tiyda/BlackHole.metal
 ! grep -Fq 'radialWave' src-tauri/native/mac/tiyda/BlackHole.metal
