@@ -88,11 +88,10 @@ export function Add({
     ).length;
     const display_name =
       name.trim() || (duplicates ? `${base} #${duplicates + 1}` : base);
-    const presetBase = selected.presetBase.split(" @", 1)[0].trim();
     const draft: NewSpool = {
       display_name,
-      preset_id: presetBase,
-      preset_base: presetBase,
+      preset_id: selected.presetBase,
+      preset_base: selected.presetBase,
       catalog_id: selected.id,
       brand: selected.brand,
       material: selected.material,

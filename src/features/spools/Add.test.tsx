@@ -58,7 +58,8 @@ test("selects material, series, and an official Chinese color", async () => {
       color_code: "10100",
       color_hex: "#FFFFFF",
       color_hexes: ["#FFFFFF"],
-      preset_base: "Bambu PLA Basic",
+      preset_id: "Bambu PLA Basic @base",
+      preset_base: "Bambu PLA Basic @base",
     }),
   );
 });
@@ -90,9 +91,72 @@ test("changing material clears downstream choices", async () => {
   );
 
   await selectJadeWhite(user);
+  await user.type(screen.getByLabelText("搜索颜色"), "10100");
   await user.click(screen.getByRole("button", { name: "PETG" }));
 
+  const seriesChoices = within(
+    screen.getByRole("region", { name: "选择系列" }),
+  ).getAllByRole("button");
+  for (const choice of seriesChoices) {
+    expect(choice).toHaveAttribute("aria-pressed", "false");
+  }
+  expect(screen.queryByText("已选颜色")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("搜索颜色")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+});
+
+test("changing series clears the selected color and search query", async () => {
+  const user = userEvent.setup();
+  render(
+    <Add
+      open
+      spools={[]}
+      busy={false}
+      onClose={() => undefined}
+      onCreate={vi.fn()}
+    />,
+  );
+
+  await selectJadeWhite(user);
+  await user.type(screen.getByLabelText("搜索颜色"), "10100");
+  await user.click(screen.getByRole("button", { name: "Matte" }));
+
+  expect(screen.getByRole("button", { name: "Matte" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(screen.queryByText("已选颜色")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("搜索颜色")).toHaveValue("");
+  expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+});
+
+test("searching colors removes non-matching official colors", async () => {
+  const user = userEvent.setup();
+  render(
+    <Add
+      open
+      spools={[]}
+      busy={false}
+      onClose={() => undefined}
+      onCreate={vi.fn()}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: "PLA" }));
+  await user.click(screen.getByRole("button", { name: "Basic" }));
+  expect(
+    screen.getByRole("button", { name: /玉石白.*10100/ }),
+  ).toBeVisible();
+  expect(screen.getByRole("button", { name: /黑色.*10101/ })).toBeVisible();
+
+  await user.type(screen.getByLabelText("搜索颜色"), "10100");
+
+  expect(
+    screen.getByRole("button", { name: /玉石白.*10100/ }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: /黑色.*10101/ }),
+  ).not.toBeInTheDocument();
 });
 
 test("closes from the keyboard without saving", async () => {
@@ -165,8 +229,8 @@ test("uses exact catalog fields and numbers duplicate active spools", async () =
 
   expect(onCreate).toHaveBeenCalledWith({
     display_name: "玉石白 · PLA Basic #3",
-    preset_id: "Bambu PLA Basic",
-    preset_base: "Bambu PLA Basic",
+    preset_id: "Bambu PLA Basic @base",
+    preset_base: "Bambu PLA Basic @base",
     catalog_id: "bambu:GFA00:10100",
     brand: "Bambu Lab",
     material: "PLA",
@@ -206,24 +270,29 @@ test("uses a trimmed custom name and a positive custom weight", async () => {
   );
 });
 
-test("disables saving for a non-positive weight", async () => {
-  const user = userEvent.setup();
-  render(
-    <Add
-      open
-      spools={[]}
-      busy={false}
-      onClose={() => undefined}
-      onCreate={vi.fn()}
-    />,
-  );
+test.each(["", "0", "-1"])(
+  "disables saving for an invalid weight of %j",
+  async (weight) => {
+    const user = userEvent.setup();
+    render(
+      <Add
+        open
+        spools={[]}
+        busy={false}
+        onClose={() => undefined}
+        onCreate={vi.fn()}
+      />,
+    );
 
-  await selectJadeWhite(user);
-  await user.clear(screen.getByLabelText("当前剩余量"));
-  await user.type(screen.getByLabelText("当前剩余量"), "0");
+    await selectJadeWhite(user);
+    await user.clear(screen.getByLabelText("当前剩余量"));
+    if (weight) {
+      await user.type(screen.getByLabelText("当前剩余量"), weight);
+    }
 
-  expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
-});
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  },
+);
 
 test("keeps every field open when creation fails", async () => {
   const user = userEvent.setup();
