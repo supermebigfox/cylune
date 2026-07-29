@@ -28,10 +28,15 @@ export interface Spool {
   spool_id: string;
   display_name: string;
   preset_id: string | null;
+  preset_base: string | null;
+  catalog_id: string | null;
   brand: string;
   material: string;
   series: string;
+  color_name: string | null;
+  color_code: string | null;
   color_hex: string;
+  color_hexes: string[];
   remaining_grams: number;
   status: SpoolStatus;
 }
@@ -39,10 +44,15 @@ export interface Spool {
 export interface NewSpool {
   display_name: string;
   preset_id?: string | null;
+  preset_base?: string | null;
+  catalog_id?: string | null;
   brand: string;
   material: string;
   series: string;
+  color_name?: string | null;
+  color_code?: string | null;
   color_hex: string;
+  color_hexes?: string[];
   remaining_grams: number;
 }
 
@@ -160,10 +170,15 @@ export const demoSpools: Spool[] = [
   spool_id: String(id),
   display_name: String(name),
   preset_id: "Bambu PLA Basic @BBL A1",
+  preset_base: null,
+  catalog_id: null,
   brand: "Bambu Lab",
   material: "PLA",
   series: "Basic",
+  color_name: null,
+  color_code: null,
   color_hex: String(color),
+  color_hexes: [String(color)],
   remaining_grams: Number(grams),
   status: status as SpoolStatus,
 }));
@@ -219,7 +234,18 @@ function demoApi(): TauriApi {
     mode: "demo",
     async createSpool(input) {
       const id = `demo-${spools.length + 1}`;
-      spools = [...spools, { ...input, preset_id: input.preset_id ?? null, spool_id: id, status: input.remaining_grams > 0 ? "available" : "empty" }];
+      const color_hexes = input.color_hexes?.length ? input.color_hexes : [input.color_hex];
+      spools = [...spools, {
+        ...input,
+        preset_id: input.preset_id ?? null,
+        preset_base: input.preset_base ?? null,
+        catalog_id: input.catalog_id ?? null,
+        color_name: input.color_name ?? null,
+        color_code: input.color_code ?? null,
+        color_hexes,
+        spool_id: id,
+        status: input.remaining_grams > 0 ? "available" : "empty",
+      }];
       return id;
     },
     async mountSpool(slotNumber, spoolId) {

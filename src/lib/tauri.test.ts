@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { createTauriApi, type PetSettings } from "./tauri";
+import { createTauriApi, type NewSpool, type PetSettings } from "./tauri";
 
 const pet: PetSettings = {
   mode: "lite",
@@ -44,6 +44,30 @@ it("provides deterministic browser data without activating demo mode in Tauri", 
   expect((await browserApi.listSpools()).length).toBeGreaterThan(4);
   await tauriApi.listSpools();
   expect(tauriInvoke).toHaveBeenCalledWith("list_spools", undefined);
+});
+
+it("demo API preserves official catalog metadata", async () => {
+  const client = createTauriApi(undefined, {});
+  const input: NewSpool = {
+    display_name: "玉石白 · PLA Basic",
+    preset_id: "Bambu PLA Basic",
+    preset_base: "Bambu PLA Basic",
+    catalog_id: "bambu:GFA00:10100",
+    brand: "Bambu Lab",
+    material: "PLA",
+    series: "Basic",
+    color_name: "玉石白",
+    color_code: "10100",
+    color_hex: "#FFFFFF",
+    color_hexes: ["#FFFFFF"],
+    remaining_grams: 1000,
+  };
+
+  await client.createSpool(input);
+
+  expect(await client.listSpools()).toContainEqual(
+    expect.objectContaining(input),
+  );
 });
 
 it("reads persisted AMS slots through the typed command boundary", async () => {
