@@ -26,6 +26,7 @@
     "active": true,
     "shortDescription": "离线管理拓竹耗材与本地切片任务，可选桌面黑洞效果",
     "copyright": "Copyright © 2026 Robin Development",
+    "resources": ["native/mac/tiyda/LICENSE", "native/mac/tiyda/THIRD_PARTY_NOTICES.md"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
     "targets": ["app", "dmg"],
     "category": "Utility",

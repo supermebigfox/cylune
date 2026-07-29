@@ -19,7 +19,6 @@ static const uint32_t kPetCallbackDropExited = 4;
 static const uint32_t kPetCallbackFileDropped = 5;
 static const uint32_t kPetCallbackDisplayChanged = 6;
 static const uint32_t kPetCallbackPermissionChanged = 7;
-static const uint32_t kPetCallbackCaptureFailed = 8;
 static const uint32_t kPetCallbackSleep = 9;
 static const uint32_t kPetCallbackWake = 10;
 static const CGFloat kPetMinimumSize = 120.0;

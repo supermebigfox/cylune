@@ -1,13 +1,7 @@
-#ifndef BAMBU_POOLS_PET_BRIDGE_H
-#define BAMBU_POOLS_PET_BRIDGE_H
+#ifndef CYLUNE_PET_BRIDGE_H
+#define CYLUNE_PET_BRIDGE_H
 
 #include <stdint.h>
-
-#ifdef __APPLE__
-#include <IOSurface/IOSurfaceRef.h>
-#else
-typedef void *IOSurfaceRef;
-#endif
 
 #ifndef __cplusplus
 #include <stdbool.h>
@@ -17,8 +11,8 @@ typedef void *IOSurfaceRef;
 extern "C" {
 #endif
 
-typedef void (*PetCallback)(uint32_t kind, const char *payload,
-                            double x, double y, uint64_t event_value);
+typedef void (*PetCallback)(uint32_t kind, const char *payload, double x,
+                            double y, uint64_t event_value);
 
 typedef struct {
   uint32_t abi_version;
@@ -38,63 +32,6 @@ typedef struct {
   uint8_t _reserved;
 } PetConfig;
 
-typedef struct {
-  uint32_t display_id;
-  double source_x;
-  double source_y;
-  double source_width;
-  double source_height;
-  uint32_t pixel_width;
-  uint32_t pixel_height;
-  float panel_origin_uv[2];
-  float panel_extent_uv[2];
-} PetCaptureRegion;
-
-typedef struct {
-  float viewport_px[2];
-  float capture_origin_uv[2];
-  float capture_extent_uv[2];
-  float center_uv[2];
-  float time_seconds;
-  float hole_radius_uv;
-  float temperature;
-  float inclination;
-  float roll;
-  float disk_inner;
-  float disk_outer;
-  float disk_opacity;
-  float doppler;
-  float beaming;
-  float gain;
-  float contrast;
-  float wind;
-  float speed;
-  float exposure;
-  float stars;
-  float spin;
-  float spin_phase;
-  float drop_origin_uv[2];
-  float drop_progress;
-  float absorption_progress;
-  float success_progress;
-  float error_progress;
-  uint32_t pending_count;
-  uint32_t mode;
-  uint32_t reduce_motion;
-  uint32_t drop_phase;
-  uint32_t file_kind;
-  uint32_t visual_style;
-  float impact_level;
-  float feed_strength;
-} PetRenderUniforms;
-
-typedef struct {
-  uint32_t base_draw_calls;
-  uint32_t pending_draw_calls;
-  uint32_t pending_instances;
-  uint32_t fragment_pending_iterations;
-} PetRenderStats;
-
 enum {
   PET_CAPTURE_UNAVAILABLE = 0,
   PET_CAPTURE_NOT_DETERMINED = 1,
@@ -107,12 +44,6 @@ enum {
 enum {
   PET_RENDERER_UNAVAILABLE = 0,
   PET_RENDERER_READY = 1,
-};
-
-enum {
-  PET_RENDER_DRAW_OK = 0,
-  PET_RENDER_DRAW_TRANSIENT = 1,
-  PET_RENDER_DRAW_FATAL = 2,
 };
 
 enum {
@@ -143,26 +74,6 @@ void pet_finish_drop(void *handle, uint64_t generation, uint32_t result);
 uint32_t pet_capture_state(void *handle);
 uint32_t pet_renderer_state(void *handle);
 uint32_t pet_abi_version(void);
-
-void *mac_capture_create(PetCallback callback);
-uint32_t mac_capture_destroy(void *handle);
-void mac_capture_configure(void *handle, PetCaptureRegion region,
-                           bool real_mode, bool visible,
-                           bool request_permission, uint32_t fps);
-void mac_capture_stop(void *handle);
-uint32_t mac_capture_state(void *handle);
-IOSurfaceRef mac_capture_copy_latest_surface(
-    void *handle, PetCaptureRegion *region_out);
-
-void *mac_renderer_create(const char *metal_source, void *metal_layer);
-void mac_renderer_destroy(void *handle);
-uint32_t mac_renderer_draw(void *handle, IOSurfaceRef surface,
-                           PetRenderUniforms uniforms);
-uint64_t pet_test_render_rgba(const uint8_t *input, uint32_t width,
-                              uint32_t height, PetRenderUniforms uniforms,
-                              uint8_t *output, uint64_t output_capacity,
-                              PetRenderStats *stats,
-                              const char *metal_source);
 
 #ifdef __cplusplus
 }
