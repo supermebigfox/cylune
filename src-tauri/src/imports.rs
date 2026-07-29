@@ -192,6 +192,110 @@ mod tests {
     }
 
     #[test]
+    fn project_colors_match_the_nearest_loaded_spools_of_the_same_catalog_profile() {
+        let parsed = crate::parser::parse_3mf(&fixture("bambu_multicolor.3mf")).unwrap();
+        let profile = parsed
+            .filaments
+            .iter()
+            .find(|profile| profile.tool == 0)
+            .unwrap()
+            .clone();
+
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+
+        let loaded = ["#FFFFFF", "#F4EE2A", "#C12E1F", "#0A2989"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, color_hex)| {
+                let mut spool = new_spool("Bambu PLA Basic", color_hex);
+                spool.preset_base = Some("Bambu PLA Basic".to_owned());
+                let spool_id = inventory.create_spool(spool).unwrap();
+                inventory.mount_spool((index + 1) as u8, spool_id).unwrap();
+                spool_id
+            })
+            .collect::<Vec<_>>();
+
+        let mut unmounted_gradient_red = new_spool("Bambu PLA Basic", "#E94B3C");
+        unmounted_gradient_red.preset_base = Some("Bambu PLA Basic".to_owned());
+        inventory.create_spool(unmounted_gradient_red).unwrap();
+
+        let database = inventory.into_database();
+        let service = PrintService::with_stability_delay(database, Duration::ZERO);
+
+        for (project_color, expected_spool) in [
+            ("#FFFEFC", loaded[0]),
+            ("#FFFD0D", loaded[1]),
+            ("#FE3D36", loaded[2]),
+            ("#1C4EBB", loaded[3]),
+        ] {
+            let mut project_profile = profile.clone();
+            project_profile.color_hex = project_color.to_owned();
+            assert_eq!(
+                service.matching_spools(&project_profile).unwrap(),
+                vec![expected_spool],
+                "project color {project_color} should map to its loaded physical spool"
+            );
+        }
+    }
+
+    #[test]
+    fn every_official_catalog_color_matches_its_loaded_physical_spool() {
+        let snapshot: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../src/catalog/bambu.json")).unwrap();
+        let parsed = crate::parser::parse_3mf(&fixture("bambu_multicolor.3mf")).unwrap();
+        let template = parsed.filaments.first().unwrap();
+
+        for entry in snapshot["entries"].as_array().unwrap() {
+            let catalog_id = entry["id"].as_str().unwrap();
+            let preset_base = entry["presetBase"].as_str().unwrap();
+            let material = entry["material"].as_str().unwrap();
+            let series = entry["series"].as_str().unwrap();
+            let colors = entry["colors"].as_array().unwrap();
+
+            for color in colors {
+                let color_hex = color.as_str().unwrap();
+                let database = AppDatabase::open_in_memory().unwrap();
+                let mut inventory = InventoryService::new(database);
+                let spool_id = inventory
+                    .create_spool(NewSpool {
+                        display_name: catalog_id.to_owned(),
+                        preset_id: Some(preset_base.to_owned()),
+                        catalog_id: Some(catalog_id.to_owned()),
+                        color_name: None,
+                        color_code: entry["colorCode"].as_str().map(str::to_owned),
+                        color_hexes: colors
+                            .iter()
+                            .map(|value| value.as_str().unwrap().to_owned())
+                            .collect(),
+                        preset_base: Some(preset_base.to_owned()),
+                        brand: entry["brand"].as_str().unwrap().to_owned(),
+                        material: material.to_owned(),
+                        series: series.to_owned(),
+                        color_hex: color_hex.to_owned(),
+                        remaining_grams: 1000.0,
+                    })
+                    .unwrap();
+                inventory.mount_spool(1, spool_id).unwrap();
+
+                let mut profile = template.clone();
+                profile.preset_id = format!("{preset_base} @BBL A1");
+                profile.material = material.to_owned();
+                profile.series = series.to_owned();
+                profile.color_hex = color_hex.to_owned();
+                let service =
+                    PrintService::with_stability_delay(inventory.into_database(), Duration::ZERO);
+
+                assert_eq!(
+                    service.matching_spools(&profile).unwrap(),
+                    vec![spool_id],
+                    "catalog color {catalog_id} {color_hex} should match"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn legacy_at_base_records_match_in_the_base_layer_in_active_row_order() {
         let database = AppDatabase::open_in_memory().unwrap();
         let mut inventory = InventoryService::new(database);
@@ -1050,6 +1154,11 @@ impl PrintService {
             return Ok(base);
         }
 
+        let nearest_loaded = self.nearest_loaded_preset_base_spool_ids(profile)?;
+        if !nearest_loaded.is_empty() {
+            return Ok(nearest_loaded);
+        }
+
         self.spool_ids(
             "SELECT spool_id FROM spools WHERE status <> 'archived' AND preset_base IS NULL AND material = ?1 AND series = ?2 AND UPPER(color_hex) = UPPER(?3) ORDER BY rowid",
             params![profile.material, profile.series, profile.color_hex],
@@ -1081,6 +1190,71 @@ impl PrintService {
             .collect()
     }
 
+    fn nearest_loaded_preset_base_spool_ids(&self, profile: &FilamentProfile) -> Result<Vec<Uuid>> {
+        const MAX_COLOR_DISTANCE_SQUARED: u32 = 10_000;
+
+        let Some(target_color) = parse_rgb_hex(&profile.color_hex) else {
+            return Ok(Vec::new());
+        };
+        let expected_base = preset_base(&profile.preset_id);
+        let mut statement = self.database.connection.prepare(
+            "SELECT s.spool_id, s.preset_base, s.color_hex
+             FROM ams_slots AS a
+             JOIN spools AS s ON s.spool_id = a.spool_id
+             WHERE s.status <> 'archived'
+               AND s.preset_base IS NOT NULL
+               AND s.material = ?1
+             ORDER BY a.slot_number",
+        )?;
+        let rows = statement
+            .query_map([&profile.material], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let mut best_distance = None;
+        let mut best_spool_ids = Vec::new();
+        for (spool_id, stored_base, color_hex) in rows {
+            if preset_base(&stored_base) != expected_base {
+                continue;
+            }
+            let Some(color) = parse_rgb_hex(&color_hex) else {
+                continue;
+            };
+            let distance = rgb_distance_squared(target_color, color);
+            if distance > MAX_COLOR_DISTANCE_SQUARED {
+                continue;
+            }
+            match best_distance {
+                Some(best) if distance > best => {}
+                Some(best) if distance == best => best_spool_ids.push(spool_id),
+                _ => {
+                    best_distance = Some(distance);
+                    best_spool_ids.clear();
+                    best_spool_ids.push(spool_id);
+                }
+            }
+        }
+
+        best_spool_ids
+            .into_iter()
+            .map(|spool_id| {
+                spool_id.parse().map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                    .into()
+                })
+            })
+            .collect()
+    }
+
     fn spool_ids<P>(&self, sql: &str, params: P) -> Result<Vec<Uuid>>
     where
         P: rusqlite::Params,
@@ -1100,6 +1274,28 @@ impl PrintService {
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(spool_ids)
     }
+}
+
+fn parse_rgb_hex(value: &str) -> Option<[u8; 3]> {
+    let value = value.strip_prefix('#')?;
+    if value.len() != 6 {
+        return None;
+    }
+    Some([
+        u8::from_str_radix(&value[0..2], 16).ok()?,
+        u8::from_str_radix(&value[2..4], 16).ok()?,
+        u8::from_str_radix(&value[4..6], 16).ok()?,
+    ])
+}
+
+fn rgb_distance_squared(left: [u8; 3], right: [u8; 3]) -> u32 {
+    left.into_iter()
+        .zip(right)
+        .map(|(left, right)| {
+            let difference = i32::from(left) - i32::from(right);
+            (difference * difference) as u32
+        })
+        .sum()
 }
 
 fn validate_profiles(parsed: &ParsedPrintFile) -> Result<()> {
