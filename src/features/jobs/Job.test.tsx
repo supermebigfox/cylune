@@ -66,6 +66,14 @@ const preview: ImportPreview = {
   ],
 };
 
+const multicolorSpool: Spool = {
+  ...spools[0],
+  spool_id: "spool-multicolor",
+  display_name: "双色 PLA",
+  color_hex: "#8EC9E9",
+  color_hexes: ["#8EC9E9", "#E7C1D5"],
+};
+
 describe("Job", () => {
   beforeEach(async () => setLocale("zh-CN"));
 
@@ -301,5 +309,66 @@ describe("Job", () => {
     fireEvent.click(screen.getByRole("radio", { name: "黑色 PLA #B，488.2 克" }));
     fireEvent.click(screen.getByRole("button", { name: "确认耗材映射" }));
     await waitFor(() => expect(onConfirmMapping).toHaveBeenCalledWith("job-mask", [{ tool: 0, spool_id: "spool-black-b" }]));
+  });
+
+  it("shows every color of a multicolor spool candidate", () => {
+    render(
+      <Job
+        preview={{
+          ...preview,
+          filaments: [{
+            ...preview.filaments[0],
+            candidate_spool_ids: [multicolorSpool.spool_id],
+          }],
+        }}
+        spools={[multicolorSpool]}
+        onConfirmMapping={async () => undefined}
+        onSettle={async () => undefined}
+        onConfirmNewPrint={async () => undefined}
+        onReverse={async () => undefined}
+      />,
+    );
+
+    const candidate = screen.getByLabelText("双色 PLA，612.4 克").closest("label");
+    const toolLegend = screen.getByText("Bambu PLA Basic @BBL A1").closest("legend");
+    expect(within(toolLegend as HTMLElement).getByTestId("swatch")).toHaveStyle({
+      background: "#252733",
+    });
+    expect(within(candidate as HTMLElement).getByTestId("swatch")).toHaveStyle({
+      background:
+        "linear-gradient(135deg, #8EC9E9 0%, #E7C1D5 100%)",
+    });
+  });
+
+  it("falls back to the primary color when a spool candidate has no color list", () => {
+    const legacySpool: Spool = {
+      ...multicolorSpool,
+      spool_id: "spool-legacy",
+      display_name: "旧版 PLA",
+      color_hex: "#F2A65A",
+      color_hexes: [],
+    };
+
+    render(
+      <Job
+        preview={{
+          ...preview,
+          filaments: [{
+            ...preview.filaments[0],
+            candidate_spool_ids: [legacySpool.spool_id],
+          }],
+        }}
+        spools={[legacySpool]}
+        onConfirmMapping={async () => undefined}
+        onSettle={async () => undefined}
+        onConfirmNewPrint={async () => undefined}
+        onReverse={async () => undefined}
+      />,
+    );
+
+    const candidate = screen.getByLabelText("旧版 PLA，612.4 克").closest("label");
+    expect(within(candidate as HTMLElement).getByTestId("swatch")).toHaveStyle({
+      background: "#F2A65A",
+    });
   });
 });

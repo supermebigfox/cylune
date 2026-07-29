@@ -1,4 +1,5 @@
 import { ArrowRight, FolderOpen, WarningCircle } from "@phosphor-icons/react";
+import { Swatch } from "../../components/Swatch";
 import { t, useLocale } from "../../i18n";
 import type { SlotView, Spool } from "../../lib/tauri";
 
@@ -45,7 +46,7 @@ export function Home({ slots, spools, pendingJobs, busy = false, importing = fal
               {slot.spool ? (
                 <>
                   <div className="spool-identity">
-                    <i className="swatch large" style={{ "--swatch": slot.spool.color_hex } as React.CSSProperties} />
+                    <Swatch colors={slot.spool.color_hexes?.length ? slot.spool.color_hexes : [slot.spool.color_hex]} size="large" />
                     <div><strong>{slot.spool.display_name}</strong><small>{slot.spool.material} {slot.spool.series}</small></div>
                   </div>
                   <div className="balance-row"><strong className="data">{slot.spool.remaining_grams.toFixed(1)} {copy("common.grams")}</strong></div>

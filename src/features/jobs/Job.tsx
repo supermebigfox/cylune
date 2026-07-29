@@ -1,5 +1,6 @@
 import { ArrowCounterClockwise, CheckCircle, FileText, Warning } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Swatch } from "../../components/Swatch";
 import { t, useLocale } from "../../i18n";
 import type { ImportPreview, JobOutcome, SettlementResult, Spool, ToolMapping } from "../../lib/tauri";
 
@@ -68,10 +69,10 @@ export function Job({ preview, spools, initialMappings = {}, settled = false, re
           const exactCandidates = filament.candidate_spool_ids.map((id) => spools.find((spool) => spool.spool_id === id)).filter((spool): spool is Spool => Boolean(spool));
           const candidates = exactCandidates.length ? exactCandidates : spools.filter((spool) => spool.status !== "archived" && spool.remaining_grams > 0);
           return <fieldset className={`tool-map ${!mappings[filament.tool] ? "needs-choice" : ""}`} key={filament.tool}>
-            <legend><i className="swatch" style={{ "--swatch": filament.profile.color_hex } as React.CSSProperties} /><span><strong>{filament.profile.preset_id}</strong><small>{copy("jobs.tool", { number: filament.tool + 1 })}</small></span><em className="tool-grams">{`${filament.total_grams.toFixed(1)} ${copy("common.grams")}`}</em></legend>
+            <legend><Swatch colors={[filament.profile.color_hex]} /><span><strong>{filament.profile.preset_id}</strong><small>{copy("jobs.tool", { number: filament.tool + 1 })}</small></span><em className="tool-grams">{`${filament.total_grams.toFixed(1)} ${copy("common.grams")}`}</em></legend>
             {exactCandidates.length > 1 ? <p className="mapping-warning">{copy("jobs.multipleCandidates", { count: exactCandidates.length })}</p> : null}
             {!exactCandidates.length ? <p className="mapping-warning">{copy("jobs.mismatchChoice")}</p> : null}
-            <div className="radio-list">{candidates.map((spool) => <label key={spool.spool_id}><input disabled={busy} aria-label={copy("jobs.spoolChoice", { name: spool.display_name, grams: spool.remaining_grams.toFixed(1), unit: copy("common.grams") })} type="radio" name={`tool-${filament.tool}`} checked={mappings[filament.tool] === spool.spool_id} onChange={() => { setMappings({ ...mappings, [filament.tool]: spool.spool_id }); setMapped(false); }} /><i className="swatch" style={{ "--swatch": spool.color_hex } as React.CSSProperties} /><span><strong>{spool.display_name}</strong><small className="data">{copy("jobs.spoolMeta", { grams: spool.remaining_grams.toFixed(1), unit: copy("common.grams"), id: spool.spool_id })}</small></span></label>)}</div>
+            <div className="radio-list">{candidates.map((spool) => <label key={spool.spool_id}><input disabled={busy} aria-label={copy("jobs.spoolChoice", { name: spool.display_name, grams: spool.remaining_grams.toFixed(1), unit: copy("common.grams") })} type="radio" name={`tool-${filament.tool}`} checked={mappings[filament.tool] === spool.spool_id} onChange={() => { setMappings({ ...mappings, [filament.tool]: spool.spool_id }); setMapped(false); }} /><Swatch colors={spool.color_hexes?.length ? spool.color_hexes : [spool.color_hex]} /><span><strong>{spool.display_name}</strong><small className="data">{copy("jobs.spoolMeta", { grams: spool.remaining_grams.toFixed(1), unit: copy("common.grams"), id: spool.spool_id })}</small></span></label>)}</div>
             {!candidates.length ? <p className="inline-error">{copy("jobs.noCandidate")}</p> : null}
           </fieldset>;
         })}

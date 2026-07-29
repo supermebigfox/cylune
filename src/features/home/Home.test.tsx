@@ -46,6 +46,14 @@ const slots: SlotView[] = [
   { slot_number: 4, spool_id: null, spool: null },
 ];
 
+const multicolorSpool: Spool = {
+  ...spools[0],
+  spool_id: "spool-multicolor",
+  display_name: "双色 PLA",
+  color_hex: "#8EC9E9",
+  color_hexes: ["#8EC9E9", "#E7C1D5"],
+};
+
 describe("Home", () => {
   beforeEach(async () => setLocale("zh-CN"));
 
@@ -88,5 +96,49 @@ describe("Home", () => {
     expect(screen.getByText("612.4 克")).toBeVisible();
     expect(screen.queryByText("61%")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("剩余 612.4 克")).not.toBeInTheDocument();
+  });
+
+  it("shows every color of a multicolor spool mounted in a slot", () => {
+    render(
+      <Home
+        slots={[
+          { slot_number: 1, spool_id: multicolorSpool.spool_id, spool: multicolorSpool },
+          ...slots.slice(1),
+        ]}
+        spools={[multicolorSpool]}
+        pendingJobs={0}
+        onImport={() => undefined}
+      />,
+    );
+
+    expect(screen.getByTestId("swatch")).toHaveStyle({
+      background:
+        "linear-gradient(135deg, #8EC9E9 0%, #E7C1D5 100%)",
+    });
+  });
+
+  it("falls back to the primary color when a mounted spool has no color list", () => {
+    const legacySpool: Spool = {
+      ...multicolorSpool,
+      spool_id: "spool-legacy",
+      color_hex: "#F2A65A",
+      color_hexes: [],
+    };
+
+    render(
+      <Home
+        slots={[
+          { slot_number: 1, spool_id: legacySpool.spool_id, spool: legacySpool },
+          ...slots.slice(1),
+        ]}
+        spools={[legacySpool]}
+        pendingJobs={0}
+        onImport={() => undefined}
+      />,
+    );
+
+    expect(screen.getByTestId("swatch")).toHaveStyle({
+      background: "#F2A65A",
+    });
   });
 });
