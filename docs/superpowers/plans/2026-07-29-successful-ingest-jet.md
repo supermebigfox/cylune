@@ -15,6 +15,8 @@
 - Swallow duration remains 0.74 seconds; jet duration is exactly 0.50 seconds.
 - Hover rotation rate is 2.4× and pull gain is 1.7×; visual diameter and drop-target diameter do not change.
 - The jet uses a near-white core with cool-blue/cyan falloff and no circular ripple or three-line guidance overlay.
+- With no hover, ingest, eject, or success jet active, the existing black-hole colors, silhouette, accretion disk, brightness, transparent boundary, visual size, and baseline motion must remain unchanged.
+- `successJetProgress == 0` must produce the same base-frame output as the pre-jet shader; the jet is additive only while its progress is greater than zero.
 - The source file is never moved, deleted, overwritten, or copied by the visual layer.
 - Hiding, sleeping, quitting, or starting a new drop clears an unfinished jet.
 
@@ -320,6 +322,8 @@ float4 successJet(float2 p, float rh, float t, float progress) {
 - [ ] **Step 3: Composite the jet on every fragment return path**
 
 Evaluate `successJet` before the ray-tracing early return. Replace the transparent cutoff with `if (mask < 0.002 && jet.a < 0.002) return float4(0);`. Combine the jet RGB after every desktop sample and set final alpha to `max(mask, jet.a)` so the lobes can extend beyond the accretion disk without expanding `rh` or `P.size`.
+
+Do not change any existing preset, base color, disk, lensing, mask, radius, brightness, or time expression. When `P.successJetProgress` is zero, `jet.rgb` and `jet.a` must both be exactly zero, making each revised return algebraically equivalent to its pre-jet result.
 
 For the final return:
 
