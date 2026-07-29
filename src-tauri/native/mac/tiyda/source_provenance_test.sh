@@ -18,6 +18,8 @@ grep -Fq 'spiralInflow' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'inflowContour' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'fullSurfaceEnvelope' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'float flowGain' src-tauri/native/mac/tiyda/BlackHole.metal
+grep -Fq 'clockwiseTangent' src-tauri/native/mac/tiyda/BlackHole.metal
+! grep -Fq 'float2 tangent=' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'diskLuminousFlow' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'diskOcclusion' src-tauri/native/mac/tiyda/BlackHole.metal
 ! grep -Fq 'flowBoundary' src-tauri/native/mac/tiyda/BlackHole.metal

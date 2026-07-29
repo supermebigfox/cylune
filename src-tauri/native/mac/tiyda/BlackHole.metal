@@ -46,8 +46,8 @@ float inflowContour(float angle, float normalizedRadius, float t) {
     // Constant-phase points travel toward a smaller radius as time advances.
     // The logarithmic radius bends each strand into a black-hole spiral
     // instead of making a scalloped or pulsating circular perimeter.
-    float primary=pow(.5+.5*cos(angle*3.0+logarithmicRadius*7.2+t*3.35),7.0);
-    float secondary=pow(.5+.5*cos(angle*5.0+logarithmicRadius*11.0+t*4.60),10.0);
+    float primary=pow(.5+.5*cos(angle*3.0-logarithmicRadius*7.2-t*3.35),7.0);
+    float secondary=pow(.5+.5*cos(angle*5.0-logarithmicRadius*11.0-t*4.60),10.0);
     float organic=noise(float2(angle*1.35-t*.31,logarithmicRadius*4.20+t*1.16));
     return clamp(primary*.78+secondary*.34+organic*.13,0.0,1.0);
 }
@@ -55,7 +55,7 @@ float2 inwardAccretionFlow(float2 p, float plen, float rh, float t) {
     float safeRadius=max(rh,0.0001), normalizedRadius=plen/safeRadius;
     float coreGuard=smoothstep(1.03,1.32,normalizedRadius);
     float2 radial=plen>.0001?p/plen:float2(1,0);
-    float2 tangent=float2(-radial.y,radial.x);
+    float2 clockwiseTangent=float2(-radial.y,radial.x);
     float angle=atan2(p.y,p.x);
     float radialFade=1.0-smoothstep(3.45,5.0,normalizedRadius);
     float contour=inflowContour(angle,normalizedRadius,t);
@@ -67,10 +67,10 @@ float2 inwardAccretionFlow(float2 p, float plen, float rh, float t) {
     float stream=noise(float2(angle*1.65-t*.96,normalizedRadius*2.10+t*2.62));
     float filament=noise(float2(angle*4.60-t*1.52,normalizedRadius*3.70+t*3.48));
     float spiralInflow=contour;
-    float flowGain=1.20;
+    float flowGain=1.50;
     float radialPull=safeRadius*fullSurfaceEnvelope*flowGain*(1.38+1.30*spiralInflow+.82*stream);
     float rotationalPull=safeRadius*fullSurfaceEnvelope*flowGain*(1.02+.92*spiralInflow+.52*filament);
-    return radial*radialPull+tangent*rotationalPull;
+    return radial*radialPull+clockwiseTangent*rotationalPull;
 }
 float3 blackbody(float T) { float t=clamp(T,1500.0f,40000.0f)/100.0f; float r=t<=66?1.0:clamp(1.292936*pow(t-60.0,-0.1332047),0.0,1.0); float g=t<=66?clamp(0.3900816*log(t)-0.6318414,0.0,1.0):clamp(1.1298909*pow(t-60.0,-0.0755148),0.0,1.0); float b=t>=66?1.0:(t<=19?0.0:clamp(0.5432068*log(t-10.0)-1.196254,0.0,1.0)); return float3(r,g,b); }
 float3 diskTintForStyle(uint style, float heat) {
