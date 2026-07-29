@@ -2,7 +2,7 @@
 #include <metal_stdlib>
 using namespace metal;
 
-struct Params { float2 resolution; float time, size, brightness, speed; uint style; };
+struct Params { float2 resolution; float time, size, brightness, speed; uint style; float2 center; };
 struct VertexOut { float4 position [[position]]; float2 uv; };
 struct Preset {
     float diskTemp, diskIncl, diskRoll, diskInner, diskOuter, diskOpacity, dopplerMix;
@@ -47,7 +47,7 @@ fragment float4 blackHoleFragment(VertexOut in [[stage_in]], texture2d<float> de
     constexpr sampler linearSampler(filter::linear, address::clamp_to_edge);
     Preset S=presetForStyle(P.style);
     float2 uv=in.uv, res=P.resolution; float aspect=res.x/res.y, t=P.time*P.speed;
-    float rh=0.125*P.size; float2 center=float2(0.57+0.19*sin(t*.13), 0.62+0.12*sin(t*.17+2.0));
+    float rh=0.125*P.size; float2 center = clamp(P.center, float2(0.0), float2(1.0));
     float2 p=(uv-center)*float2(aspect,1); float plen=length(p); float window=exp(-pow(plen/(7.0*rh),2.0));
     float mask=1.0-smoothstep(3.5*rh,4.2*rh,plen);
     if (mask<0.002) return float4(0);

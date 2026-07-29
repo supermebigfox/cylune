@@ -1,14 +1,19 @@
 #import <Cocoa/Cocoa.h>
 
-@interface VisualSettings : NSObject
-@property CGFloat size;
-@property CGFloat brightness;
-@property CGFloat speed;
-@property NSInteger style;
-@property NSTimeInterval startTime;
-@property BOOL alwaysOnTop;
-@end
+typedef NS_ENUM(uint32_t, BHStyle) {
+  BHStyleDefault = 0,
+  BHStyleGargantua = 1,
+};
 
 @interface MetalBlackHoleView : NSView
-- (instancetype)initWithFrame:(NSRect)frame settings:(VisualSettings *)settings;
+@property(nonatomic) CGPoint blackHoleCenterInScreen;
+@property(nonatomic) CGFloat blackHoleSize;
+@property(nonatomic) float blackHoleBrightness;
+@property(nonatomic) float blackHoleSpeed;
+@property(nonatomic) BHStyle blackHoleStyle;
+- (instancetype)initWithFrame:(NSRect)frame
+                  metalSource:(NSString *)metalSource;
+- (void)setCaptureEnabled:(BOOL)enabled;
+- (void)setTargetFramesPerSecond:(NSInteger)fps;
+- (void)refreshBackgroundNow;
 @end

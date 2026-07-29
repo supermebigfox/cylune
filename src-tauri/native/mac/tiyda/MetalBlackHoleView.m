@@ -1,10 +1,8 @@
 #import "BlackHoleDesktop.h"
+#import "black_hole_params.h"
 #import <MetalKit/MetalKit.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <simd/simd.h>
-
-@implementation VisualSettings
-@end
 
 typedef struct {
     vector_float2 resolution;
@@ -13,13 +11,14 @@ typedef struct {
     float brightness;
     float speed;
     uint32_t style;
+    vector_float2 center;
 } RenderParams;
 
 @interface MetalBlackHoleView () <MTKViewDelegate>
 @end
 
 @implementation MetalBlackHoleView {
-    VisualSettings *_settings;
+    MTKView *_metalView;
     id<MTLCommandQueue> _queue;
     id<MTLRenderPipelineState> _pipeline;
     MTKTextureLoader *_textureLoader;
@@ -32,26 +31,35 @@ typedef struct {
     BOOL _captureErrorLogged;
     BOOL _captureEnabledLogged;
     CFAbsoluteTime _lastCaptureTime;
+    CFAbsoluteTime _startTime;
+    BOOL _captureEnabled;
 }
 
-- (instancetype)initWithFrame:(NSRect)frame settings:(VisualSettings *)settings {
+- (instancetype)initWithFrame:(NSRect)frame
+                  metalSource:(NSString *)metalSource {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     self = [super initWithFrame:frame];
     if (!self || !device) return self;
-    _settings = settings;
+    _blackHoleCenterInScreen = CGPointMake(NSMidX(frame), NSMidY(frame));
+    _blackHoleSize = 420.0;
+    _blackHoleBrightness = 1.0f;
+    _blackHoleSpeed = 1.0f;
+    _blackHoleStyle = BHStyleGargantua;
+    _captureEnabled = YES;
+    _startTime = CFAbsoluteTimeGetCurrent();
     self.wantsLayer = YES;
     self.layer.opaque = NO;
 
-    MTKView *metalView = [[MTKView alloc] initWithFrame:self.bounds device:device];
-    metalView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    metalView.colorPixelFormat = MTLPixelFormatBGRA8Unorm;
-    metalView.clearColor = MTLClearColorMake(0, 0, 0, 0);
-    metalView.layer.opaque = NO;
-    metalView.paused = NO;
-    metalView.enableSetNeedsDisplay = NO;
-    metalView.preferredFramesPerSecond = 30;
-    metalView.delegate = self;
-    [self addSubview:metalView];
+    _metalView = [[MTKView alloc] initWithFrame:self.bounds device:device];
+    _metalView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    _metalView.colorPixelFormat = MTLPixelFormatBGRA8Unorm;
+    _metalView.clearColor = MTLClearColorMake(0, 0, 0, 0);
+    _metalView.layer.opaque = NO;
+    _metalView.paused = NO;
+    _metalView.enableSetNeedsDisplay = NO;
+    _metalView.preferredFramesPerSecond = 30;
+    _metalView.delegate = self;
+    [self addSubview:_metalView];
 
     _queue = [device newCommandQueue];
     _textureLoader = [[MTKTextureLoader alloc] initWithDevice:device];
@@ -60,15 +68,12 @@ typedef struct {
     uint32_t black = 0;
     [_wallpaperTexture replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 withBytes:&black bytesPerRow:sizeof(black)];
     NSError *error = nil;
-    NSString *path = [NSBundle.mainBundle pathForResource:@"BlackHole" ofType:@"metal"];
-    NSString *source = path ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error] : nil;
-    if (!source) { NSLog(@"Black Hole: could not load Metal source: %@", error); return self; }
-    id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
+    id<MTLLibrary> library = [device newLibraryWithSource:metalSource options:nil error:&error];
     if (!library) { NSLog(@"Black Hole: Metal shader compile failed: %@", error); return self; }
     MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
     descriptor.vertexFunction = [library newFunctionWithName:@"blackHoleVertex"];
     descriptor.fragmentFunction = [library newFunctionWithName:@"blackHoleFragment"];
-    descriptor.colorAttachments[0].pixelFormat = metalView.colorPixelFormat;
+    descriptor.colorAttachments[0].pixelFormat = _metalView.colorPixelFormat;
     descriptor.colorAttachments[0].blendingEnabled = YES;
     descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
     descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
@@ -78,6 +83,24 @@ typedef struct {
 }
 
 - (BOOL)isOpaque { return NO; }
+
+- (void)setCaptureEnabled:(BOOL)enabled {
+    _captureEnabled = enabled;
+    if (!enabled) {
+        _screenTexture = nil;
+        _captureFilter = nil;
+        _captureConfiguration = nil;
+    }
+}
+
+- (void)setTargetFramesPerSecond:(NSInteger)fps {
+    _metalView.preferredFramesPerSecond = MAX(1, fps);
+}
+
+- (void)refreshBackgroundNow {
+    _lastCaptureTime = 0;
+    [self refreshScreenTextureIfNeeded];
+}
 
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
@@ -99,7 +122,7 @@ typedef struct {
 }
 
 - (void)configureScreenCaptureIfNeeded {
-    if (_captureFilter || _captureConfigurationInFlight || !_settings.alwaysOnTop || !CGPreflightScreenCaptureAccess()) return;
+    if (_captureFilter || _captureConfigurationInFlight || !_captureEnabled || !CGPreflightScreenCaptureAccess()) return;
     _captureConfigurationInFlight = YES;
     __weak MetalBlackHoleView *weakSelf = self;
     [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
@@ -137,7 +160,7 @@ typedef struct {
 }
 
 - (void)refreshScreenTextureIfNeeded {
-    if (!_settings.alwaysOnTop || !CGPreflightScreenCaptureAccess()) return;
+    if (!_captureEnabled || !CGPreflightScreenCaptureAccess()) return;
     if (!_captureFilter) {
         [self configureScreenCaptureIfNeeded];
         return;
@@ -181,15 +204,29 @@ typedef struct {
 
 - (void)drawInMTKView:(MTKView *)view {
     [self refreshScreenTextureIfNeeded];
-    id<MTLTexture> backgroundTexture = _settings.alwaysOnTop && _screenTexture ? _screenTexture : _wallpaperTexture;
+    id<MTLTexture> backgroundTexture = _captureEnabled && _screenTexture ? _screenTexture : _wallpaperTexture;
     if (!_pipeline || !backgroundTexture || !view.currentDrawable || !view.currentRenderPassDescriptor) return;
+    NSScreen *screen = self.window.screen;
+    NSRect screenFrame = screen ? screen.frame : self.window.frame;
+    CGFloat centerX = NSWidth(screenFrame) > 0
+                          ? (_blackHoleCenterInScreen.x - NSMinX(screenFrame)) /
+                                NSWidth(screenFrame)
+                          : 0.5;
+    CGFloat centerY = NSHeight(screenFrame) > 0
+                          ? 1.0 -
+                                (_blackHoleCenterInScreen.y - NSMinY(screenFrame)) /
+                                    NSHeight(screenFrame)
+                          : 0.5;
     RenderParams params = {
         .resolution = {(float)view.drawableSize.width, (float)view.drawableSize.height},
-        .time = (float)(CFAbsoluteTimeGetCurrent() - _settings.startTime),
-        .size = (float)_settings.size,
-        .brightness = (float)_settings.brightness,
-        .speed = (float)_settings.speed,
-        .style = (uint32_t)_settings.style,
+        .time = (float)(CFAbsoluteTimeGetCurrent() - _startTime),
+        .size = BHShaderSizeForPixels(
+            (float)(_blackHoleSize * (screen ? screen.backingScaleFactor : 1.0)),
+            (float)view.drawableSize.height),
+        .brightness = _blackHoleBrightness,
+        .speed = _blackHoleSpeed,
+        .style = (uint32_t)_blackHoleStyle,
+        .center = {(float)centerX, (float)centerY},
     };
     id<MTLCommandBuffer> command = [_queue commandBuffer];
     id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:view.currentRenderPassDescriptor];
