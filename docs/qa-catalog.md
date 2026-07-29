@@ -15,8 +15,8 @@
 - Bambu Studio 源版本：`02.08.00.50`
 - 源类型：45
 - 颜色条目：306
-- 快照长度：151,841 字节
-- 快照 SHA-256：`242daf700f0fa42b1b8a9f09246c534df62a94fc9517c6f390b519504302ae52`
+- 快照长度：150,005 字节
+- 快照 SHA-256：`9e99befb5a4603bf7fc4b28032487da7e6ad1dcdb0f8a3977bb773c76e099b82`
 
 重新生成命令：
 
@@ -29,7 +29,7 @@ git diff --exit-code -- src/catalog/bambu.json
 
 结果：两个命令均退出 0，重新生成后的跟踪文件无 diff，确认快照生成具有确定性。
 
-目录驱动的建卷流程为“材料 → 系列 → 颜色”。保存时写入独立卷的目录 ID、品牌、材质、系列、预设基名、官方颜色名与代码、主颜色及完整多色数组；相同目录颜色仍创建不同的 `spool_id`。
+目录驱动的建卷流程为“材料 → 系列 → 颜色”。保存时写入独立卷的目录 ID、品牌、材质、系列、无 ` @...` 后缀的预设基名、官方颜色名与代码、主颜色及完整多色数组；相同目录颜色仍创建不同的 `spool_id`。
 
 ## 2. 数据库、备份与匹配
 
@@ -46,7 +46,7 @@ git diff --exit-code -- src/catalog/bambu.json
 导入切片后，候选卷按以下顺序匹配，并在前一层有结果时停止：
 
 1. exact：`preset_id + material + series + color_hex`
-2. base：`preset_base + material + color_hex`
+2. base：当前 3MF 和已存值都去掉 ` @...` 后使用 `preset_base + material + color_hex`；因此早期 v2 备份恢复的 `preset_base = "... @base"` 仍在本层命中
 3. legacy：仅 `preset_base IS NULL` 的卷使用 `material + series + color_hex`
 
 唯一候选可建议；同层多个候选必须选择具体实体卷。
@@ -59,7 +59,7 @@ git diff --exit-code -- src/catalog/bambu.json
 npm test -- --run
 ```
 
-结果：退出 0；14 个测试文件通过，110 个测试通过，0 失败。
+结果：退出 0；15 个测试文件通过，112 个测试通过，0 失败。
 
 ```bash
 npm run build
@@ -81,7 +81,7 @@ cd src-tauri
 cargo test
 ```
 
-结果：退出 0；库测试 142 个通过、0 失败、1 个 ignored；该 ignored 项为需要用户真实文件环境变量的 smoke test。主程序与文档测试均为 0 个测试、0 失败。
+结果：退出 0；库测试 145 个通过、0 失败、1 个 ignored；该 ignored 项为需要用户真实文件环境变量的 smoke test。主程序与文档测试均为 0 个测试、0 失败。
 
 覆盖结果包括：五列目录迁移、目录元数据持久化、schema version 2 备份往返、version 1 兼容恢复、多色回退，以及 exact → base → legacy 匹配优先级。
 

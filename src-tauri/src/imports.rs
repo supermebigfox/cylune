@@ -158,6 +158,83 @@ mod tests {
     }
 
     #[test]
+    fn generated_catalog_base_matches_a_real_sliced_profile() {
+        let snapshot: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../src/catalog/bambu.json")).unwrap();
+        let catalog_entry = snapshot["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == "bambu:GFA00:10100")
+            .unwrap();
+        let catalog_base = catalog_entry["presetBase"].as_str().unwrap();
+        assert_eq!(catalog_base, "Bambu PLA Basic");
+
+        let parsed = crate::parser::parse_3mf(&fixture("bambu_multicolor.3mf")).unwrap();
+        let profile = parsed
+            .filaments
+            .iter()
+            .find(|profile| profile.tool == 0)
+            .unwrap();
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+        let mut catalog_spool = new_spool("Bambu PLA Basic @BBL X1C", &profile.color_hex);
+        catalog_spool.preset_base = Some(catalog_base.to_owned());
+        catalog_spool.series = "Catalog series ignored for base matching".to_owned();
+        let catalog_spool_id = inventory.create_spool(catalog_spool).unwrap();
+        let database = inventory.into_database();
+        let service = PrintService::with_stability_delay(database, Duration::ZERO);
+
+        assert_eq!(
+            service.matching_spools(profile).unwrap(),
+            vec![catalog_spool_id]
+        );
+    }
+
+    #[test]
+    fn legacy_at_base_records_match_in_the_base_layer_in_active_row_order() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+
+        let mut first_spool = new_spool("Bambu PLA Basic @BBL X1C", "#FF0000");
+        first_spool.preset_base = Some("Bambu PLA Basic @base".to_owned());
+        first_spool.series = "Catalog series ignored for base matching".to_owned();
+        let first = inventory.create_spool(first_spool).unwrap();
+
+        let mut archived_spool = new_spool("Bambu PLA Basic @BBL X1C", "#FF0000");
+        archived_spool.preset_base = Some("Bambu PLA Basic @base".to_owned());
+        archived_spool.series = "Catalog series ignored for base matching".to_owned();
+        let archived = inventory.create_spool(archived_spool).unwrap();
+
+        let mut second_spool = new_spool("Bambu PLA Basic @BBL X1C", "#FF0000");
+        second_spool.preset_base = Some("Bambu PLA Basic @base".to_owned());
+        second_spool.series = "Catalog series ignored for base matching".to_owned();
+        let second = inventory.create_spool(second_spool).unwrap();
+
+        let database = inventory.into_database();
+        let service = PrintService::with_stability_delay(database, Duration::ZERO);
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE spools SET status = 'archived' WHERE spool_id = ?1",
+                [archived.to_string()],
+            )
+            .unwrap();
+        let parsed = crate::parser::parse_3mf(&fixture("bambu_multicolor.3mf")).unwrap();
+        let profile = parsed
+            .filaments
+            .iter()
+            .find(|profile| profile.tool == 0)
+            .unwrap();
+
+        assert_eq!(
+            service.matching_spools(profile).unwrap(),
+            vec![first, second]
+        );
+    }
+
+    #[test]
     fn settled_duplicate_requires_confirmation_then_creates_a_fresh_job_from_one_parse() {
         let database = AppDatabase::open_in_memory().unwrap();
         let mut inventory = InventoryService::new(database);
@@ -968,14 +1045,7 @@ impl PrintService {
             return Ok(exact);
         }
 
-        let base = self.spool_ids(
-            "SELECT spool_id FROM spools WHERE status <> 'archived' AND preset_base = ?1 AND material = ?2 AND UPPER(color_hex) = UPPER(?3) ORDER BY rowid",
-            params![
-                preset_base(&profile.preset_id),
-                profile.material,
-                profile.color_hex,
-            ],
-        )?;
+        let base = self.preset_base_spool_ids(profile)?;
         if !base.is_empty() {
             return Ok(base);
         }
@@ -984,6 +1054,31 @@ impl PrintService {
             "SELECT spool_id FROM spools WHERE status <> 'archived' AND preset_base IS NULL AND material = ?1 AND series = ?2 AND UPPER(color_hex) = UPPER(?3) ORDER BY rowid",
             params![profile.material, profile.series, profile.color_hex],
         )
+    }
+
+    fn preset_base_spool_ids(&self, profile: &FilamentProfile) -> Result<Vec<Uuid>> {
+        let expected = preset_base(&profile.preset_id);
+        let mut statement = self.database.connection.prepare(
+            "SELECT spool_id, preset_base FROM spools WHERE status <> 'archived' AND preset_base IS NOT NULL AND material = ?1 AND UPPER(color_hex) = UPPER(?2) ORDER BY rowid",
+        )?;
+        let rows = statement
+            .query_map(params![profile.material, profile.color_hex], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .filter(|(_, stored_base)| preset_base(stored_base) == expected)
+            .map(|(spool_id, _)| {
+                spool_id.parse().map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                    .into()
+                })
+            })
+            .collect()
     }
 
     fn spool_ids<P>(&self, sql: &str, params: P) -> Result<Vec<Uuid>>

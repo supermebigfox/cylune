@@ -165,12 +165,12 @@ node scripts/catalog.mjs \
   '/Applications/BambuStudio.app/Contents/Resources/profiles/BBL/filament'
 ```
 
-添加原厂卷采用“材料 → 系列 → 颜色”三级选择流程。选择颜色后，App 将目录 ID、官方颜色名与代码、全部颜色值和预设基名写入独立耗材卷；用户仍可设置卷名和初始重量，同款同色的多卷不会合并。
+添加原厂卷采用“材料 → 系列 → 颜色”三级选择流程。选择颜色后，App 将目录 ID、官方颜色名与代码、全部颜色值和无 ` @...` 机器后缀的预设基名写入独立耗材卷；用户仍可设置卷名和初始重量，同款同色的多卷不会合并。
 
 切片工具与现有卷的匹配顺序固定为：
 
 1. **精确匹配**：`preset_id + material + series + color_hex`；
-2. **预设基名匹配**：`preset_base + material + color_hex`，用于跨打印机后缀匹配；
+2. **预设基名匹配**：对当前 3MF 值和已存 `preset_base` 都去掉 ` @...` 后，以 `preset_base + material + color_hex` 匹配，用于跨打印机后缀，并兼容早期保存为 `... @base` 的目录卷；
 3. **旧数据匹配**：仅对没有 `preset_base` 的卷使用 `material + series + color_hex`。
 
 前一层存在候选时不会继续使用更宽松的后一层；唯一候选可自动建议，同层多个候选仍要求用户选择具体 `spool_id`。

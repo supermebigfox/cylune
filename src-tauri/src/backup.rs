@@ -722,6 +722,7 @@ mod tests {
     use super::{export_json_for_test, export_to_path, import_from_path};
     use crate::{
         db::AppDatabase,
+        imports::PrintService,
         inventory::{InventoryService, NewSpool},
         parser::{
             gcode::{GcodeReport, LayerUsage},
@@ -730,7 +731,16 @@ mod tests {
     };
     use rusqlite::params;
     use std::collections::BTreeMap;
+    use std::path::PathBuf;
+    use std::time::Duration;
     use uuid::Uuid;
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name)
+    }
 
     #[test]
     fn pet_coordinates_are_not_exported() {
@@ -947,6 +957,57 @@ mod tests {
         assert_eq!(restored.preset_base, Some("Bambu PLA Basic".into()));
         assert_eq!(restored.color_hex, "#FFFFFF");
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn version_two_backup_with_legacy_at_base_still_matches_after_restore() {
+        let source = populated();
+        let spool_id: Uuid = source
+            .connection
+            .query_row("SELECT spool_id FROM spools", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap()
+            .parse()
+            .unwrap();
+        let path = std::env::temp_dir().join(format!("legacy-base-backup-{}.json", Uuid::new_v4()));
+        export_to_path(&source, &path).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let spool = value["spools"][0].as_object_mut().unwrap();
+        spool.insert(
+            "preset_id".to_owned(),
+            serde_json::json!("Bambu PLA Basic @BBL X1C"),
+        );
+        spool.insert(
+            "preset_base".to_owned(),
+            serde_json::json!("Bambu PLA Basic @base"),
+        );
+        spool.insert(
+            "series".to_owned(),
+            serde_json::json!("Catalog series ignored for base matching"),
+        );
+        spool.insert("color_hex".to_owned(), serde_json::json!("#FF0000"));
+        spool.insert("color_hexes".to_owned(), serde_json::json!(["#FF0000"]));
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+
+        let mut target = AppDatabase::open_in_memory().unwrap();
+        let automatic = import_from_path(&mut target, &path).unwrap();
+        let mut service = PrintService::with_stability_delay(target, Duration::ZERO);
+        let preview = service
+            .import_print_file(&fixture("bambu_multicolor.3mf"))
+            .unwrap();
+        let basic = preview
+            .filaments
+            .iter()
+            .find(|filament| filament.tool == 0)
+            .unwrap();
+
+        assert_eq!(basic.candidate_spool_ids, vec![spool_id]);
+        assert_eq!(basic.suggested_spool_id, Some(spool_id));
+
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(automatic).unwrap();
     }
 
     #[test]

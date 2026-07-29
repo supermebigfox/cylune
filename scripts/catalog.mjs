@@ -39,6 +39,10 @@ function baseProfileFor(sourceType) {
   throw new Error(`No Bambu base profile found for ${sourceType}`);
 }
 
+function presetBaseFor(profile) {
+  return profile.name.split(" @", 1)[0].trim();
+}
+
 function filamentTypeFor(profile, visited = new Set()) {
   if (Array.isArray(profile.filament_type) && profile.filament_type[0]) {
     return String(profile.filament_type[0]);
@@ -107,7 +111,7 @@ const entries = source.data.map((item) => {
     materialGroup: materialGroupFor(item.fila_type, material),
     material,
     series: seriesFor(item.fila_type, colorType),
-    presetBase: profile.name,
+    presetBase: presetBaseFor(profile),
     colorCode: item.fila_color_code,
     colorType,
     colors,

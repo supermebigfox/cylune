@@ -58,8 +58,8 @@ test("selects material, series, and an official Chinese color", async () => {
       color_code: "10100",
       color_hex: "#FFFFFF",
       color_hexes: ["#FFFFFF"],
-      preset_id: "Bambu PLA Basic @base",
-      preset_base: "Bambu PLA Basic @base",
+      preset_id: "Bambu PLA Basic",
+      preset_base: "Bambu PLA Basic",
     }),
   );
 });
@@ -229,8 +229,8 @@ test("uses exact catalog fields and numbers duplicate active spools", async () =
 
   expect(onCreate).toHaveBeenCalledWith({
     display_name: "玉石白 · PLA Basic #3",
-    preset_id: "Bambu PLA Basic @base",
-    preset_base: "Bambu PLA Basic @base",
+    preset_id: "Bambu PLA Basic",
+    preset_base: "Bambu PLA Basic",
     catalog_id: "bambu:GFA00:10100",
     brand: "Bambu Lab",
     material: "PLA",

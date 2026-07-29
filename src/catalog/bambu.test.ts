@@ -8,6 +8,15 @@ test("contains the complete Bambu snapshot", () => {
   expect(new Set(bambuColors.map((item) => item.id)).size).toBe(306);
 });
 
+test("keeps every snapshot preset base machine-independent", () => {
+  for (const item of bambuColors) {
+    expect(item.presetBase).not.toMatch(/\s@/);
+  }
+  expect(
+    bambuColors.find((item) => item.id === "bambu:GFA00:10100")?.presetBase,
+  ).toBe("Bambu PLA Basic");
+});
+
 test("keeps localized names, official codes, and every visual color", () => {
   for (const item of bambuColors) {
     expect(item.colorCode).toMatch(/^\d{5}$/);

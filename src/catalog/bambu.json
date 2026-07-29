@@ -9,7 +9,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40100",
       "colorType": "solid",
       "colors": [
@@ -30,7 +30,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40101",
       "colorType": "solid",
       "colors": [
@@ -51,7 +51,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40102",
       "colorType": "solid",
       "colors": [
@@ -72,7 +72,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40200",
       "colorType": "solid",
       "colors": [
@@ -93,7 +93,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40300",
       "colorType": "solid",
       "colors": [
@@ -114,7 +114,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40400",
       "colorType": "solid",
       "colors": [
@@ -135,7 +135,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40401",
       "colorType": "solid",
       "colors": [
@@ -156,7 +156,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40402",
       "colorType": "solid",
       "colors": [
@@ -177,7 +177,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40500",
       "colorType": "solid",
       "colors": [
@@ -198,7 +198,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40501",
       "colorType": "solid",
       "colors": [
@@ -219,7 +219,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40502",
       "colorType": "solid",
       "colors": [
@@ -240,7 +240,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40600",
       "colorType": "solid",
       "colors": [
@@ -261,7 +261,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40601",
       "colorType": "solid",
       "colors": [
@@ -282,7 +282,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40602",
       "colorType": "solid",
       "colors": [
@@ -303,7 +303,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40700",
       "colorType": "solid",
       "colors": [
@@ -324,7 +324,7 @@
       "materialGroup": "ABS",
       "material": "ABS",
       "series": "ABS",
-      "presetBase": "Bambu ABS @base",
+      "presetBase": "Bambu ABS",
       "colorCode": "40701",
       "colorType": "solid",
       "colors": [
@@ -345,7 +345,7 @@
       "materialGroup": "ABS",
       "material": "ABS-GF",
       "series": "ABS-GF",
-      "presetBase": "Bambu ABS-GF @base",
+      "presetBase": "Bambu ABS-GF",
       "colorCode": "41100",
       "colorType": "solid",
       "colors": [
@@ -366,7 +366,7 @@
       "materialGroup": "ABS",
       "material": "ABS-GF",
       "series": "ABS-GF",
-      "presetBase": "Bambu ABS-GF @base",
+      "presetBase": "Bambu ABS-GF",
       "colorCode": "41101",
       "colorType": "solid",
       "colors": [
@@ -387,7 +387,7 @@
       "materialGroup": "ABS",
       "material": "ABS-GF",
       "series": "ABS-GF",
-      "presetBase": "Bambu ABS-GF @base",
+      "presetBase": "Bambu ABS-GF",
       "colorCode": "41102",
       "colorType": "solid",
       "colors": [
@@ -408,7 +408,7 @@
       "materialGroup": "ABS",
       "material": "ABS-GF",
       "series": "ABS-GF",
-      "presetBase": "Bambu ABS-GF @base",
+      "presetBase": "Bambu ABS-GF",
       "colorCode": "41200",
       "colorType": "solid",
       "colors": [
@@ -429,7 +429,7 @@
       "materialGroup": "ABS",
       "material": "ABS-GF",
       "series": "ABS-GF",
-      "presetBase": "Bambu ABS-GF @base",
+      "presetBase": "Bambu ABS-GF",
       "colorCode": "41300",
       "colorType": "solid",
       "colors": [
@@ -450,7 +450,7 @@
       "materialGroup": "ABS",
       "material": "ABS-GF",
       "series": "ABS-GF",
-      "presetBase": "Bambu ABS-GF @base",
+      "presetBase": "Bambu ABS-GF",
       "colorCode": "41400",
       "colorType": "solid",
       "colors": [
@@ -471,7 +471,7 @@
       "materialGroup": "ABS",
       "material": "ABS-GF",
       "series": "ABS-GF",
-      "presetBase": "Bambu ABS-GF @base",
+      "presetBase": "Bambu ABS-GF",
       "colorCode": "41500",
       "colorType": "solid",
       "colors": [
@@ -492,7 +492,7 @@
       "materialGroup": "ABS",
       "material": "ABS-GF",
       "series": "ABS-GF",
-      "presetBase": "Bambu ABS-GF @base",
+      "presetBase": "Bambu ABS-GF",
       "colorCode": "41600",
       "colorType": "solid",
       "colors": [
@@ -513,7 +513,7 @@
       "materialGroup": "ASA",
       "material": "ASA",
       "series": "ASA",
-      "presetBase": "Bambu ASA @base",
+      "presetBase": "Bambu ASA",
       "colorCode": "45100",
       "colorType": "solid",
       "colors": [
@@ -534,7 +534,7 @@
       "materialGroup": "ASA",
       "material": "ASA",
       "series": "ASA",
-      "presetBase": "Bambu ASA @base",
+      "presetBase": "Bambu ASA",
       "colorCode": "45101",
       "colorType": "solid",
       "colors": [
@@ -555,7 +555,7 @@
       "materialGroup": "ASA",
       "material": "ASA",
       "series": "ASA",
-      "presetBase": "Bambu ASA @base",
+      "presetBase": "Bambu ASA",
       "colorCode": "45102",
       "colorType": "solid",
       "colors": [
@@ -576,7 +576,7 @@
       "materialGroup": "ASA",
       "material": "ASA",
       "series": "ASA",
-      "presetBase": "Bambu ASA @base",
+      "presetBase": "Bambu ASA",
       "colorCode": "45200",
       "colorType": "solid",
       "colors": [
@@ -597,7 +597,7 @@
       "materialGroup": "ASA",
       "material": "ASA",
       "series": "ASA",
-      "presetBase": "Bambu ASA @base",
+      "presetBase": "Bambu ASA",
       "colorCode": "45500",
       "colorType": "solid",
       "colors": [
@@ -618,7 +618,7 @@
       "materialGroup": "ASA",
       "material": "ASA",
       "series": "ASA",
-      "presetBase": "Bambu ASA @base",
+      "presetBase": "Bambu ASA",
       "colorCode": "45600",
       "colorType": "solid",
       "colors": [
@@ -639,7 +639,7 @@
       "materialGroup": "ASA",
       "material": "ASA-AERO",
       "series": "Aero",
-      "presetBase": "Bambu ASA-Aero @base",
+      "presetBase": "Bambu ASA-Aero",
       "colorCode": "46100",
       "colorType": "solid",
       "colors": [
@@ -660,7 +660,7 @@
       "materialGroup": "ASA",
       "material": "ASA-CF",
       "series": "ASA-CF",
-      "presetBase": "Bambu ASA-CF @base",
+      "presetBase": "Bambu ASA-CF",
       "colorCode": "46101",
       "colorType": "solid",
       "colors": [
@@ -681,7 +681,7 @@
       "materialGroup": "PA",
       "material": "PA6-CF",
       "series": "PA6-CF",
-      "presetBase": "Bambu PA6-CF @base",
+      "presetBase": "Bambu PA6-CF",
       "colorCode": "72100",
       "colorType": "solid",
       "colors": [
@@ -702,7 +702,7 @@
       "materialGroup": "PA",
       "material": "PA-GF",
       "series": "PA6-GF",
-      "presetBase": "Bambu PA6-GF @base",
+      "presetBase": "Bambu PA6-GF",
       "colorCode": "72102",
       "colorType": "solid",
       "colors": [
@@ -723,7 +723,7 @@
       "materialGroup": "PA",
       "material": "PA-GF",
       "series": "PA6-GF",
-      "presetBase": "Bambu PA6-GF @base",
+      "presetBase": "Bambu PA6-GF",
       "colorCode": "72103",
       "colorType": "solid",
       "colors": [
@@ -744,7 +744,7 @@
       "materialGroup": "PA",
       "material": "PA-GF",
       "series": "PA6-GF",
-      "presetBase": "Bambu PA6-GF @base",
+      "presetBase": "Bambu PA6-GF",
       "colorCode": "72104",
       "colorType": "solid",
       "colors": [
@@ -765,7 +765,7 @@
       "materialGroup": "PA",
       "material": "PA-GF",
       "series": "PA6-GF",
-      "presetBase": "Bambu PA6-GF @base",
+      "presetBase": "Bambu PA6-GF",
       "colorCode": "72200",
       "colorType": "solid",
       "colors": [
@@ -786,7 +786,7 @@
       "materialGroup": "PA",
       "material": "PA-GF",
       "series": "PA6-GF",
-      "presetBase": "Bambu PA6-GF @base",
+      "presetBase": "Bambu PA6-GF",
       "colorCode": "72400",
       "colorType": "solid",
       "colors": [
@@ -807,7 +807,7 @@
       "materialGroup": "PA",
       "material": "PA-GF",
       "series": "PA6-GF",
-      "presetBase": "Bambu PA6-GF @base",
+      "presetBase": "Bambu PA6-GF",
       "colorCode": "72500",
       "colorType": "solid",
       "colors": [
@@ -828,7 +828,7 @@
       "materialGroup": "PA",
       "material": "PA-GF",
       "series": "PA6-GF",
-      "presetBase": "Bambu PA6-GF @base",
+      "presetBase": "Bambu PA6-GF",
       "colorCode": "72600",
       "colorType": "solid",
       "colors": [
@@ -849,7 +849,7 @@
       "materialGroup": "PA",
       "material": "PA-GF",
       "series": "PA6-GF",
-      "presetBase": "Bambu PA6-GF @base",
+      "presetBase": "Bambu PA6-GF",
       "colorCode": "72800",
       "colorType": "solid",
       "colors": [
@@ -870,7 +870,7 @@
       "materialGroup": "PA",
       "material": "PA-CF",
       "series": "PAHT-CF",
-      "presetBase": "Bambu PAHT-CF @base",
+      "presetBase": "Bambu PAHT-CF",
       "colorCode": "70100",
       "colorType": "solid",
       "colors": [
@@ -891,7 +891,7 @@
       "materialGroup": "PC",
       "material": "PC",
       "series": "PC",
-      "presetBase": "Bambu PC @base",
+      "presetBase": "Bambu PC",
       "colorCode": "60100",
       "colorType": "solid",
       "colors": [
@@ -912,7 +912,7 @@
       "materialGroup": "PC",
       "material": "PC",
       "series": "PC",
-      "presetBase": "Bambu PC @base",
+      "presetBase": "Bambu PC",
       "colorCode": "60101",
       "colorType": "solid",
       "colors": [
@@ -933,7 +933,7 @@
       "materialGroup": "PC",
       "material": "PC",
       "series": "PC",
-      "presetBase": "Bambu PC @base",
+      "presetBase": "Bambu PC",
       "colorCode": "60102",
       "colorType": "solid",
       "colors": [
@@ -954,7 +954,7 @@
       "materialGroup": "PC",
       "material": "PC",
       "series": "PC",
-      "presetBase": "Bambu PC @base",
+      "presetBase": "Bambu PC",
       "colorCode": "60103",
       "colorType": "solid",
       "colors": [
@@ -975,7 +975,7 @@
       "materialGroup": "PC",
       "material": "PC",
       "series": "FR",
-      "presetBase": "Bambu PC FR @base",
+      "presetBase": "Bambu PC FR",
       "colorCode": "63100",
       "colorType": "solid",
       "colors": [
@@ -996,7 +996,7 @@
       "materialGroup": "PC",
       "material": "PC",
       "series": "FR",
-      "presetBase": "Bambu PC FR @base",
+      "presetBase": "Bambu PC FR",
       "colorCode": "63101",
       "colorType": "solid",
       "colors": [
@@ -1017,7 +1017,7 @@
       "materialGroup": "PC",
       "material": "PC",
       "series": "FR",
-      "presetBase": "Bambu PC FR @base",
+      "presetBase": "Bambu PC FR",
       "colorCode": "63102",
       "colorType": "solid",
       "colors": [
@@ -1038,7 +1038,7 @@
       "materialGroup": "PET",
       "material": "PET-CF",
       "series": "PET-CF",
-      "presetBase": "Bambu PET-CF @base",
+      "presetBase": "Bambu PET-CF",
       "colorCode": "71100",
       "colorType": "solid",
       "colors": [
@@ -1059,7 +1059,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30105",
       "colorType": "solid",
       "colors": [
@@ -1080,7 +1080,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30106",
       "colorType": "solid",
       "colors": [
@@ -1101,7 +1101,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30107",
       "colorType": "solid",
       "colors": [
@@ -1122,7 +1122,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30108",
       "colorType": "solid",
       "colors": [
@@ -1143,7 +1143,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30201",
       "colorType": "solid",
       "colors": [
@@ -1164,7 +1164,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30301",
       "colorType": "solid",
       "colors": [
@@ -1185,7 +1185,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30402",
       "colorType": "solid",
       "colors": [
@@ -1206,7 +1206,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30403",
       "colorType": "solid",
       "colors": [
@@ -1227,7 +1227,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30502",
       "colorType": "solid",
       "colors": [
@@ -1248,7 +1248,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30503",
       "colorType": "solid",
       "colors": [
@@ -1269,7 +1269,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30603",
       "colorType": "solid",
       "colors": [
@@ -1290,7 +1290,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30604",
       "colorType": "solid",
       "colors": [
@@ -1311,7 +1311,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Basic",
-      "presetBase": "Bambu PETG Basic @base",
+      "presetBase": "Bambu PETG Basic",
       "colorCode": "30800",
       "colorType": "solid",
       "colors": [
@@ -1332,7 +1332,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33100",
       "colorType": "solid",
       "colors": [
@@ -1353,7 +1353,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33101",
       "colorType": "solid",
       "colors": [
@@ -1374,7 +1374,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33102",
       "colorType": "solid",
       "colors": [
@@ -1395,7 +1395,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33103",
       "colorType": "solid",
       "colors": [
@@ -1416,7 +1416,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33200",
       "colorType": "solid",
       "colors": [
@@ -1437,7 +1437,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33300",
       "colorType": "solid",
       "colors": [
@@ -1458,7 +1458,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33400",
       "colorType": "solid",
       "colors": [
@@ -1479,7 +1479,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33401",
       "colorType": "solid",
       "colors": [
@@ -1500,7 +1500,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33500",
       "colorType": "solid",
       "colors": [
@@ -1521,7 +1521,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33501",
       "colorType": "solid",
       "colors": [
@@ -1542,7 +1542,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33502",
       "colorType": "solid",
       "colors": [
@@ -1563,7 +1563,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33600",
       "colorType": "solid",
       "colors": [
@@ -1584,7 +1584,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33601",
       "colorType": "solid",
       "colors": [
@@ -1605,7 +1605,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "HF",
-      "presetBase": "Bambu PETG HF @base",
+      "presetBase": "Bambu PETG HF",
       "colorCode": "33801",
       "colorType": "solid",
       "colors": [
@@ -1626,7 +1626,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Translucent",
-      "presetBase": "Bambu PETG Translucent @base",
+      "presetBase": "Bambu PETG Translucent",
       "colorCode": "32100",
       "colorType": "solid",
       "colors": [
@@ -1647,7 +1647,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Translucent",
-      "presetBase": "Bambu PETG Translucent @base",
+      "presetBase": "Bambu PETG Translucent",
       "colorCode": "32101",
       "colorType": "solid",
       "colors": [
@@ -1668,7 +1668,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Translucent",
-      "presetBase": "Bambu PETG Translucent @base",
+      "presetBase": "Bambu PETG Translucent",
       "colorCode": "32200",
       "colorType": "solid",
       "colors": [
@@ -1689,7 +1689,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Translucent",
-      "presetBase": "Bambu PETG Translucent @base",
+      "presetBase": "Bambu PETG Translucent",
       "colorCode": "32300",
       "colorType": "solid",
       "colors": [
@@ -1710,7 +1710,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Translucent",
-      "presetBase": "Bambu PETG Translucent @base",
+      "presetBase": "Bambu PETG Translucent",
       "colorCode": "32500",
       "colorType": "solid",
       "colors": [
@@ -1731,7 +1731,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Translucent",
-      "presetBase": "Bambu PETG Translucent @base",
+      "presetBase": "Bambu PETG Translucent",
       "colorCode": "32501",
       "colorType": "solid",
       "colors": [
@@ -1752,7 +1752,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Translucent",
-      "presetBase": "Bambu PETG Translucent @base",
+      "presetBase": "Bambu PETG Translucent",
       "colorCode": "32600",
       "colorType": "solid",
       "colors": [
@@ -1773,7 +1773,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Translucent",
-      "presetBase": "Bambu PETG Translucent @base",
+      "presetBase": "Bambu PETG Translucent",
       "colorCode": "32700",
       "colorType": "solid",
       "colors": [
@@ -1794,7 +1794,7 @@
       "materialGroup": "PETG",
       "material": "PETG",
       "series": "Translucent",
-      "presetBase": "Bambu PETG Translucent @base",
+      "presetBase": "Bambu PETG Translucent",
       "colorCode": "32800",
       "colorType": "solid",
       "colors": [
@@ -1815,7 +1815,7 @@
       "materialGroup": "PETG",
       "material": "PETG-CF",
       "series": "PETG-CF",
-      "presetBase": "Bambu PETG-CF @base",
+      "presetBase": "Bambu PETG-CF",
       "colorCode": "31100",
       "colorType": "solid",
       "colors": [
@@ -1836,7 +1836,7 @@
       "materialGroup": "PETG",
       "material": "PETG-CF",
       "series": "PETG-CF",
-      "presetBase": "Bambu PETG-CF @base",
+      "presetBase": "Bambu PETG-CF",
       "colorCode": "31101",
       "colorType": "solid",
       "colors": [
@@ -1857,7 +1857,7 @@
       "materialGroup": "PETG",
       "material": "PETG-CF",
       "series": "PETG-CF",
-      "presetBase": "Bambu PETG-CF @base",
+      "presetBase": "Bambu PETG-CF",
       "colorCode": "31200",
       "colorType": "solid",
       "colors": [
@@ -1878,7 +1878,7 @@
       "materialGroup": "PETG",
       "material": "PETG-CF",
       "series": "PETG-CF",
-      "presetBase": "Bambu PETG-CF @base",
+      "presetBase": "Bambu PETG-CF",
       "colorCode": "31500",
       "colorType": "solid",
       "colors": [
@@ -1899,7 +1899,7 @@
       "materialGroup": "PETG",
       "material": "PETG-CF",
       "series": "PETG-CF",
-      "presetBase": "Bambu PETG-CF @base",
+      "presetBase": "Bambu PETG-CF",
       "colorCode": "31600",
       "colorType": "solid",
       "colors": [
@@ -1920,7 +1920,7 @@
       "materialGroup": "PETG",
       "material": "PETG-CF",
       "series": "PETG-CF",
-      "presetBase": "Bambu PETG-CF @base",
+      "presetBase": "Bambu PETG-CF",
       "colorCode": "31700",
       "colorType": "solid",
       "colors": [
@@ -1941,7 +1941,7 @@
       "materialGroup": "PLA",
       "material": "PLA-AERO",
       "series": "Aero",
-      "presetBase": "Bambu PLA Aero @base",
+      "presetBase": "Bambu PLA Aero",
       "colorCode": "14102",
       "colorType": "solid",
       "colors": [
@@ -1962,7 +1962,7 @@
       "materialGroup": "PLA",
       "material": "PLA-AERO",
       "series": "Aero",
-      "presetBase": "Bambu PLA Aero @base",
+      "presetBase": "Bambu PLA Aero",
       "colorCode": "14103",
       "colorType": "solid",
       "colors": [
@@ -1983,7 +1983,7 @@
       "materialGroup": "PLA",
       "material": "PLA-AERO",
       "series": "Aero",
-      "presetBase": "Bambu PLA Aero @base",
+      "presetBase": "Bambu PLA Aero",
       "colorCode": "14104",
       "colorType": "solid",
       "colors": [
@@ -2004,7 +2004,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10100",
       "colorType": "solid",
       "colors": [
@@ -2025,7 +2025,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10101",
       "colorType": "solid",
       "colors": [
@@ -2046,7 +2046,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10102",
       "colorType": "solid",
       "colors": [
@@ -2067,7 +2067,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10103",
       "colorType": "solid",
       "colors": [
@@ -2088,7 +2088,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10104",
       "colorType": "solid",
       "colors": [
@@ -2109,7 +2109,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10105",
       "colorType": "solid",
       "colors": [
@@ -2130,7 +2130,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10200",
       "colorType": "solid",
       "colors": [
@@ -2151,7 +2151,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10201",
       "colorType": "solid",
       "colors": [
@@ -2172,7 +2172,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10202",
       "colorType": "solid",
       "colors": [
@@ -2193,7 +2193,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10203",
       "colorType": "solid",
       "colors": [
@@ -2214,7 +2214,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10204",
       "colorType": "solid",
       "colors": [
@@ -2235,7 +2235,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10205",
       "colorType": "solid",
       "colors": [
@@ -2256,7 +2256,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10300",
       "colorType": "solid",
       "colors": [
@@ -2277,7 +2277,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10301",
       "colorType": "solid",
       "colors": [
@@ -2298,7 +2298,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10400",
       "colorType": "solid",
       "colors": [
@@ -2319,7 +2319,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10401",
       "colorType": "solid",
       "colors": [
@@ -2340,7 +2340,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10402",
       "colorType": "solid",
       "colors": [
@@ -2361,7 +2361,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10501",
       "colorType": "solid",
       "colors": [
@@ -2382,7 +2382,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10502",
       "colorType": "solid",
       "colors": [
@@ -2403,7 +2403,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10503",
       "colorType": "solid",
       "colors": [
@@ -2424,7 +2424,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10601",
       "colorType": "solid",
       "colors": [
@@ -2445,7 +2445,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10602",
       "colorType": "solid",
       "colors": [
@@ -2466,7 +2466,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10603",
       "colorType": "solid",
       "colors": [
@@ -2487,7 +2487,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10604",
       "colorType": "solid",
       "colors": [
@@ -2508,7 +2508,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10605",
       "colorType": "solid",
       "colors": [
@@ -2529,7 +2529,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10700",
       "colorType": "solid",
       "colors": [
@@ -2550,7 +2550,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10701",
       "colorType": "solid",
       "colors": [
@@ -2571,7 +2571,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10800",
       "colorType": "solid",
       "colors": [
@@ -2592,7 +2592,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10801",
       "colorType": "solid",
       "colors": [
@@ -2613,7 +2613,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10802",
       "colorType": "solid",
       "colors": [
@@ -2634,7 +2634,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic Gradient",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10900",
       "colorType": "gradient",
       "colors": [
@@ -2656,7 +2656,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic Gradient",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10901",
       "colorType": "gradient",
       "colors": [
@@ -2678,7 +2678,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic Gradient",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10902",
       "colorType": "gradient",
       "colors": [
@@ -2700,7 +2700,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic Gradient",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10903",
       "colorType": "gradient",
       "colors": [
@@ -2722,7 +2722,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic Gradient",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10904",
       "colorType": "gradient",
       "colors": [
@@ -2744,7 +2744,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic Gradient",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10905",
       "colorType": "gradient",
       "colors": [
@@ -2766,7 +2766,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic Gradient",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10906",
       "colorType": "gradient",
       "colors": [
@@ -2788,7 +2788,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Basic Gradient",
-      "presetBase": "Bambu PLA Basic @base",
+      "presetBase": "Bambu PLA Basic",
       "colorCode": "10907",
       "colorType": "gradient",
       "colors": [
@@ -2810,7 +2810,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Dynamic",
-      "presetBase": "Bambu PLA Dynamic @base",
+      "presetBase": "Bambu PLA Dynamic",
       "colorCode": "15100",
       "colorType": "solid",
       "colors": [
@@ -2831,7 +2831,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Galaxy",
-      "presetBase": "Bambu PLA Galaxy @base",
+      "presetBase": "Bambu PLA Galaxy",
       "colorCode": "13203",
       "colorType": "solid",
       "colors": [
@@ -2852,7 +2852,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Galaxy",
-      "presetBase": "Bambu PLA Galaxy @base",
+      "presetBase": "Bambu PLA Galaxy",
       "colorCode": "13503",
       "colorType": "solid",
       "colors": [
@@ -2873,7 +2873,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Galaxy",
-      "presetBase": "Bambu PLA Galaxy @base",
+      "presetBase": "Bambu PLA Galaxy",
       "colorCode": "13504",
       "colorType": "solid",
       "colors": [
@@ -2894,7 +2894,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Galaxy",
-      "presetBase": "Bambu PLA Galaxy @base",
+      "presetBase": "Bambu PLA Galaxy",
       "colorCode": "13602",
       "colorType": "solid",
       "colors": [
@@ -2915,7 +2915,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Glow",
-      "presetBase": "Bambu PLA Glow @base",
+      "presetBase": "Bambu PLA Glow",
       "colorCode": "15200",
       "colorType": "solid",
       "colors": [
@@ -2936,7 +2936,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Glow",
-      "presetBase": "Bambu PLA Glow @base",
+      "presetBase": "Bambu PLA Glow",
       "colorCode": "15300",
       "colorType": "solid",
       "colors": [
@@ -2957,7 +2957,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Glow",
-      "presetBase": "Bambu PLA Glow @base",
+      "presetBase": "Bambu PLA Glow",
       "colorCode": "15400",
       "colorType": "solid",
       "colors": [
@@ -2978,7 +2978,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Glow",
-      "presetBase": "Bambu PLA Glow @base",
+      "presetBase": "Bambu PLA Glow",
       "colorCode": "15500",
       "colorType": "solid",
       "colors": [
@@ -2999,7 +2999,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Glow",
-      "presetBase": "Bambu PLA Glow @base",
+      "presetBase": "Bambu PLA Glow",
       "colorCode": "15600",
       "colorType": "solid",
       "colors": [
@@ -3020,7 +3020,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16100",
       "colorType": "solid",
       "colors": [
@@ -3041,7 +3041,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16101",
       "colorType": "solid",
       "colors": [
@@ -3062,7 +3062,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16102",
       "colorType": "solid",
       "colors": [
@@ -3083,7 +3083,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16103",
       "colorType": "solid",
       "colors": [
@@ -3104,7 +3104,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16200",
       "colorType": "solid",
       "colors": [
@@ -3125,7 +3125,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16301",
       "colorType": "solid",
       "colors": [
@@ -3146,7 +3146,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16400",
       "colorType": "solid",
       "colors": [
@@ -3167,7 +3167,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16401",
       "colorType": "solid",
       "colors": [
@@ -3188,7 +3188,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16501",
       "colorType": "solid",
       "colors": [
@@ -3209,7 +3209,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16600",
       "colorType": "solid",
       "colors": [
@@ -3230,7 +3230,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16601",
       "colorType": "solid",
       "colors": [
@@ -3251,7 +3251,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16700",
       "colorType": "solid",
       "colors": [
@@ -3272,7 +3272,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Lite",
-      "presetBase": "Bambu PLA Lite @base",
+      "presetBase": "Bambu PLA Lite",
       "colorCode": "16800",
       "colorType": "solid",
       "colors": [
@@ -3293,7 +3293,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Marble",
-      "presetBase": "Bambu PLA Marble @base",
+      "presetBase": "Bambu PLA Marble",
       "colorCode": "13103",
       "colorType": "solid",
       "colors": [
@@ -3314,7 +3314,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Marble",
-      "presetBase": "Bambu PLA Marble @base",
+      "presetBase": "Bambu PLA Marble",
       "colorCode": "13201",
       "colorType": "solid",
       "colors": [
@@ -3335,7 +3335,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11100",
       "colorType": "solid",
       "colors": [
@@ -3356,7 +3356,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11101",
       "colorType": "solid",
       "colors": [
@@ -3377,7 +3377,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11102",
       "colorType": "solid",
       "colors": [
@@ -3398,7 +3398,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11103",
       "colorType": "solid",
       "colors": [
@@ -3419,7 +3419,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11104",
       "colorType": "solid",
       "colors": [
@@ -3440,7 +3440,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11200",
       "colorType": "solid",
       "colors": [
@@ -3461,7 +3461,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11201",
       "colorType": "solid",
       "colors": [
@@ -3482,7 +3482,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11202",
       "colorType": "solid",
       "colors": [
@@ -3503,7 +3503,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11203",
       "colorType": "solid",
       "colors": [
@@ -3524,7 +3524,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11204",
       "colorType": "solid",
       "colors": [
@@ -3545,7 +3545,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11300",
       "colorType": "solid",
       "colors": [
@@ -3566,7 +3566,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11400",
       "colorType": "solid",
       "colors": [
@@ -3587,7 +3587,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11401",
       "colorType": "solid",
       "colors": [
@@ -3608,7 +3608,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11500",
       "colorType": "solid",
       "colors": [
@@ -3629,7 +3629,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11501",
       "colorType": "solid",
       "colors": [
@@ -3650,7 +3650,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11502",
       "colorType": "solid",
       "colors": [
@@ -3671,7 +3671,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11600",
       "colorType": "solid",
       "colors": [
@@ -3692,7 +3692,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11601",
       "colorType": "solid",
       "colors": [
@@ -3713,7 +3713,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11602",
       "colorType": "solid",
       "colors": [
@@ -3734,7 +3734,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11603",
       "colorType": "solid",
       "colors": [
@@ -3755,7 +3755,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11700",
       "colorType": "solid",
       "colors": [
@@ -3776,7 +3776,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11800",
       "colorType": "solid",
       "colors": [
@@ -3797,7 +3797,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11801",
       "colorType": "solid",
       "colors": [
@@ -3818,7 +3818,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11802",
       "colorType": "solid",
       "colors": [
@@ -3839,7 +3839,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Matte",
-      "presetBase": "Bambu PLA Matte @base",
+      "presetBase": "Bambu PLA Matte",
       "colorCode": "11803",
       "colorType": "solid",
       "colors": [
@@ -3860,7 +3860,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Metal",
-      "presetBase": "Bambu PLA Metal @base",
+      "presetBase": "Bambu PLA Metal",
       "colorCode": "13100",
       "colorType": "solid",
       "colors": [
@@ -3881,7 +3881,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Metal",
-      "presetBase": "Bambu PLA Metal @base",
+      "presetBase": "Bambu PLA Metal",
       "colorCode": "13400",
       "colorType": "solid",
       "colors": [
@@ -3902,7 +3902,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Metal",
-      "presetBase": "Bambu PLA Metal @base",
+      "presetBase": "Bambu PLA Metal",
       "colorCode": "13500",
       "colorType": "solid",
       "colors": [
@@ -3923,7 +3923,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Metal",
-      "presetBase": "Bambu PLA Metal @base",
+      "presetBase": "Bambu PLA Metal",
       "colorCode": "13600",
       "colorType": "solid",
       "colors": [
@@ -3944,7 +3944,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Metal",
-      "presetBase": "Bambu PLA Metal @base",
+      "presetBase": "Bambu PLA Metal",
       "colorCode": "13800",
       "colorType": "solid",
       "colors": [
@@ -3965,7 +3965,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Pure",
-      "presetBase": "Bambu PLA Pure @base",
+      "presetBase": "Bambu PLA Pure",
       "colorCode": "17100",
       "colorType": "solid",
       "colors": [
@@ -3986,7 +3986,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Pure",
-      "presetBase": "Bambu PLA Pure @base",
+      "presetBase": "Bambu PLA Pure",
       "colorCode": "17101",
       "colorType": "solid",
       "colors": [
@@ -4007,7 +4007,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Pure",
-      "presetBase": "Bambu PLA Pure @base",
+      "presetBase": "Bambu PLA Pure",
       "colorCode": "17200",
       "colorType": "solid",
       "colors": [
@@ -4028,7 +4028,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Pure",
-      "presetBase": "Bambu PLA Pure @base",
+      "presetBase": "Bambu PLA Pure",
       "colorCode": "17300",
       "colorType": "solid",
       "colors": [
@@ -4049,7 +4049,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Pure",
-      "presetBase": "Bambu PLA Pure @base",
+      "presetBase": "Bambu PLA Pure",
       "colorCode": "17600",
       "colorType": "solid",
       "colors": [
@@ -4070,7 +4070,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13104",
       "colorType": "solid",
       "colors": [
@@ -4091,7 +4091,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13105",
       "colorType": "solid",
       "colors": [
@@ -4112,7 +4112,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13202",
       "colorType": "solid",
       "colors": [
@@ -4133,7 +4133,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13300",
       "colorType": "solid",
       "colors": [
@@ -4154,7 +4154,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13401",
       "colorType": "solid",
       "colors": [
@@ -4175,7 +4175,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13502",
       "colorType": "solid",
       "colors": [
@@ -4196,7 +4196,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13601",
       "colorType": "solid",
       "colors": [
@@ -4217,7 +4217,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13701",
       "colorType": "solid",
       "colors": [
@@ -4238,7 +4238,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk Multi-Color",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13901",
       "colorType": "dual",
       "colors": [
@@ -4260,7 +4260,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk Multi-Color",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13902",
       "colorType": "dual",
       "colors": [
@@ -4282,7 +4282,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk Multi-Color",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13903",
       "colorType": "dual",
       "colors": [
@@ -4304,7 +4304,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk Multi-Color",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13904",
       "colorType": "dual",
       "colors": [
@@ -4326,7 +4326,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk Multi-Color",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13905",
       "colorType": "dual",
       "colors": [
@@ -4348,7 +4348,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk Multi-Color",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13906",
       "colorType": "gradient",
       "colors": [
@@ -4370,7 +4370,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk Multi-Color",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13909",
       "colorType": "gradient",
       "colors": [
@@ -4392,7 +4392,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk Multi-Color",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13912",
       "colorType": "gradient",
       "colors": [
@@ -4416,7 +4416,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk Multi-Color",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13913",
       "colorType": "dual",
       "colors": [
@@ -4438,7 +4438,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk Multi-Color",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13916",
       "colorType": "dual",
       "colors": [
@@ -4460,7 +4460,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13108",
       "colorType": "solid",
       "colors": [
@@ -4481,7 +4481,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13109",
       "colorType": "solid",
       "colors": [
@@ -4502,7 +4502,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13110",
       "colorType": "solid",
       "colors": [
@@ -4523,7 +4523,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13205",
       "colorType": "solid",
       "colors": [
@@ -4544,7 +4544,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13206",
       "colorType": "solid",
       "colors": [
@@ -4565,7 +4565,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13207",
       "colorType": "solid",
       "colors": [
@@ -4586,7 +4586,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13404",
       "colorType": "solid",
       "colors": [
@@ -4607,7 +4607,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13405",
       "colorType": "solid",
       "colors": [
@@ -4628,7 +4628,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13506",
       "colorType": "solid",
       "colors": [
@@ -4649,7 +4649,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13507",
       "colorType": "solid",
       "colors": [
@@ -4670,7 +4670,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13603",
       "colorType": "solid",
       "colors": [
@@ -4691,7 +4691,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13604",
       "colorType": "solid",
       "colors": [
@@ -4712,7 +4712,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Silk+",
-      "presetBase": "Bambu PLA Silk @base",
+      "presetBase": "Bambu PLA Silk",
       "colorCode": "13702",
       "colorType": "solid",
       "colors": [
@@ -4733,7 +4733,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Sparkle",
-      "presetBase": "Bambu PLA Sparkle @base",
+      "presetBase": "Bambu PLA Sparkle",
       "colorCode": "13101",
       "colorType": "solid",
       "colors": [
@@ -4754,7 +4754,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Sparkle",
-      "presetBase": "Bambu PLA Sparkle @base",
+      "presetBase": "Bambu PLA Sparkle",
       "colorCode": "13102",
       "colorType": "solid",
       "colors": [
@@ -4775,7 +4775,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Sparkle",
-      "presetBase": "Bambu PLA Sparkle @base",
+      "presetBase": "Bambu PLA Sparkle",
       "colorCode": "13200",
       "colorType": "solid",
       "colors": [
@@ -4796,7 +4796,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Sparkle",
-      "presetBase": "Bambu PLA Sparkle @base",
+      "presetBase": "Bambu PLA Sparkle",
       "colorCode": "13402",
       "colorType": "solid",
       "colors": [
@@ -4817,7 +4817,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Sparkle",
-      "presetBase": "Bambu PLA Sparkle @base",
+      "presetBase": "Bambu PLA Sparkle",
       "colorCode": "13501",
       "colorType": "solid",
       "colors": [
@@ -4838,7 +4838,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Sparkle",
-      "presetBase": "Bambu PLA Sparkle @base",
+      "presetBase": "Bambu PLA Sparkle",
       "colorCode": "13700",
       "colorType": "solid",
       "colors": [
@@ -4859,7 +4859,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12100",
       "colorType": "solid",
       "colors": [
@@ -4880,7 +4880,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12101",
       "colorType": "solid",
       "colors": [
@@ -4901,7 +4901,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12102",
       "colorType": "solid",
       "colors": [
@@ -4922,7 +4922,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12103",
       "colorType": "solid",
       "colors": [
@@ -4943,7 +4943,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12200",
       "colorType": "solid",
       "colors": [
@@ -4964,7 +4964,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12300",
       "colorType": "solid",
       "colors": [
@@ -4985,7 +4985,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12400",
       "colorType": "solid",
       "colors": [
@@ -5006,7 +5006,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12500",
       "colorType": "solid",
       "colors": [
@@ -5027,7 +5027,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12600",
       "colorType": "solid",
       "colors": [
@@ -5048,7 +5048,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12700",
       "colorType": "solid",
       "colors": [
@@ -5069,7 +5069,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough+",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12104",
       "colorType": "solid",
       "colors": [
@@ -5090,7 +5090,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough+",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12105",
       "colorType": "solid",
       "colors": [
@@ -5111,7 +5111,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough+",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12106",
       "colorType": "solid",
       "colors": [
@@ -5132,7 +5132,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough+",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12107",
       "colorType": "solid",
       "colors": [
@@ -5153,7 +5153,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough+",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12301",
       "colorType": "solid",
       "colors": [
@@ -5174,7 +5174,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough+",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12401",
       "colorType": "solid",
       "colors": [
@@ -5195,7 +5195,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Tough+",
-      "presetBase": "Bambu PLA Tough @base",
+      "presetBase": "Bambu PLA Tough",
       "colorCode": "12601",
       "colorType": "solid",
       "colors": [
@@ -5216,7 +5216,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Translucent",
-      "presetBase": "Bambu PLA Translucent @base",
+      "presetBase": "Bambu PLA Translucent",
       "colorCode": "13210",
       "colorType": "solid",
       "colors": [
@@ -5237,7 +5237,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Translucent",
-      "presetBase": "Bambu PLA Translucent @base",
+      "presetBase": "Bambu PLA Translucent",
       "colorCode": "13211",
       "colorType": "solid",
       "colors": [
@@ -5258,7 +5258,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Translucent",
-      "presetBase": "Bambu PLA Translucent @base",
+      "presetBase": "Bambu PLA Translucent",
       "colorCode": "13301",
       "colorType": "solid",
       "colors": [
@@ -5279,7 +5279,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Translucent",
-      "presetBase": "Bambu PLA Translucent @base",
+      "presetBase": "Bambu PLA Translucent",
       "colorCode": "13410",
       "colorType": "solid",
       "colors": [
@@ -5300,7 +5300,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Translucent",
-      "presetBase": "Bambu PLA Translucent @base",
+      "presetBase": "Bambu PLA Translucent",
       "colorCode": "13510",
       "colorType": "solid",
       "colors": [
@@ -5321,7 +5321,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Translucent",
-      "presetBase": "Bambu PLA Translucent @base",
+      "presetBase": "Bambu PLA Translucent",
       "colorCode": "13610",
       "colorType": "solid",
       "colors": [
@@ -5342,7 +5342,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Translucent",
-      "presetBase": "Bambu PLA Translucent @base",
+      "presetBase": "Bambu PLA Translucent",
       "colorCode": "13611",
       "colorType": "solid",
       "colors": [
@@ -5363,7 +5363,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Translucent",
-      "presetBase": "Bambu PLA Translucent @base",
+      "presetBase": "Bambu PLA Translucent",
       "colorCode": "13612",
       "colorType": "solid",
       "colors": [
@@ -5384,7 +5384,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Translucent",
-      "presetBase": "Bambu PLA Translucent @base",
+      "presetBase": "Bambu PLA Translucent",
       "colorCode": "13710",
       "colorType": "solid",
       "colors": [
@@ -5405,7 +5405,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Translucent",
-      "presetBase": "Bambu PLA Translucent @base",
+      "presetBase": "Bambu PLA Translucent",
       "colorCode": "13711",
       "colorType": "solid",
       "colors": [
@@ -5426,7 +5426,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Wood",
-      "presetBase": "Bambu PLA Wood @base",
+      "presetBase": "Bambu PLA Wood",
       "colorCode": "13106",
       "colorType": "solid",
       "colors": [
@@ -5447,7 +5447,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Wood",
-      "presetBase": "Bambu PLA Wood @base",
+      "presetBase": "Bambu PLA Wood",
       "colorCode": "13107",
       "colorType": "solid",
       "colors": [
@@ -5468,7 +5468,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Wood",
-      "presetBase": "Bambu PLA Wood @base",
+      "presetBase": "Bambu PLA Wood",
       "colorCode": "13204",
       "colorType": "solid",
       "colors": [
@@ -5489,7 +5489,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Wood",
-      "presetBase": "Bambu PLA Wood @base",
+      "presetBase": "Bambu PLA Wood",
       "colorCode": "13403",
       "colorType": "solid",
       "colors": [
@@ -5510,7 +5510,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Wood",
-      "presetBase": "Bambu PLA Wood @base",
+      "presetBase": "Bambu PLA Wood",
       "colorCode": "13505",
       "colorType": "solid",
       "colors": [
@@ -5531,7 +5531,7 @@
       "materialGroup": "PLA",
       "material": "PLA",
       "series": "Wood",
-      "presetBase": "Bambu PLA Wood @base",
+      "presetBase": "Bambu PLA Wood",
       "colorCode": "13801",
       "colorType": "solid",
       "colors": [
@@ -5552,7 +5552,7 @@
       "materialGroup": "PLA",
       "material": "PLA-CF",
       "series": "PLA-CF",
-      "presetBase": "Bambu PLA-CF @base",
+      "presetBase": "Bambu PLA-CF",
       "colorCode": "14100",
       "colorType": "solid",
       "colors": [
@@ -5573,7 +5573,7 @@
       "materialGroup": "PLA",
       "material": "PLA-CF",
       "series": "PLA-CF",
-      "presetBase": "Bambu PLA-CF @base",
+      "presetBase": "Bambu PLA-CF",
       "colorCode": "14101",
       "colorType": "solid",
       "colors": [
@@ -5594,7 +5594,7 @@
       "materialGroup": "PLA",
       "material": "PLA-CF",
       "series": "PLA-CF",
-      "presetBase": "Bambu PLA-CF @base",
+      "presetBase": "Bambu PLA-CF",
       "colorCode": "14200",
       "colorType": "solid",
       "colors": [
@@ -5615,7 +5615,7 @@
       "materialGroup": "PLA",
       "material": "PLA-CF",
       "series": "PLA-CF",
-      "presetBase": "Bambu PLA-CF @base",
+      "presetBase": "Bambu PLA-CF",
       "colorCode": "14500",
       "colorType": "solid",
       "colors": [
@@ -5636,7 +5636,7 @@
       "materialGroup": "PLA",
       "material": "PLA-CF",
       "series": "PLA-CF",
-      "presetBase": "Bambu PLA-CF @base",
+      "presetBase": "Bambu PLA-CF",
       "colorCode": "14600",
       "colorType": "solid",
       "colors": [
@@ -5657,7 +5657,7 @@
       "materialGroup": "PLA",
       "material": "PLA-CF",
       "series": "PLA-CF",
-      "presetBase": "Bambu PLA-CF @base",
+      "presetBase": "Bambu PLA-CF",
       "colorCode": "14601",
       "colorType": "solid",
       "colors": [
@@ -5678,7 +5678,7 @@
       "materialGroup": "PLA",
       "material": "PLA-CF",
       "series": "PLA-CF",
-      "presetBase": "Bambu PLA-CF @base",
+      "presetBase": "Bambu PLA-CF",
       "colorCode": "14700",
       "colorType": "solid",
       "colors": [
@@ -5699,7 +5699,7 @@
       "materialGroup": "PPA",
       "material": "PPA-CF",
       "series": "PPA-CF",
-      "presetBase": "Bambu PPA-CF @base",
+      "presetBase": "Bambu PPA-CF",
       "colorCode": "73100",
       "colorType": "solid",
       "colors": [
@@ -5720,7 +5720,7 @@
       "materialGroup": "PPS",
       "material": "PPS-CF",
       "series": "PPS-CF",
-      "presetBase": "Bambu PPS-CF @base",
+      "presetBase": "Bambu PPS-CF",
       "colorCode": "76100",
       "colorType": "solid",
       "colors": [
@@ -5741,7 +5741,7 @@
       "materialGroup": "支撑材料",
       "material": "PVA",
       "series": "PVA",
-      "presetBase": "Bambu PVA @base",
+      "presetBase": "Bambu PVA",
       "colorCode": "66400",
       "colorType": "solid",
       "colors": [
@@ -5762,7 +5762,7 @@
       "materialGroup": "支撑材料",
       "material": "ABS",
       "series": "Support for ABS",
-      "presetBase": "Bambu Support for ABS @base",
+      "presetBase": "Bambu Support for ABS",
       "colorCode": "66100",
       "colorType": "solid",
       "colors": [
@@ -5783,7 +5783,7 @@
       "materialGroup": "支撑材料",
       "material": "PA",
       "series": "Support for PA/PET",
-      "presetBase": "Bambu Support For PA/PET @base",
+      "presetBase": "Bambu Support For PA/PET",
       "colorCode": "65500",
       "colorType": "solid",
       "colors": [
@@ -5804,7 +5804,7 @@
       "materialGroup": "支撑材料",
       "material": "PLA",
       "series": "Support for PLA",
-      "presetBase": "Bambu Support For PLA @base",
+      "presetBase": "Bambu Support For PLA",
       "colorCode": "65104",
       "colorType": "solid",
       "colors": [
@@ -5825,7 +5825,7 @@
       "materialGroup": "支撑材料",
       "material": "PLA",
       "series": "Support for PLA/PETG",
-      "presetBase": "Bambu Support For PLA/PETG @base",
+      "presetBase": "Bambu Support For PLA/PETG",
       "colorCode": "65102",
       "colorType": "solid",
       "colors": [
@@ -5846,7 +5846,7 @@
       "materialGroup": "支撑材料",
       "material": "PLA",
       "series": "Support for PLA/PETG",
-      "presetBase": "Bambu Support For PLA/PETG @base",
+      "presetBase": "Bambu Support For PLA/PETG",
       "colorCode": "65103",
       "colorType": "solid",
       "colors": [
@@ -5867,7 +5867,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "85A",
-      "presetBase": "Bambu TPU 85A @base",
+      "presetBase": "Bambu TPU 85A",
       "colorCode": "51107",
       "colorType": "solid",
       "colors": [
@@ -5888,7 +5888,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "85A",
-      "presetBase": "Bambu TPU 85A @base",
+      "presetBase": "Bambu TPU 85A",
       "colorCode": "51201",
       "colorType": "solid",
       "colors": [
@@ -5909,7 +5909,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "85A",
-      "presetBase": "Bambu TPU 85A @base",
+      "presetBase": "Bambu TPU 85A",
       "colorCode": "51305",
       "colorType": "solid",
       "colors": [
@@ -5930,7 +5930,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "85A",
-      "presetBase": "Bambu TPU 85A @base",
+      "presetBase": "Bambu TPU 85A",
       "colorCode": "51500",
       "colorType": "solid",
       "colors": [
@@ -5951,7 +5951,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "85A",
-      "presetBase": "Bambu TPU 85A @base",
+      "presetBase": "Bambu TPU 85A",
       "colorCode": "51501",
       "colorType": "solid",
       "colors": [
@@ -5972,7 +5972,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "90A",
-      "presetBase": "Bambu TPU 90A @base",
+      "presetBase": "Bambu TPU 90A",
       "colorCode": "51103",
       "colorType": "solid",
       "colors": [
@@ -5993,7 +5993,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "90A",
-      "presetBase": "Bambu TPU 90A @base",
+      "presetBase": "Bambu TPU 90A",
       "colorCode": "51105",
       "colorType": "solid",
       "colors": [
@@ -6014,7 +6014,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "90A",
-      "presetBase": "Bambu TPU 90A @base",
+      "presetBase": "Bambu TPU 90A",
       "colorCode": "51106",
       "colorType": "solid",
       "colors": [
@@ -6035,7 +6035,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "90A",
-      "presetBase": "Bambu TPU 90A @base",
+      "presetBase": "Bambu TPU 90A",
       "colorCode": "51601",
       "colorType": "solid",
       "colors": [
@@ -6056,7 +6056,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "90A",
-      "presetBase": "Bambu TPU 90A @base",
+      "presetBase": "Bambu TPU 90A",
       "colorCode": "51700",
       "colorType": "solid",
       "colors": [
@@ -6077,7 +6077,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "90A",
-      "presetBase": "Bambu TPU 90A @base",
+      "presetBase": "Bambu TPU 90A",
       "colorCode": "51800",
       "colorType": "solid",
       "colors": [
@@ -6098,7 +6098,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "90A",
-      "presetBase": "Bambu TPU 90A @base",
+      "presetBase": "Bambu TPU 90A",
       "colorCode": "51900",
       "colorType": "gradient",
       "colors": [
@@ -6120,7 +6120,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "90A",
-      "presetBase": "Bambu TPU 90A @base",
+      "presetBase": "Bambu TPU 90A",
       "colorCode": "51901",
       "colorType": "gradient",
       "colors": [
@@ -6142,7 +6142,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "95A",
-      "presetBase": "Bambu TPU 95A @base",
+      "presetBase": "Bambu TPU 95A",
       "colorCode": "50100",
       "colorType": "solid",
       "colors": [
@@ -6163,7 +6163,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "95A",
-      "presetBase": "Bambu TPU 95A @base",
+      "presetBase": "Bambu TPU 95A",
       "colorCode": "50101",
       "colorType": "solid",
       "colors": [
@@ -6184,7 +6184,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "95A HF",
-      "presetBase": "Bambu TPU 95A HF @base",
+      "presetBase": "Bambu TPU 95A HF",
       "colorCode": "51100",
       "colorType": "solid",
       "colors": [
@@ -6205,7 +6205,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "95A HF",
-      "presetBase": "Bambu TPU 95A HF @base",
+      "presetBase": "Bambu TPU 95A HF",
       "colorCode": "51101",
       "colorType": "solid",
       "colors": [
@@ -6226,7 +6226,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "95A HF",
-      "presetBase": "Bambu TPU 95A HF @base",
+      "presetBase": "Bambu TPU 95A HF",
       "colorCode": "51102",
       "colorType": "solid",
       "colors": [
@@ -6247,7 +6247,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "95A HF",
-      "presetBase": "Bambu TPU 95A HF @base",
+      "presetBase": "Bambu TPU 95A HF",
       "colorCode": "51200",
       "colorType": "solid",
       "colors": [
@@ -6268,7 +6268,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "95A HF",
-      "presetBase": "Bambu TPU 95A HF @base",
+      "presetBase": "Bambu TPU 95A HF",
       "colorCode": "51400",
       "colorType": "solid",
       "colors": [
@@ -6289,7 +6289,7 @@
       "materialGroup": "TPU",
       "material": "TPU",
       "series": "95A HF",
-      "presetBase": "Bambu TPU 95A HF @base",
+      "presetBase": "Bambu TPU 95A HF",
       "colorCode": "51600",
       "colorType": "solid",
       "colors": [
@@ -6310,7 +6310,7 @@
       "materialGroup": "TPU",
       "material": "TPU-AMS",
       "series": "for AMS",
-      "presetBase": "Bambu TPU for AMS @base",
+      "presetBase": "Bambu TPU for AMS",
       "colorCode": "53100",
       "colorType": "solid",
       "colors": [
@@ -6331,7 +6331,7 @@
       "materialGroup": "TPU",
       "material": "TPU-AMS",
       "series": "for AMS",
-      "presetBase": "Bambu TPU for AMS @base",
+      "presetBase": "Bambu TPU for AMS",
       "colorCode": "53101",
       "colorType": "solid",
       "colors": [
@@ -6352,7 +6352,7 @@
       "materialGroup": "TPU",
       "material": "TPU-AMS",
       "series": "for AMS",
-      "presetBase": "Bambu TPU for AMS @base",
+      "presetBase": "Bambu TPU for AMS",
       "colorCode": "53102",
       "colorType": "solid",
       "colors": [
@@ -6373,7 +6373,7 @@
       "materialGroup": "TPU",
       "material": "TPU-AMS",
       "series": "for AMS",
-      "presetBase": "Bambu TPU for AMS @base",
+      "presetBase": "Bambu TPU for AMS",
       "colorCode": "53200",
       "colorType": "solid",
       "colors": [
@@ -6394,7 +6394,7 @@
       "materialGroup": "TPU",
       "material": "TPU-AMS",
       "series": "for AMS",
-      "presetBase": "Bambu TPU for AMS @base",
+      "presetBase": "Bambu TPU for AMS",
       "colorCode": "53400",
       "colorType": "solid",
       "colors": [
@@ -6415,7 +6415,7 @@
       "materialGroup": "TPU",
       "material": "TPU-AMS",
       "series": "for AMS",
-      "presetBase": "Bambu TPU for AMS @base",
+      "presetBase": "Bambu TPU for AMS",
       "colorCode": "53500",
       "colorType": "solid",
       "colors": [
@@ -6436,7 +6436,7 @@
       "materialGroup": "TPU",
       "material": "TPU-AMS",
       "series": "for AMS",
-      "presetBase": "Bambu TPU for AMS @base",
+      "presetBase": "Bambu TPU for AMS",
       "colorCode": "53600",
       "colorType": "solid",
       "colors": [
