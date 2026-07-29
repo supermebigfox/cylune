@@ -6,6 +6,7 @@
 
 constexpr double kPetSwallowDurationSeconds = 0.74;
 constexpr double kPetEjectDurationSeconds = 0.62;
+constexpr double kPetSuccessJetDurationSeconds = 0.50;
 
 inline double PetClampUnit(double value) {
   return std::min(1.0, std::max(0.0, value));
@@ -25,6 +26,16 @@ inline double PetEjectProgress(double elapsedSeconds) {
   }
   return PetClampUnit((elapsedSeconds - kPetSwallowDurationSeconds) /
                       kPetEjectDurationSeconds);
+}
+
+inline double PetSuccessJetProgress(double elapsedSeconds) {
+  if (elapsedSeconds <= kPetSwallowDurationSeconds) return 0.0;
+  if (elapsedSeconds >=
+      kPetSwallowDurationSeconds + kPetSuccessJetDurationSeconds) {
+    return 1.0;
+  }
+  return PetClampUnit((elapsedSeconds - kPetSwallowDurationSeconds) /
+                      kPetSuccessJetDurationSeconds);
 }
 
 inline double PetEase(double progress) {

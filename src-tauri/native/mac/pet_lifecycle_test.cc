@@ -67,6 +67,14 @@ int main() {
                   0.5) < 1e-9);
   assert(PetEjectProgress(kPetSwallowDurationSeconds +
                           kPetEjectDurationSeconds) == 1.0);
+  assert(PetSuccessJetProgress(kPetSwallowDurationSeconds) == 0.0);
+  assert(std::abs(PetSuccessJetProgress(
+                      kPetSwallowDurationSeconds +
+                      kPetSuccessJetDurationSeconds * 0.5) -
+                  0.5) <
+         1e-9);
+  assert(PetSuccessJetProgress(kPetSwallowDurationSeconds +
+                               kPetSuccessJetDurationSeconds) == 1.0);
   assert(PetOrbitScale(0.0) == 1.0);
   assert(PetOrbitScale(1.0) == 0.0);
   assert(!PetShouldDrawDropOverlay(true, false));
