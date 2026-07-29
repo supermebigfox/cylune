@@ -13,6 +13,7 @@ typedef NS_ENUM(uint32_t, BHStyle) {
 @property(nonatomic) float blackHolePullGain;
 @property(nonatomic) float blackHoleIngestProgress;
 @property(nonatomic) float blackHoleEjectProgress;
+@property(nonatomic) float blackHoleSuccessJetProgress;
 @property(nonatomic) BHStyle blackHoleStyle;
 @property(nonatomic, readonly) BOOL rendererAvailable;
 - (instancetype)initWithFrame:(NSRect)frame

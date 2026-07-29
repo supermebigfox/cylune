@@ -12,6 +12,10 @@ grep -Fq 'ghostty-blackhole' src-tauri/native/mac/tiyda/THIRD_PARTY_NOTICES.md
 grep -Fq 'float2 center;' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'ingestProgress' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'ejectProgress' src-tauri/native/mac/tiyda/BlackHole.metal
+grep -Fq 'blackHoleSuccessJetProgress' \
+  src-tauri/native/mac/tiyda/BlackHoleDesktop.h
+grep -Fq 'successJetProgress' \
+  src-tauri/native/mac/tiyda/MetalBlackHoleView.m
 grep -Fq 'float2 center = clamp(P.center' src-tauri/native/mac/tiyda/BlackHole.metal
 ! grep -Fq '0.57+0.19*sin' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'P.time' src-tauri/native/mac/tiyda/BlackHole.metal

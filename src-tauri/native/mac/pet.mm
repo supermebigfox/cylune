@@ -78,6 +78,8 @@ static const CGFloat kPetDragThreshold = 4.0;
 - (void)dragExited;
 - (void)setIngestProgress:(CGFloat)ingestProgress
             ejectProgress:(CGFloat)ejectProgress;
+- (void)setSuccessJetProgress:(CGFloat)successJetProgress;
+- (void)clearSuccessJet;
 - (void)setDropHovering:(BOOL)hovering;
 - (void)tickIngestAnimation;
 @end
@@ -413,6 +415,10 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
   CFAbsoluteTime _ingestStartedAt;
   CGFloat _ingestProgress;
   CGFloat _ejectProgress;
+  BOOL _successJetActive;
+  CFAbsoluteTime _successJetStartedAt;
+  CGFloat _successJetProgress;
+  BOOL _importCallbackSent;
   BOOL _dropHovering;
   BOOL _pendingDropSupported;
   uint64_t _pendingDropGeneration;
@@ -554,6 +560,7 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
     view.blackHolePullGain = hoverEffect.pullGain;
     view.blackHoleIngestProgress = _ingestProgress;
     view.blackHoleEjectProgress = _ejectProgress;
+    view.blackHoleSuccessJetProgress = _successJetProgress;
     view.blackHoleStyle =
         _hasConfig && _config.visual_style == 0 ? BHStyleGargantua
                                                 : BHStyleDefault;
@@ -621,6 +628,7 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
 
 - (void)hide {
   _gestureActive = NO;
+  [self clearSuccessJet];
   _lifecycle.hide();
   _targetView.fileHovering = NO;
   [_targetPanel orderOut:nil];
@@ -716,6 +724,8 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
   const char *path = url.path.fileSystemRepresentation;
   if (!_dropSession.submit(generation, path)) return NO;
   [self setDropHovering:NO];
+  [self clearSuccessJet];
+  _importCallbackSent = NO;
   _pendingDropSupported =
       fileKind == PET_FILE_3MF || fileKind == PET_FILE_GCODE;
   _pendingDropGeneration = generation;
@@ -748,6 +758,19 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
   }
 }
 
+- (void)setSuccessJetProgress:(CGFloat)successJetProgress {
+  _successJetProgress = MIN(MAX(successJetProgress, 0.0), 1.0);
+  for (BHPetPane *pane in _panes) {
+    pane.blackHoleView.blackHoleSuccessJetProgress = _successJetProgress;
+  }
+}
+
+- (void)clearSuccessJet {
+  _successJetActive = NO;
+  _successJetStartedAt = 0;
+  [self setSuccessJetProgress:0];
+}
+
 - (void)setDropHovering:(BOOL)hovering {
   if (_dropHovering == hovering) return;
   _dropHovering = hovering;
@@ -755,14 +778,26 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
 }
 
 - (void)tickIngestAnimation {
+  const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+  if (_successJetActive) {
+    const CFTimeInterval jetElapsed = now - _successJetStartedAt;
+    if (jetElapsed >= kPetSuccessJetDurationSeconds) {
+      [self clearSuccessJet];
+    } else {
+      [self setSuccessJetProgress:PetSuccessJetProgress(
+                                      kPetSwallowDurationSeconds + jetElapsed)];
+    }
+  }
+
   if (_pendingDropGeneration == 0 || _pendingDropPath == nil) {
-    [_ingestTimer invalidate];
-    _ingestTimer = nil;
-    [self setIngestProgress:0 ejectProgress:0];
+    if (!_successJetActive) {
+      [_ingestTimer invalidate];
+      _ingestTimer = nil;
+      [self setIngestProgress:0 ejectProgress:0];
+    }
     return;
   }
-  const CFTimeInterval elapsed =
-      CFAbsoluteTimeGetCurrent() - _ingestStartedAt;
+  const CFTimeInterval elapsed = now - _ingestStartedAt;
   if (elapsed < kPetSwallowDurationSeconds) {
     [self setIngestProgress:PetSwallowProgress(elapsed)
               ejectProgress:0];
@@ -776,16 +811,29 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
     return;
   }
 
-  [_ingestTimer invalidate];
-  _ingestTimer = nil;
   const uint64_t generation = _pendingDropGeneration;
-  if (_pendingDropSupported && _callback != nullptr) {
+  if (_pendingDropSupported) {
     [self setIngestProgress:1 ejectProgress:0];
-    _callback(kPetCallbackFileDropped,
-              _pendingDropPath.fileSystemRepresentation, 0, 0, generation);
+    if (!_importCallbackSent) {
+      _importCallbackSent = YES;
+      _successJetActive = YES;
+      _successJetStartedAt = now;
+      [self setSuccessJetProgress:0];
+      if (_callback != nullptr) {
+        _callback(kPetCallbackFileDropped,
+                  _pendingDropPath.fileSystemRepresentation, 0, 0,
+                  generation);
+      }
+    }
+    if (!_successJetActive) {
+      [_ingestTimer invalidate];
+      _ingestTimer = nil;
+    }
     return;
   }
 
+  [_ingestTimer invalidate];
+  _ingestTimer = nil;
   _dropSession.finish(generation, PET_DROP_REJECTED);
   _pendingDropGeneration = 0;
   _pendingDropPath = nil;
@@ -872,6 +920,7 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
 - (void)workspaceWillSleep:(NSNotification *)notification {
   (void)notification;
   if (_lifecycle.destroyed() || _lifecycle.sleeping()) return;
+  [self clearSuccessJet];
   _lifecycle.sleep();
   [self updatePanes];
   if (_callback != nullptr) {
@@ -892,6 +941,7 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
 
 - (uint32_t)shutdown {
   if (_lifecycle.destroyed()) return PET_SHUTDOWN_COMPLETE;
+  [self clearSuccessJet];
   _lifecycle.destroy();
   [NSNotificationCenter.defaultCenter removeObserver:self];
   [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
