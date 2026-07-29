@@ -153,6 +153,28 @@ AMS Lite 通过 RFID 识别原厂耗材并同步给 Bambu Studio 后，用户仍
 
 副厂耗材作为后续扩展：用户手工选择或创建厂家、基础材质、系列/效果和颜色；创建后可复用为自定义预设。数据模型从第一版开始保留这些字段，避免后期迁移。
 
+### 6.6.1 离线目录、建卷与匹配
+
+拓竹原厂耗材目录以 `src/catalog/bambu.json` 离线快照随 App 一起发布，运行时不依赖网络或 Bambu Studio 安装目录。当前快照来自 Bambu Studio `02.08.00.50`，包含 45 个源类型和 306 个颜色条目；每个条目保存官方耗材 ID、源类型、基础材质、产品系列、预设基名、五位颜色代码、全部视觉颜色以及简体中文、繁体中文和英文名称。
+
+维护者使用以下命令从本机 Bambu Studio 资源重新生成快照：
+
+```bash
+node scripts/catalog.mjs \
+  '/Applications/BambuStudio.app/Contents/Resources/profiles/BBL/filament/filaments_color_codes.json' \
+  '/Applications/BambuStudio.app/Contents/Resources/profiles/BBL/filament'
+```
+
+添加原厂卷采用“材料 → 系列 → 颜色”三级选择流程。选择颜色后，App 将目录 ID、官方颜色名与代码、全部颜色值和预设基名写入独立耗材卷；用户仍可设置卷名和初始重量，同款同色的多卷不会合并。
+
+切片工具与现有卷的匹配顺序固定为：
+
+1. **精确匹配**：`preset_id + material + series + color_hex`；
+2. **预设基名匹配**：`preset_base + material + color_hex`，用于跨打印机后缀匹配；
+3. **旧数据匹配**：仅对没有 `preset_base` 的卷使用 `material + series + color_hex`。
+
+前一层存在候选时不会继续使用更宽松的后一层；唯一候选可自动建议，同层多个候选仍要求用户选择具体 `spool_id`。
+
 ## 7. 3MF 与 G-code 解析
 
 ### 7.1 输入
@@ -352,11 +374,15 @@ App 使用设备令牌通过 HTTPS 批量上传事件。每个事件包含：
 - App 启动后先打开本地数据库，不依赖云端可用性；
 - 失败上传使用指数退避并保留在 outbox；
 - UI 明确区分“已保存到本机”和“已同步”；
+- `spools` 通过迁移新增五个可空目录字段：`catalog_id`、`color_name`、`color_code`、`color_hexes` 和 `preset_base`；旧数据库不需要补造目录身份，多色字段缺失、无效或为空时回退到原有 `color_hex`；
+- 业务 JSON 备份格式当前为 schema version 2，导出并恢复上述五个目录字段，同时仍可导入 schema version 1 并使用兼容默认值；
 - 导出包包含本地业务数据、未完成任务和非敏感配置；
 - 导出包不包含设备令牌和账号密码；
 - 桌面黑洞的模式、尺寸、帧率、可见性、坐标和显示器编号属于设备设置，不进入业务 JSON 备份；
 - 屏幕捕获帧不属于业务数据，任何备份和恢复路径都不能访问它；
 - 导入前创建本地备份，并通过事件 ID 去重。
+
+耗材目录只扩展耗材卷的业务元数据与建卷、匹配界面；桌面黑洞的外观、动画、捕获、拖放、导入、待处理反馈和结算行为均未修改。
 
 ## 14. 错误处理
 
