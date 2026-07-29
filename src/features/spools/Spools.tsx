@@ -1,7 +1,11 @@
 import { Archive, ArrowDown, ArrowUp, Funnel, MagnifyingGlass, Plus, Scales } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { colorById } from "../../catalog/bambu";
+import { Swatch } from "../../components/Swatch";
 import { t, useLocale } from "../../i18n";
 import type { NewSpool, Spool, SpoolStatus } from "../../lib/tauri";
+import { Add } from "./Add";
 
 export function Spools({ spools, slotBySpool, busy = false, onCreate, onCalibrate, onArchive, onMount, onUnmount, onMove }: {
   spools: Spool[];
@@ -25,11 +29,11 @@ export function Spools({ spools, slotBySpool, busy = false, onCreate, onCalibrat
   const [slot, setSlot] = useState("1");
   const [grams, setGrams] = useState("");
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState<NewSpool>({ display_name: "", brand: "Bambu Lab", material: "PLA", series: "Basic", color_hex: "#FF645A", remaining_grams: 1000 });
   const filtered = useMemo(() => spools.filter((spool) => {
-    const haystack = `${spool.display_name} ${spool.brand} ${spool.material} ${spool.series} ${spool.color_hex}`.toLowerCase();
+    const localizedColorName = colorById(spool.catalog_id)?.names[locale];
+    const haystack = `${spool.display_name} ${spool.brand} ${spool.material} ${spool.series} ${spool.color_name ?? ""} ${localizedColorName ?? ""} ${spool.color_code ?? ""} ${spool.color_hex}`.toLowerCase();
     return haystack.includes(query.toLowerCase()) && (status === "all" || spool.status === status) && (material === "all" || spool.material === material) && (color === "all" || spool.color_hex.toUpperCase() === color);
-  }), [color, material, query, spools, status]);
+  }), [color, locale, material, query, spools, status]);
   const materials = [...new Set(spools.map((spool) => spool.material))];
   const colors = [...new Set(spools.map((spool) => spool.color_hex.toUpperCase()))];
 
@@ -49,19 +53,24 @@ export function Spools({ spools, slotBySpool, busy = false, onCreate, onCalibrat
         <label><span className="sr-only">{copy("spools.colorFilter")}</span><select value={color} onChange={(event) => setColor(event.target.value)}><option value="all">{copy("spools.allColors")}</option>{colors.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       </div>
 
-      {creating ? <form className="inline-form" onSubmit={async (event) => { event.preventDefault(); const succeeded = await onCreate(draft); if (succeeded !== false) setCreating(false); }}>
-        <div><h2>{copy("spools.add")}</h2><p>{copy("spools.createHint")}</p></div>
-        <label>{copy("spools.name")}<input required value={draft.display_name} onChange={(event) => setDraft({ ...draft, display_name: event.target.value })} /></label>
-        <label>{copy("spools.material")}<select value={draft.material} onChange={(event) => setDraft({ ...draft, material: event.target.value })}><option>PLA</option><option>PETG</option><option>TPU</option></select></label>
-        <label>{copy("spools.color")}<input type="color" value={draft.color_hex} onChange={(event) => setDraft({ ...draft, color_hex: event.target.value.toUpperCase() })} /></label>
-        <label>{copy("spools.remaining")}<input type="number" min="0" step="0.1" value={draft.remaining_grams} onChange={(event) => setDraft({ ...draft, remaining_grams: Number(event.target.value) })} /></label>
-        <div className="form-actions"><button type="button" className="ghost" disabled={busy} onClick={() => setCreating(false)}>{copy("common.cancel")}</button><button className="primary" disabled={busy} type="submit">{busy ? copy("common.saving") : copy("common.save")}</button></div>
-      </form> : null}
+      {createPortal(<div className="modal-backdrop" hidden={!creating}>
+        <div className="catalog-dialog">
+          <Add
+            open={creating}
+            spools={spools}
+            busy={busy}
+            onClose={() => setCreating(false)}
+            onCreate={onCreate}
+          />
+        </div>
+      </div>, document.body)}
 
       {filtered.length ? <div className="spool-table" role="table" aria-label={copy("spools.title")}>
         <div className="table-head" role="row"><span>{copy("spools.name")}</span><span>{copy("spools.profile")}</span><span>{copy("spools.remaining")}</span><span>{copy("spools.location")}</span><span>{copy("spools.status")}</span><span>{copy("spools.actions")}</span></div>
-        {filtered.map((spool) => <div className="spool-row" role="row" key={spool.spool_id}>
-          <div className="spool-name"><i className="swatch" style={{ "--swatch": spool.color_hex } as React.CSSProperties} /><span><strong>{spool.display_name}</strong><small className="data">{spool.spool_id}</small></span></div>
+        {filtered.map((spool) => {
+          const colorName = colorById(spool.catalog_id)?.names[locale] ?? spool.color_name;
+          return <div className="spool-row" role="row" key={spool.spool_id}>
+          <div className="spool-name"><Swatch colors={spool.color_hexes?.length ? spool.color_hexes : [spool.color_hex]} /><span><strong>{spool.display_name}</strong>{(colorName || spool.color_code) ? <small className="spool-color-meta">{colorName ? <span>{colorName}</span> : null}{spool.color_code ? <span className="data">{spool.color_code}</span> : null}</small> : null}<small className="data">{spool.spool_id}</small></span></div>
           <span>{spool.brand}<small>{spool.material} {spool.series}</small></span>
           <strong className="data">{spool.remaining_grams.toFixed(1)} {copy("common.grams")}</strong>
           <span>{slotBySpool[spool.spool_id] ? copy("slots.location", { number: slotBySpool[spool.spool_id] }) : copy("nav.spools")}</span>
@@ -69,7 +78,8 @@ export function Spools({ spools, slotBySpool, busy = false, onCreate, onCalibrat
           <span className="row-actions">{slotBySpool[spool.spool_id] ? <><button className="icon-button" title={copy("spools.unmount")} aria-label={copy("spools.unmount")} disabled={busy} onClick={() => onUnmount(slotBySpool[spool.spool_id])}><ArrowUp size={18} /></button><button className="icon-button" title={copy("spools.move")} aria-label={copy("spools.move")} disabled={busy} onClick={() => { const current = slotBySpool[spool.spool_id]; setMounting(spool.spool_id); setSlot(String(current === 4 ? 1 : current + 1)); }}><ArrowDown size={18} /></button></> : <button className="icon-button" title={copy("spools.mount")} aria-label={copy("spools.mount")} disabled={busy || spool.status !== "available"} onClick={() => { setMounting(spool.spool_id); setSlot("1"); }}><ArrowDown size={18} /></button>}<button className="icon-button" title={copy("spools.calibrate")} aria-label={copy("spools.calibrate")} disabled={busy} onClick={() => { setCalibrating(spool.spool_id); setGrams(String(spool.remaining_grams)); }}><Scales size={18} /></button><button className="icon-button" title={copy("spools.archive")} aria-label={copy("spools.archive")} disabled={busy || spool.status === "assigned"} onClick={() => onArchive(spool.spool_id)}><Archive size={18} /></button></span>
           {calibrating === spool.spool_id ? <div className="calibrate-pop"><label>{copy("spools.newWeight")}<input disabled={busy} type="number" min="0" step="0.1" value={grams} onChange={(event) => setGrams(event.target.value)} /></label><button className="primary small" disabled={busy} onClick={submitCalibration}>{busy ? copy("common.saving") : copy("spools.saveCalibration")}</button></div> : null}
           {mounting === spool.spool_id ? <div className="calibrate-pop"><label>{copy("spools.slot")}<select disabled={busy} value={slot} onChange={(event) => setSlot(event.target.value)}>{[1, 2, 3, 4].map((item) => <option key={item} value={item}>{copy("slots.location", { number: item })}</option>)}</select></label><button className="primary small" disabled={busy} onClick={async () => { const succeeded = slotBySpool[spool.spool_id] ? await onMove(spool.spool_id, Number(slot)) : await onMount(spool.spool_id, Number(slot)); if (succeeded !== false) setMounting(null); }}>{busy ? copy("common.saving") : copy(slotBySpool[spool.spool_id] ? "spools.confirmMove" : "spools.confirmMount")}</button></div> : null}
-        </div>)}
+        </div>;
+        })}
       </div> : <div className="empty-state"><h2>{copy("spools.empty")}</h2><p>{copy("spools.emptyHint")}</p></div>}
     </section>
   );
