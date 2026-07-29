@@ -336,44 +336,13 @@ static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
 
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  if (!self.fileHovering && !_ingestAnimationActive) return;
+  if (!PetShouldDrawDropOverlay(self.fileHovering,
+                                _ingestAnimationActive)) {
+    return;
+  }
   CGFloat radius = MIN(NSWidth(self.bounds), NSHeight(self.bounds)) * 0.48;
   CGPoint center = CGPointMake(NSMidX(self.bounds), NSMidY(self.bounds));
   CFAbsoluteTime time = CFAbsoluteTimeGetCurrent();
-  CGContextRef context = NSGraphicsContext.currentContext.CGContext;
-  if (self.fileHovering) {
-    CGFloat pulse = 0.72 + 0.28 * sin(time * 8.0);
-    CGContextSetBlendMode(context, kCGBlendModePlusLighter);
-    for (NSInteger ring = 0; ring < 5; ring++) {
-      CGFloat phase = fmod(time * 1.45 + ring * 0.20, 1.0);
-      CGFloat ringRadius = radius * (1.06 - phase * 0.78);
-      CGFloat alpha = (1.0 - phase) * (0.34 + 0.16 * pulse);
-      NSColor *color =
-          [NSColor colorWithCalibratedRed:1
-                                    green:0.50 + ring * 0.05
-                                     blue:0.10
-                                    alpha:alpha];
-      CGContextSetStrokeColorWithColor(context, color.CGColor);
-      CGContextSetLineWidth(context, 2.0 + (1.0 - phase) * 4.0);
-      CGContextStrokeEllipseInRect(
-          context, CGRectMake(center.x - ringRadius, center.y - ringRadius,
-                              ringRadius * 2, ringRadius * 2));
-    }
-    CGContextSetLineCap(context, kCGLineCapRound);
-    for (NSInteger arm = 0; arm < 3; arm++) {
-      CGFloat start = time * 2.5 + arm * 2.094;
-      NSColor *color =
-          [NSColor colorWithCalibratedRed:1
-                                    green:0.78
-                                     blue:0.34
-                                    alpha:0.82 * pulse];
-      CGContextSetStrokeColorWithColor(context, color.CGColor);
-      CGContextSetLineWidth(context, 4.0);
-      CGContextAddArc(context, center.x, center.y, radius * 0.82, start,
-                      start + 1.25, 0);
-      CGContextStrokePath(context);
-    }
-  }
 
   if (_ingestAnimationActive && _ingestFileIcon != nil) {
     const CFTimeInterval elapsed = time - _ingestStartedAt;

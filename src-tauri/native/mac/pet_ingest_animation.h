@@ -40,6 +40,12 @@ inline double PetDropTargetSide(double visualSize) {
   return std::max(144.0, visualSize);
 }
 
+inline bool PetShouldDrawDropOverlay(bool fileHovering,
+                                     bool ingestAnimationActive) {
+  (void)fileHovering;
+  return ingestAnimationActive;
+}
+
 inline bool PetPointInsideDropTarget(double x, double y, double side) {
   if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(side) ||
       side <= 0.0) {

@@ -62,4 +62,6 @@ int main() {
                           kPetEjectDurationSeconds) == 1.0);
   assert(PetOrbitScale(0.0) == 1.0);
   assert(PetOrbitScale(1.0) == 0.0);
+  assert(!PetShouldDrawDropOverlay(true, false));
+  assert(PetShouldDrawDropOverlay(false, true));
 }
