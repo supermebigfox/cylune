@@ -56,6 +56,7 @@ enum {
   PET_FILE_NONE = 0,
   PET_FILE_3MF = 1,
   PET_FILE_GCODE = 2,
+  PET_FILE_OTHER = 3,
 };
 
 enum {

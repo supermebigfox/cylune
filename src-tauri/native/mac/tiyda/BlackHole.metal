@@ -2,7 +2,7 @@
 #include <metal_stdlib>
 using namespace metal;
 
-struct Params { float2 resolution; float time, size, brightness, speed; uint style; float2 center; };
+struct Params { float2 resolution; float time, size, brightness, speed; uint style; float2 center; float ingestProgress, ejectProgress; };
 struct VertexOut { float4 position [[position]]; float2 uv; };
 struct Preset {
     float diskTemp, diskIncl, diskRoll, diskInner, diskOuter, diskOpacity, dopplerMix;
@@ -51,7 +51,7 @@ float inflowContour(float angle, float normalizedRadius, float t) {
     float organic=noise(float2(angle*1.35-t*.31,logarithmicRadius*4.20+t*1.16));
     return clamp(primary*.78+secondary*.34+organic*.13,0.0,1.0);
 }
-float2 inwardAccretionFlow(float2 p, float plen, float rh, float t) {
+float2 inwardAccretionFlow(float2 p, float plen, float rh, float t, float activityGain, float flowDirection) {
     float safeRadius=max(rh,0.0001), normalizedRadius=plen/safeRadius;
     float coreGuard=smoothstep(1.03,1.32,normalizedRadius);
     float2 radial=plen>.0001?p/plen:float2(1,0);
@@ -67,10 +67,10 @@ float2 inwardAccretionFlow(float2 p, float plen, float rh, float t) {
     float stream=noise(float2(angle*1.65-t*.96,normalizedRadius*2.10+t*2.62));
     float filament=noise(float2(angle*4.60-t*1.52,normalizedRadius*3.70+t*3.48));
     float spiralInflow=contour;
-    float flowGain=1.50;
+    float flowGain=1.50*activityGain;
     float radialPull=safeRadius*fullSurfaceEnvelope*flowGain*(1.38+1.30*spiralInflow+.82*stream);
     float rotationalPull=safeRadius*fullSurfaceEnvelope*flowGain*(1.02+.92*spiralInflow+.52*filament);
-    return radial*radialPull+clockwiseTangent*rotationalPull;
+    return (radial*radialPull+clockwiseTangent*rotationalPull)*flowDirection;
 }
 float3 blackbody(float T) { float t=clamp(T,1500.0f,40000.0f)/100.0f; float r=t<=66?1.0:clamp(1.292936*pow(t-60.0,-0.1332047),0.0,1.0); float g=t<=66?clamp(0.3900816*log(t)-0.6318414,0.0,1.0):clamp(1.1298909*pow(t-60.0,-0.0755148),0.0,1.0); float b=t>=66?1.0:(t<=19?0.0:clamp(0.5432068*log(t-10.0)-1.196254,0.0,1.0)); return float3(r,g,b); }
 float3 diskTintForStyle(uint style, float heat) {
@@ -82,10 +82,15 @@ float3 diskTintForStyle(uint style, float heat) {
 fragment float4 blackHoleFragment(VertexOut in [[stage_in]], texture2d<float> desktop [[texture(0)]], constant Params &P [[buffer(0)]]) {
     constexpr sampler linearSampler(filter::linear, address::clamp_to_edge);
     Preset S=presetForStyle(P.style);
-    float2 uv=in.uv, res=P.resolution; float aspect=res.x/res.y, t=P.time*P.speed;
+    float ingest=clamp(P.ingestProgress,0.0,1.0), eject=clamp(P.ejectProgress,0.0,1.0);
+    float ingestPulse=sin(3.14159265*ingest), ejectPulse=sin(3.14159265*eject);
+    float activityGain=1.0+1.70*ingestPulse+1.10*ejectPulse;
+    float flowDirection=1.0-2.15*ejectPulse;
+    float2 uv=in.uv, res=P.resolution; float aspect=res.x/res.y;
+    float t=P.time*P.speed+ingest*5.50-eject*4.80;
     float rh=0.125*P.size; float2 center = clamp(P.center, float2(0.0), float2(1.0));
     float2 p=(uv-center)*float2(aspect,1); float plen=length(p); float window=exp(-pow(plen/(7.0*rh),2.0));
-    float2 spacetimeFlow=inwardAccretionFlow(p,plen,rh,t);
+    float2 spacetimeFlow=inwardAccretionFlow(p,plen,rh,t,activityGain,flowDirection);
     float normalizedRadius=plen/max(rh,.0001);
     float warpedRadius=length(p+spacetimeFlow*.24)/max(rh,.0001);
     float mask=1.0-smoothstep(3.10,5.0,warpedRadius);
@@ -106,7 +111,7 @@ fragment float4 blackHoleFragment(VertexOut in [[stage_in]], texture2d<float> de
     float diskPeak=max(physicalDisk.r,max(physicalDisk.g,physicalDisk.b));
     float heat=clamp(length(emission)*.055,0.0,1.0);
     float luminousBreath=.82+.18*sin(t*2.05);
-    float3 diskLight=diskTintForStyle(P.style,heat)*diskPeak*luminousBreath;
+    float3 diskLight=diskTintForStyle(P.style,heat)*diskPeak*luminousBreath*(1.0+.45*ingestPulse);
     float diskOcclusion=clamp(diskAbsorption+diskPeak*.82,0.0,.92);
     float3 lit=bg*(1.0-diskOcclusion)+diskLight;
     float shadowEdge=shadow ? 1.0-smoothstep(rh*0.90,rh*1.06,plen) : 0.0;

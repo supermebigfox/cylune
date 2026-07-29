@@ -3,6 +3,7 @@ fn main() {
     println!("cargo:rerun-if-changed=native/mac/pet_lifecycle.h");
     println!("cargo:rerun-if-changed=native/mac/pet_lifecycle_test.cc");
     println!("cargo:rerun-if-changed=native/mac/pet_drop_state.h");
+    println!("cargo:rerun-if-changed=native/mac/pet_ingest_animation.h");
     println!("cargo:rerun-if-changed=native/mac/pet_position.h");
     println!("cargo:rerun-if-changed=native/mac/pet_position_test.cc");
     println!("cargo:rerun-if-changed=native/mac/pet.mm");

@@ -13,6 +13,8 @@ typedef struct {
     float speed;
     uint32_t style;
     vector_float2 center;
+    float ingestProgress;
+    float ejectProgress;
 } RenderParams;
 
 @interface MetalBlackHoleView () <MTKViewDelegate>
@@ -48,6 +50,8 @@ typedef struct {
     _blackHoleSize = 420.0;
     _blackHoleBrightness = 1.0f;
     _blackHoleSpeed = 1.0f;
+    _blackHoleIngestProgress = 0.0f;
+    _blackHoleEjectProgress = 0.0f;
     _blackHoleStyle = BHStyleGargantua;
     _captureEnabled = YES;
     _startTime = CFAbsoluteTimeGetCurrent();
@@ -296,6 +300,8 @@ typedef struct {
         .speed = _blackHoleSpeed,
         .style = (uint32_t)_blackHoleStyle,
         .center = {(float)centerX, (float)centerY},
+        .ingestProgress = _blackHoleIngestProgress,
+        .ejectProgress = _blackHoleEjectProgress,
     };
     id<MTLCommandBuffer> command = [_queue commandBuffer];
     id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:view.currentRenderPassDescriptor];

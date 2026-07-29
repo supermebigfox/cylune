@@ -3,6 +3,7 @@
 
 #import "bridge.h"
 #import "pet_drop_state.h"
+#import "pet_ingest_animation.h"
 #import "pet_lifecycle.h"
 #import "pet_position.h"
 #import "tiyda/BlackHoleDesktop.h"
@@ -48,6 +49,10 @@ static const CGFloat kPetDragThreshold = 4.0;
 @interface BHPetTargetView : NSView <NSDraggingDestination>
 @property(nonatomic, weak) BHPetHost *host;
 @property(nonatomic) BOOL fileHovering;
+- (void)beginIngestingURL:(NSURL *)url
+                  atPoint:(NSPoint)point
+              ejectAfter:(BOOL)ejectAfter;
+- (void)finishIngestAnimation;
 @end
 
 @interface BHPetHost : NSObject
@@ -71,6 +76,9 @@ static const CGFloat kPetDragThreshold = 4.0;
                             fileKind:(uint32_t)fileKind;
 - (BOOL)performDropWithURL:(NSURL *)url fileKind:(uint32_t)fileKind;
 - (void)dragExited;
+- (void)setIngestProgress:(CGFloat)ingestProgress
+            ejectProgress:(CGFloat)ejectProgress;
+- (void)tickIngestAnimation;
 @end
 
 static NSWindowCollectionBehavior PetWindowBehavior(void) {
@@ -97,25 +105,19 @@ static uint64_t PetDisplayID(NSScreen *screen) {
   return [screen.deviceDescription[@"NSScreenNumber"] unsignedLongLongValue];
 }
 
-static BOOL PetPathHasSupportedExtension(NSString *path,
-                                         uint32_t *fileKind) {
+static uint32_t PetFileKindForPath(NSString *path) {
   NSString *lower = path.lowercaseString;
   if ([lower hasSuffix:@".gcode.3mf"] || [lower hasSuffix:@".3mf"]) {
-    if (fileKind != nullptr) *fileKind = PET_FILE_3MF;
-    return YES;
+    return PET_FILE_3MF;
   }
   if ([lower hasSuffix:@".gcode"]) {
-    if (fileKind != nullptr) *fileKind = PET_FILE_GCODE;
-    return YES;
+    return PET_FILE_GCODE;
   }
-  return NO;
+  return PET_FILE_OTHER;
 }
 
-static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
-  if (url == nil || !url.fileURL ||
-      !PetPathHasSupportedExtension(url.path, fileKind)) {
-    return NO;
-  }
+static BOOL PetURLIsRegularFile(NSURL *url, uint32_t *fileKind) {
+  if (url == nil || !url.fileURL) return NO;
   NSNumber *regular = nil;
   NSNumber *symbolicLink = nil;
   NSError *error = nil;
@@ -126,13 +128,22 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
   [url getResourceValue:&symbolicLink
                  forKey:NSURLIsSymbolicLinkKey
                   error:nil];
-  return !symbolicLink.boolValue;
+  if (symbolicLink.boolValue) return NO;
+  if (fileKind != nullptr) *fileKind = PetFileKindForPath(url.path);
+  return YES;
 }
 
 @implementation BHPetTargetView {
   BOOL _manualDragging;
   NSPoint _mouseDownScreenPoint;
   NSTimer *_hoverTimer;
+  BOOL _ingestAnimationActive;
+  BOOL _ejectAfterIngest;
+  CFAbsoluteTime _ingestStartedAt;
+  NSImage *_ingestFileIcon;
+  NSPoint _ingestStartPoint;
+  CGFloat _ingestStartRadius;
+  CGFloat _ingestStartAngle;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -142,15 +153,33 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
     self.layer.opaque = NO;
     [self registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
     __weak BHPetTargetView *weakSelf = self;
-    _hoverTimer = [NSTimer
-        scheduledTimerWithTimeInterval:1.0 / 30.0
+    _hoverTimer =
+        [NSTimer timerWithTimeInterval:1.0 / 60.0
                                repeats:YES
                                  block:^(__unused NSTimer *timer) {
                                    BHPetTargetView *strongSelf = weakSelf;
-                                   if (strongSelf.fileHovering) {
+                                   if (!strongSelf) return;
+                                   if (strongSelf->_ingestAnimationActive) {
+                                     const CFTimeInterval elapsed =
+                                         CFAbsoluteTimeGetCurrent() -
+                                         strongSelf->_ingestStartedAt;
+                                     const CFTimeInterval duration =
+                                         kPetSwallowDurationSeconds +
+                                         (strongSelf->_ejectAfterIngest
+                                              ? kPetEjectDurationSeconds
+                                              : 0.0);
+                                     if (elapsed >= duration) {
+                                       strongSelf->_ingestAnimationActive = NO;
+                                       strongSelf->_ingestFileIcon = nil;
+                                     }
+                                   }
+                                   if (strongSelf.fileHovering ||
+                                       strongSelf->_ingestAnimationActive) {
                                      strongSelf.needsDisplay = YES;
                                    }
                                  }];
+    [NSRunLoop.mainRunLoop addTimer:_hoverTimer
+                           forMode:NSRunLoopCommonModes];
   }
   return self;
 }
@@ -161,6 +190,15 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
 
 - (BOOL)isOpaque { return NO; }
 
+- (BOOL)pointInsideTarget:(NSPoint)point {
+  const CGFloat side = MIN(NSWidth(self.bounds), NSHeight(self.bounds));
+  return PetPointInsideDropTarget(point.x, point.y, side);
+}
+
+- (NSPoint)localDraggingPoint:(id<NSDraggingInfo>)sender {
+  return [self convertPoint:sender.draggingLocation fromView:nil];
+}
+
 - (void)resetCursorRects {
   [self addCursorRect:self.bounds
                cursor:_manualDragging ? NSCursor.closedHandCursor
@@ -168,6 +206,9 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
 }
 
 - (void)mouseDown:(NSEvent *)event {
+  const NSPoint localPoint =
+      [self convertPoint:event.locationInWindow fromView:nil];
+  if (![self pointInsideTarget:localPoint]) return;
   _manualDragging = YES;
   _mouseDownScreenPoint = NSEvent.mouseLocation;
   [self.host beginManualDragAt:_mouseDownScreenPoint];
@@ -195,6 +236,9 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+  if (![self pointInsideTarget:[self localDraggingPoint:sender]]) {
+    return NSDragOperationNone;
+  }
   uint32_t fileKind = PET_FILE_NONE;
   NSURL *url = [self supportedURL:sender fileKind:&fileKind];
   NSDragOperation operation =
@@ -207,8 +251,24 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
 - (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
   uint32_t fileKind = PET_FILE_NONE;
   NSURL *url = [self supportedURL:sender fileKind:&fileKind];
-  return url != nil && self.fileHovering ? NSDragOperationCopy
-                                        : NSDragOperationNone;
+  const BOOL inside =
+      [self pointInsideTarget:[self localDraggingPoint:sender]];
+  if (url == nil || !inside) {
+    if (self.fileHovering) {
+      self.fileHovering = NO;
+      self.needsDisplay = YES;
+      [self.host dragExited];
+    }
+    return NSDragOperationNone;
+  }
+  if (!self.fileHovering) {
+    const NSDragOperation operation =
+        [self.host dragEnteredWithURL:url fileKind:fileKind];
+    self.fileHovering = operation != NSDragOperationNone;
+    self.needsDisplay = YES;
+    return operation;
+  }
+  return NSDragOperationCopy;
 }
 
 - (void)draggingExited:(id<NSDraggingInfo>)sender {
@@ -228,68 +288,135 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
 
 - (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender {
   uint32_t fileKind = PET_FILE_NONE;
-  return [self supportedURL:sender fileKind:&fileKind] != nil;
+  return [self pointInsideTarget:[self localDraggingPoint:sender]] &&
+         [self supportedURL:sender fileKind:&fileKind] != nil;
 }
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+  const NSPoint dropPoint = [self localDraggingPoint:sender];
+  if (![self pointInsideTarget:dropPoint]) return NO;
   uint32_t fileKind = PET_FILE_NONE;
   NSURL *url = [self supportedURL:sender fileKind:&fileKind];
   const BOOL accepted =
       [self.host performDropWithURL:url fileKind:fileKind];
-  self.fileHovering = accepted;
+  if (accepted) {
+    [self beginIngestingURL:url
+                    atPoint:dropPoint
+                ejectAfter:fileKind == PET_FILE_OTHER];
+  }
+  self.fileHovering = NO;
   self.needsDisplay = YES;
   return accepted;
 }
 
+- (void)beginIngestingURL:(NSURL *)url
+                  atPoint:(NSPoint)point
+              ejectAfter:(BOOL)ejectAfter {
+  _ingestAnimationActive = YES;
+  _ejectAfterIngest = ejectAfter;
+  _ingestStartedAt = CFAbsoluteTimeGetCurrent();
+  _ingestFileIcon = [NSWorkspace.sharedWorkspace
+      iconForFile:url.path].copy;
+  _ingestStartPoint = point;
+  const NSPoint center =
+      NSMakePoint(NSMidX(self.bounds), NSMidY(self.bounds));
+  const CGFloat dx = point.x - center.x;
+  const CGFloat dy = point.y - center.y;
+  const CGFloat radius = MIN(NSWidth(self.bounds), NSHeight(self.bounds)) * .48;
+  _ingestStartRadius = MAX(hypot(dx, dy), radius * .72);
+  _ingestStartAngle = hypot(dx, dy) > 1.0 ? atan2(dy, dx) : 0.0;
+  self.needsDisplay = YES;
+}
+
+- (void)finishIngestAnimation {
+  _ingestAnimationActive = NO;
+  _ingestFileIcon = nil;
+  self.needsDisplay = YES;
+}
+
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  if (!self.fileHovering) return;
+  if (!self.fileHovering && !_ingestAnimationActive) return;
   CGFloat radius = MIN(NSWidth(self.bounds), NSHeight(self.bounds)) * 0.48;
   CGPoint center = CGPointMake(NSMidX(self.bounds), NSMidY(self.bounds));
   CFAbsoluteTime time = CFAbsoluteTimeGetCurrent();
-  CGFloat pulse = 0.72 + 0.28 * sin(time * 8.0);
   CGContextRef context = NSGraphicsContext.currentContext.CGContext;
-  CGContextSetBlendMode(context, kCGBlendModePlusLighter);
-  for (NSInteger ring = 0; ring < 5; ring++) {
-    CGFloat phase = fmod(time * 1.45 + ring * 0.20, 1.0);
-    CGFloat ringRadius = radius * (1.06 - phase * 0.78);
-    CGFloat alpha = (1.0 - phase) * (0.34 + 0.16 * pulse);
-    NSColor *color =
-        [NSColor colorWithCalibratedRed:1
-                                  green:0.50 + ring * 0.05
-                                   blue:0.10
-                                  alpha:alpha];
-    CGContextSetStrokeColorWithColor(context, color.CGColor);
-    CGContextSetLineWidth(context, 2.0 + (1.0 - phase) * 4.0);
-    CGContextStrokeEllipseInRect(
-        context, CGRectMake(center.x - ringRadius, center.y - ringRadius,
-                            ringRadius * 2, ringRadius * 2));
+  if (self.fileHovering) {
+    CGFloat pulse = 0.72 + 0.28 * sin(time * 8.0);
+    CGContextSetBlendMode(context, kCGBlendModePlusLighter);
+    for (NSInteger ring = 0; ring < 5; ring++) {
+      CGFloat phase = fmod(time * 1.45 + ring * 0.20, 1.0);
+      CGFloat ringRadius = radius * (1.06 - phase * 0.78);
+      CGFloat alpha = (1.0 - phase) * (0.34 + 0.16 * pulse);
+      NSColor *color =
+          [NSColor colorWithCalibratedRed:1
+                                    green:0.50 + ring * 0.05
+                                     blue:0.10
+                                    alpha:alpha];
+      CGContextSetStrokeColorWithColor(context, color.CGColor);
+      CGContextSetLineWidth(context, 2.0 + (1.0 - phase) * 4.0);
+      CGContextStrokeEllipseInRect(
+          context, CGRectMake(center.x - ringRadius, center.y - ringRadius,
+                              ringRadius * 2, ringRadius * 2));
+    }
+    CGContextSetLineCap(context, kCGLineCapRound);
+    for (NSInteger arm = 0; arm < 3; arm++) {
+      CGFloat start = time * 2.5 + arm * 2.094;
+      NSColor *color =
+          [NSColor colorWithCalibratedRed:1
+                                    green:0.78
+                                     blue:0.34
+                                    alpha:0.82 * pulse];
+      CGContextSetStrokeColorWithColor(context, color.CGColor);
+      CGContextSetLineWidth(context, 4.0);
+      CGContextAddArc(context, center.x, center.y, radius * 0.82, start,
+                      start + 1.25, 0);
+      CGContextStrokePath(context);
+    }
   }
-  CGContextSetLineCap(context, kCGLineCapRound);
-  for (NSInteger arm = 0; arm < 3; arm++) {
-    CGFloat start = time * 2.5 + arm * 2.094;
-    NSColor *color =
-        [NSColor colorWithCalibratedRed:1
-                                  green:0.78
-                                   blue:0.34
-                                  alpha:0.82 * pulse];
-    CGContextSetStrokeColorWithColor(context, color.CGColor);
-    CGContextSetLineWidth(context, 4.0);
-    CGContextAddArc(context, center.x, center.y, radius * 0.82, start,
-                    start + 1.25, 0);
-    CGContextStrokePath(context);
+
+  if (_ingestAnimationActive && _ingestFileIcon != nil) {
+    const CFTimeInterval elapsed = time - _ingestStartedAt;
+    CGFloat progress = 0;
+    CGFloat orbitRadius = 0;
+    CGFloat angle = _ingestStartAngle;
+    CGFloat iconScale = 1;
+    CGFloat alpha = 1;
+    if (elapsed <= kPetSwallowDurationSeconds) {
+      const CGFloat raw = PetSwallowProgress(elapsed);
+      const CGFloat eased = PetEase(raw);
+      progress = raw;
+      orbitRadius = _ingestStartRadius * PetOrbitScale(raw);
+      angle -= eased * M_PI * 4.5;
+      iconScale = MAX(.04, 1.0 - eased);
+    } else {
+      const CGFloat raw = PetEjectProgress(elapsed);
+      const CGFloat eased = PetEase(raw);
+      progress = raw;
+      orbitRadius = radius * .92 * eased;
+      angle = _ingestStartAngle - M_PI * 4.5 - eased * M_PI * 1.35;
+      iconScale = .08 + .92 * eased;
+      alpha = raw < .82 ? 1.0 : MAX(0.0, (1.0 - raw) / .18);
+    }
+    const NSPoint iconCenter =
+        NSMakePoint(center.x + cos(angle) * orbitRadius,
+                    center.y + sin(angle) * orbitRadius);
+    const CGFloat iconSide = MIN(72.0, radius * .52) * iconScale;
+    [NSGraphicsContext saveGraphicsState];
+    NSAffineTransform *transform = [NSAffineTransform transform];
+    [transform translateXBy:iconCenter.x yBy:iconCenter.y];
+    [transform rotateByRadians:-progress * M_PI * 5.0];
+    [transform concat];
+    [_ingestFileIcon
+        drawInRect:NSMakeRect(-iconSide / 2.0, -iconSide / 2.0, iconSide,
+                              iconSide)
+          fromRect:NSZeroRect
+         operation:NSCompositingOperationSourceOver
+          fraction:alpha
+    respectFlipped:YES
+             hints:nil];
+    [NSGraphicsContext restoreGraphicsState];
   }
-  CGContextSetFillColorWithColor(
-      context,
-      [NSColor colorWithCalibratedRed:0.18
-                                green:0.03
-                                 blue:0.01
-                                alpha:0.32]
-          .CGColor);
-  CGContextFillEllipseInRect(
-      context, CGRectMake(center.x - radius * 0.28,
-                          center.y - radius * 0.28, radius * 0.56,
-                          radius * 0.56));
 }
 
 @end
@@ -311,6 +438,13 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
   BOOL _gestureMoved;
   NSPoint _gestureMouseOrigin;
   NSPoint _gestureCenterOrigin;
+  NSTimer *_ingestTimer;
+  CFAbsoluteTime _ingestStartedAt;
+  CGFloat _ingestProgress;
+  CGFloat _ejectProgress;
+  BOOL _pendingDropSupported;
+  uint64_t _pendingDropGeneration;
+  NSString *_pendingDropPath;
 }
 
 - (instancetype)initWithCallback:(PetCallback)callback
@@ -369,6 +503,7 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
 }
 
 - (void)dealloc {
+  [_ingestTimer invalidate];
   [NSNotificationCenter.defaultCenter removeObserver:self];
   [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
 }
@@ -442,6 +577,8 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
     view.blackHoleSize = _visualSize;
     view.blackHoleBrightness = 1.0f;
     view.blackHoleSpeed = 1.0f;
+    view.blackHoleIngestProgress = _ingestProgress;
+    view.blackHoleEjectProgress = _ejectProgress;
     view.blackHoleStyle =
         _hasConfig && _config.visual_style == 0 ? BHStyleGargantua
                                                 : BHStyleDefault;
@@ -468,7 +605,7 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
 }
 
 - (void)syncTargetFrame {
-  const CGFloat side = MAX(96.0, _visualSize * 0.36);
+  const CGFloat side = PetDropTargetSide(_visualSize);
   [_targetPanel
       setFrame:NSMakeRect(_centerScreenPoint.x - side / 2.0,
                           _centerScreenPoint.y - side / 2.0, side, side)
@@ -582,7 +719,7 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
                     options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
   if (urls.count == 0) return nil;
   NSURL *url = urls.firstObject;
-  return PetURLIsSupportedRegularFile(url, fileKind) ? url : nil;
+  return PetURLIsRegularFile(url, fileKind) ? url : nil;
 }
 
 - (NSDragOperation)dragEnteredWithURL:(NSURL *)url
@@ -602,10 +739,76 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
   const uint64_t generation = _dropSession.generation();
   const char *path = url.path.fileSystemRepresentation;
   if (!_dropSession.submit(generation, path)) return NO;
-  if (_callback != nullptr) {
-    _callback(kPetCallbackFileDropped, path, 0, 0, generation);
-  }
+  _pendingDropSupported =
+      fileKind == PET_FILE_3MF || fileKind == PET_FILE_GCODE;
+  _pendingDropGeneration = generation;
+  _pendingDropPath = [url.path copy];
+  _ingestStartedAt = CFAbsoluteTimeGetCurrent();
+  [self setIngestProgress:0 ejectProgress:0];
+  [_ingestTimer invalidate];
+  __weak BHPetHost *weakSelf = self;
+  _ingestTimer =
+      [NSTimer timerWithTimeInterval:1.0 / 60.0
+                             repeats:YES
+                               block:^(__unused NSTimer *timer) {
+                                 BHPetHost *strongSelf = weakSelf;
+                                 if (strongSelf) {
+                                   [strongSelf tickIngestAnimation];
+                                 }
+                               }];
+  [NSRunLoop.mainRunLoop addTimer:_ingestTimer
+                         forMode:NSRunLoopCommonModes];
   return YES;
+}
+
+- (void)setIngestProgress:(CGFloat)ingestProgress
+            ejectProgress:(CGFloat)ejectProgress {
+  _ingestProgress = MIN(MAX(ingestProgress, 0.0), 1.0);
+  _ejectProgress = MIN(MAX(ejectProgress, 0.0), 1.0);
+  for (BHPetPane *pane in _panes) {
+    pane.blackHoleView.blackHoleIngestProgress = _ingestProgress;
+    pane.blackHoleView.blackHoleEjectProgress = _ejectProgress;
+  }
+}
+
+- (void)tickIngestAnimation {
+  if (_pendingDropGeneration == 0 || _pendingDropPath == nil) {
+    [_ingestTimer invalidate];
+    _ingestTimer = nil;
+    [self setIngestProgress:0 ejectProgress:0];
+    return;
+  }
+  const CFTimeInterval elapsed =
+      CFAbsoluteTimeGetCurrent() - _ingestStartedAt;
+  if (elapsed < kPetSwallowDurationSeconds) {
+    [self setIngestProgress:PetSwallowProgress(elapsed)
+              ejectProgress:0];
+    return;
+  }
+  if (!_pendingDropSupported &&
+      elapsed <
+          kPetSwallowDurationSeconds + kPetEjectDurationSeconds) {
+    [self setIngestProgress:1
+              ejectProgress:PetEjectProgress(elapsed)];
+    return;
+  }
+
+  [_ingestTimer invalidate];
+  _ingestTimer = nil;
+  const uint64_t generation = _pendingDropGeneration;
+  if (_pendingDropSupported && _callback != nullptr) {
+    [self setIngestProgress:1 ejectProgress:0];
+    _callback(kPetCallbackFileDropped,
+              _pendingDropPath.fileSystemRepresentation, 0, 0, generation);
+    return;
+  }
+
+  _dropSession.finish(generation, PET_DROP_REJECTED);
+  _pendingDropGeneration = 0;
+  _pendingDropPath = nil;
+  _pendingDropSupported = NO;
+  [_targetView finishIngestAnimation];
+  [self setIngestProgress:0 ejectProgress:0];
 }
 
 - (void)dragExited {
@@ -617,8 +820,12 @@ static BOOL PetURLIsSupportedRegularFile(NSURL *url, uint32_t *fileKind) {
 
 - (void)finishDrop:(uint64_t)generation result:(uint32_t)result {
   if (_dropSession.finish(generation, result)) {
+    _pendingDropGeneration = 0;
+    _pendingDropPath = nil;
+    _pendingDropSupported = NO;
     _targetView.fileHovering = NO;
-    _targetView.needsDisplay = YES;
+    [_targetView finishIngestAnimation];
+    [self setIngestProgress:0 ejectProgress:0];
   }
 }
 

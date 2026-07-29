@@ -1066,6 +1066,7 @@ fn import_from_pet(
     };
     match outcome {
         Ok(job_id) => {
+            crate::tray::show_main(app);
             let _ = app.emit_to("main", "open-job", job_id.to_string());
         }
         Err(error) => {

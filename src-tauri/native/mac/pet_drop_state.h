@@ -12,7 +12,8 @@ class PetDropSession {
     if (waitingForAck_) return 0;
     cancelHover();
     if (path == nullptr || path[0] == '\0' ||
-        (fileKind != PET_FILE_3MF && fileKind != PET_FILE_GCODE)) {
+        (fileKind != PET_FILE_3MF && fileKind != PET_FILE_GCODE &&
+         fileKind != PET_FILE_OTHER)) {
       return 0;
     }
     nextGeneration_ += 1;
