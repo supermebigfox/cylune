@@ -292,14 +292,12 @@ fn read_backup(db: &AppDatabase) -> Result<Backup> {
     Ok(Backup {
         schema_version: BACKUP_SCHEMA_VERSION,
         spools: rows(db, "SELECT spool_id,display_name,preset_id,catalog_id,color_name,color_code,color_hexes,preset_base,brand,material,series,color_hex,remaining_grams,status,created_at FROM spools ORDER BY spool_id", |r| {
-            let color_hexes_json: String = r.get(6)?;
-            let color_hexes = serde_json::from_str(&color_hexes_json).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    6,
-                    rusqlite::types::Type::Text,
-                    Box::new(error),
-                )
-            })?;
+            let color_hex: String = r.get(11)?;
+            let color_hexes = r
+                .get::<_, Option<String>>(6)?
+                .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+                .filter(|colors| !colors.is_empty())
+                .unwrap_or_else(|| vec![color_hex.clone()]);
             Ok(SpoolRow {
                 spool_id: r.get(0)?,
                 display_name: r.get(1)?,
@@ -312,7 +310,7 @@ fn read_backup(db: &AppDatabase) -> Result<Backup> {
                 brand: r.get(8)?,
                 material: r.get(9)?,
                 series: r.get(10)?,
-                color_hex: r.get(11)?,
+                color_hex,
                 remaining_grams: r.get(12)?,
                 status: r.get(13)?,
                 created_at: r.get(14)?,
@@ -774,6 +772,24 @@ mod tests {
     }
 
     #[test]
+    fn backup_export_falls_back_for_legacy_color_hexes() {
+        let mut database = populated();
+        for stored in [None, Some("not-json"), Some("[]")] {
+            database
+                .connection
+                .execute("UPDATE spools SET color_hexes = ?1", params![stored])
+                .unwrap();
+
+            let value: serde_json::Value =
+                serde_json::from_str(&export_json_for_test(&mut database).unwrap()).unwrap();
+            assert_eq!(
+                value["spools"][0]["color_hexes"],
+                serde_json::json!(["#FFFFFF"])
+            );
+        }
+    }
+
+    #[test]
     fn backup_is_versioned_and_excludes_secrets_and_source_files() {
         let database = populated();
         let mut unknown = BTreeMap::new();
@@ -883,6 +899,14 @@ mod tests {
     #[test]
     fn round_trip_and_duplicate_restore_keep_one_immutable_baseline() {
         let source = populated();
+        let spool_id: Uuid = source
+            .connection
+            .query_row("SELECT spool_id FROM spools", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap()
+            .parse()
+            .unwrap();
         let path = std::env::temp_dir().join(format!("spool-backup-{}.json", uuid::Uuid::new_v4()));
         export_to_path(&source, &path).unwrap();
         let mut target = AppDatabase::open_in_memory().unwrap();
@@ -914,6 +938,14 @@ mod tests {
                 .unwrap(),
             "dark"
         );
+        let service = InventoryService::new(target);
+        let restored = service.get_spool(spool_id).unwrap();
+        assert_eq!(restored.catalog_id, Some("bambu-pla-basic".into()));
+        assert_eq!(restored.color_name, Some("Jade White".into()));
+        assert_eq!(restored.color_code, Some("10100".into()));
+        assert_eq!(restored.color_hexes, vec!["#FFFFFF"]);
+        assert_eq!(restored.preset_base, Some("Bambu PLA Basic".into()));
+        assert_eq!(restored.color_hex, "#FFFFFF");
         std::fs::remove_file(path).unwrap();
     }
 
