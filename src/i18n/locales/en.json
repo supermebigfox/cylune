@@ -94,6 +94,8 @@
     "chooseColor": "Choose an official color",
     "searchColors": "Search colors",
     "colorCode": "Color code",
+    "officialColorCount": "{{count}} official colors",
+    "officialColorCountOne": "{{count}} official color",
     "classic": "Classic",
     "selectedColor": "Selected color",
     "customName": "Custom name",

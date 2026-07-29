@@ -264,6 +264,10 @@ select { appearance: auto; }
 .catalog-card,
 .add-dialog-options > button {
   min-height: 43px;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 3px;
   padding: 8px 11px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-radius: 12px;
@@ -271,6 +275,20 @@ select { appearance: auto; }
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 720;
+  text-align: left;
+}
+.add-dialog-options > button > small {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 620;
+}
+.add-dialog-options .catalog-classic-badge {
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--yellow-soft) 48%, var(--surface));
+  color: var(--warning-text);
+  line-height: 1.15;
 }
 .add-dialog-options > button:hover { border-color: color-mix(in srgb, var(--blue) 42%, var(--border)); color: var(--text); }
 .add-dialog-options > button[aria-pressed="true"] {

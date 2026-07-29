@@ -1,5 +1,6 @@
 import {
-  bambuColors, colorsFor, materialGroups, searchColors, seriesFor,
+  bambuColors, colorCountForMaterial, colorsFor, materialGroups, searchColors,
+  seriesFor, seriesIsClassic,
 } from "./bambu";
 
 test("contains the complete Bambu snapshot", () => {
@@ -33,6 +34,42 @@ test("normalizes retail gradient and multi-color series", () => {
   expect(colorsFor("PLA", "Silk Multi-Color").some((item) => item.colors.length > 1)).toBe(true);
   expect(seriesFor("PLA")).toEqual(expect.arrayContaining(["Basic", "Matte", "Silk+", "Pure"]));
   expect(materialGroups()).toEqual(expect.arrayContaining(["PLA", "PETG", "TPU", "支撑材料"]));
+});
+
+test("counts every official color entry in a material group", () => {
+  expect(colorCountForMaterial("PLA")).toBe(178);
+  expect(colorCountForMaterial("PETG")).toBe(42);
+});
+
+test("puts current PLA series before classic series without reordering either group", () => {
+  expect(seriesFor("PLA")).toEqual([
+    "Aero",
+    "Basic",
+    "Basic Gradient",
+    "Dynamic",
+    "Galaxy",
+    "Glow",
+    "Lite",
+    "Marble",
+    "Matte",
+    "Metal",
+    "Pure",
+    "Silk Multi-Color",
+    "Silk+",
+    "Sparkle",
+    "Tough+",
+    "Translucent",
+    "Wood",
+    "PLA-CF",
+    "Silk",
+    "Tough",
+  ]);
+});
+
+test("classifies only non-empty all-classic series as classic", () => {
+  expect(seriesIsClassic("PLA", "Silk")).toBe(true);
+  expect(seriesIsClassic("PLA", "Silk+")).toBe(false);
+  expect(seriesIsClassic("PLA", "Unknown")).toBe(false);
 });
 
 test("searches official Chinese name and five-digit code", () => {

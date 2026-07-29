@@ -94,6 +94,66 @@ test("has no operating-system color input", () => {
   expect(container.querySelector('input[type="color"]')).toBeNull();
 });
 
+test.each([
+  ["zh-CN", "178 种官方颜色", "1 种官方颜色"],
+  ["zh-TW", "178 種官方顏色", "1 種官方顏色"],
+  ["en", "178 official colors", "1 official color"],
+] as const)(
+  "shows the offline material color count naturally in %s",
+  async (locale, pluralLabel, singularLabel) => {
+    await setLocale(locale);
+    render(
+      <Add
+        open
+        spools={[]}
+        busy={false}
+        onClose={() => undefined}
+        onCreate={vi.fn()}
+      />,
+    );
+
+    const pla = screen.getByRole("button", { name: "PLA" });
+    expect(pla).toHaveTextContent(pluralLabel);
+    expect(pla).toHaveAccessibleDescription(pluralLabel);
+    const pet = screen.getByRole("button", { name: "PET" });
+    expect(pet).toHaveTextContent(singularLabel);
+    expect(pet).toHaveAccessibleDescription(singularLabel);
+  },
+);
+
+test.each([
+  ["zh-CN", "经典款"],
+  ["zh-TW", "經典款"],
+  ["en", "Classic"],
+] as const)(
+  "describes classic series without marking current series in %s",
+  async (locale, badge) => {
+    await setLocale(locale);
+    const user = userEvent.setup();
+    render(
+      <Add
+        open
+        spools={[]}
+        busy={false}
+        onClose={() => undefined}
+        onCreate={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "PLA" }));
+
+    const silk = screen.getByRole("button", { name: "Silk" });
+    expect(silk).toHaveTextContent(badge);
+    expect(silk).toHaveAccessibleDescription(badge);
+    const tough = screen.getByRole("button", { name: "Tough" });
+    expect(tough).toHaveTextContent(badge);
+    expect(tough).toHaveAccessibleDescription(badge);
+    const silkPlus = screen.getByRole("button", { name: "Silk+" });
+    expect(silkPlus).not.toHaveTextContent(badge);
+    expect(silkPlus).not.toHaveAttribute("aria-describedby");
+  },
+);
+
 test("changing material clears downstream choices", async () => {
   const user = userEvent.setup();
   render(

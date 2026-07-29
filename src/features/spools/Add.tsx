@@ -8,10 +8,12 @@ import {
   type FormEvent,
 } from "react";
 import {
+  colorCountForMaterial,
   colorsFor,
   materialGroups,
   searchColors,
   seriesFor,
+  seriesIsClassic,
   type FilamentColor,
 } from "../../catalog/bambu";
 import { Swatch } from "../../components/Swatch";
@@ -75,7 +77,10 @@ export function Add({
   onCreate(spool: NewSpool): Promise<boolean | void>;
 }): JSX.Element | null {
   const locale = useLocale();
-  const copy = (key: string) => t(key, {}, locale);
+  const copy = (
+    key: string,
+    values: Record<string, string | number> = {},
+  ) => t(key, values, locale);
   const titleId = useId();
   const dialog = useRef<HTMLDivElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -238,17 +243,30 @@ export function Add({
         <section aria-labelledby={`${titleId}-material`}>
           <h3 id={`${titleId}-material`}>{copy("spools.chooseMaterial")}</h3>
           <div className="add-dialog-options">
-            {materialGroups().map((item) => (
-              <button
-                key={item}
-                type="button"
-                disabled={busy}
-                aria-pressed={group === item}
-                onClick={() => chooseGroup(item)}
-              >
-                {item}
-              </button>
-            ))}
+            {materialGroups().map((item) => {
+              const countId = `${titleId}-material-${item}-count`;
+              const count = colorCountForMaterial(item);
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  disabled={busy}
+                  aria-pressed={group === item}
+                  aria-label={item}
+                  aria-describedby={countId}
+                  onClick={() => chooseGroup(item)}
+                >
+                  <span>{item}</span>
+                  <small id={countId}>
+                    {copy(count === 1
+                      ? "spools.officialColorCountOne"
+                      : "spools.officialColorCount", {
+                      count,
+                    })}
+                  </small>
+                </button>
+              );
+            })}
           </div>
         </section>
 
@@ -256,17 +274,28 @@ export function Add({
           <section aria-labelledby={`${titleId}-series`}>
             <h3 id={`${titleId}-series`}>{copy("spools.chooseSeries")}</h3>
             <div className="add-dialog-options">
-              {seriesFor(group).map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  disabled={busy}
-                  aria-pressed={series === item}
-                  onClick={() => chooseSeries(item)}
-                >
-                  {item}
-                </button>
-              ))}
+              {seriesFor(group).map((item) => {
+                const classic = seriesIsClassic(group, item);
+                const badgeId = `${titleId}-series-${item}-classic`;
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    disabled={busy}
+                    aria-pressed={series === item}
+                    aria-label={item}
+                    aria-describedby={classic ? badgeId : undefined}
+                    onClick={() => chooseSeries(item)}
+                  >
+                    <span>{item}</span>
+                    {classic ? (
+                      <small id={badgeId} className="catalog-classic-badge">
+                        {copy("spools.classic")}
+                      </small>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
           </section>
         ) : null}

@@ -29,10 +29,24 @@ export const materialGroups = () =>
   GROUP_ORDER.filter((group) =>
     bambuColors.some((item) => item.materialGroup === group));
 
-export const seriesFor = (group: string) =>
-  [...new Set(bambuColors
+export const colorCountForMaterial = (group: string) =>
+  bambuColors.filter((item) => item.materialGroup === group).length;
+
+export const seriesIsClassic = (group: string, series: string) => {
+  const entries = bambuColors.filter((item) =>
+    item.materialGroup === group && item.series === series);
+  return entries.length > 0 && entries.every((item) => item.classic);
+};
+
+export const seriesFor = (group: string) => {
+  const series = [...new Set(bambuColors
     .filter((item) => item.materialGroup === group)
     .map((item) => item.series))];
+  return [
+    ...series.filter((item) => !seriesIsClassic(group, item)),
+    ...series.filter((item) => seriesIsClassic(group, item)),
+  ];
+};
 
 export const colorsFor = (group: string, series: string) =>
   bambuColors.filter((item) =>
