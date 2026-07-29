@@ -13,3 +13,4 @@ grep -Fq 'float2 center;' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'float2 center = clamp(P.center' src-tauri/native/mac/tiyda/BlackHole.metal
 ! grep -Fq '0.57+0.19*sin' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'P.time' src-tauri/native/mac/tiyda/BlackHole.metal
+grep -Fq 'dynamicSpacetimeFlow' src-tauri/native/mac/tiyda/BlackHole.metal
