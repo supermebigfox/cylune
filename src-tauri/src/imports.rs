@@ -106,6 +106,58 @@ mod tests {
     }
 
     #[test]
+    fn matching_spools_prioritizes_exact_then_preset_base_then_legacy() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+
+        let mut exact_spool = new_spool("Bambu PLA Basic @BBL A1", "#FF0000");
+        exact_spool.preset_base = Some("Bambu PLA Basic".to_owned());
+        let exact = inventory.create_spool(exact_spool).unwrap();
+
+        let mut base_spool = new_spool("Bambu PLA Basic @BBL X1C", "#FF0000");
+        base_spool.preset_base = Some("Bambu PLA Basic".to_owned());
+        base_spool.series = "Catalog series ignored for base matching".to_owned();
+        let base = inventory.create_spool(base_spool).unwrap();
+
+        let mut legacy_spool = new_spool("Legacy PLA profile", "#FF0000");
+        legacy_spool.preset_id = None;
+        legacy_spool.preset_base = None;
+        legacy_spool.series = "Basic".to_owned();
+        let legacy = inventory.create_spool(legacy_spool).unwrap();
+
+        let database = inventory.into_database();
+        let service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let parsed = crate::parser::parse_3mf(&fixture("bambu_multicolor.3mf")).unwrap();
+        let profile = parsed
+            .filaments
+            .iter()
+            .find(|profile| profile.tool == 0)
+            .unwrap();
+
+        assert_eq!(service.matching_spools(profile).unwrap(), vec![exact]);
+
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE spools SET status = 'archived' WHERE spool_id = ?1",
+                [exact.to_string()],
+            )
+            .unwrap();
+        assert_eq!(service.matching_spools(profile).unwrap(), vec![base]);
+
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE spools SET status = 'archived' WHERE spool_id = ?1",
+                [base.to_string()],
+            )
+            .unwrap();
+        assert_eq!(service.matching_spools(profile).unwrap(), vec![legacy]);
+    }
+
+    #[test]
     fn settled_duplicate_requires_confirmation_then_creates_a_fresh_job_from_one_parse() {
         let database = AppDatabase::open_in_memory().unwrap();
         let mut inventory = InventoryService::new(database);
@@ -397,7 +449,7 @@ use crate::{
     db::AppDatabase,
     domain::Confidence,
     error::{AppError, Result},
-    parser::{parse_3mf, FilamentProfile, ParsedPrintFile},
+    parser::{parse_3mf, preset_base, FilamentProfile, ParsedPrintFile},
 };
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -903,19 +955,44 @@ impl PrintService {
     }
 
     fn matching_spools(&self, profile: &FilamentProfile) -> Result<Vec<Uuid>> {
-        let mut statement = self.database.connection.prepare(
+        let exact = self.spool_ids(
             "SELECT spool_id FROM spools WHERE status <> 'archived' AND preset_id = ?1 AND material = ?2 AND series = ?3 AND UPPER(color_hex) = UPPER(?4) ORDER BY rowid",
+            params![
+                profile.preset_id,
+                profile.material,
+                profile.series,
+                profile.color_hex,
+            ],
         )?;
-        let candidates: Vec<Uuid> = statement
-            .query_map(
-                params![
-                    profile.preset_id,
-                    profile.material,
-                    profile.series,
-                    profile.color_hex,
-                ],
-                |row| row.get::<_, String>(0),
-            )?
+        if !exact.is_empty() {
+            return Ok(exact);
+        }
+
+        let base = self.spool_ids(
+            "SELECT spool_id FROM spools WHERE status <> 'archived' AND preset_base = ?1 AND material = ?2 AND UPPER(color_hex) = UPPER(?3) ORDER BY rowid",
+            params![
+                preset_base(&profile.preset_id),
+                profile.material,
+                profile.color_hex,
+            ],
+        )?;
+        if !base.is_empty() {
+            return Ok(base);
+        }
+
+        self.spool_ids(
+            "SELECT spool_id FROM spools WHERE status <> 'archived' AND preset_base IS NULL AND material = ?1 AND series = ?2 AND UPPER(color_hex) = UPPER(?3) ORDER BY rowid",
+            params![profile.material, profile.series, profile.color_hex],
+        )
+    }
+
+    fn spool_ids<P>(&self, sql: &str, params: P) -> Result<Vec<Uuid>>
+    where
+        P: rusqlite::Params,
+    {
+        let mut statement = self.database.connection.prepare(sql)?;
+        let spool_ids = statement
+            .query_map(params, |row| row.get::<_, String>(0))?
             .map(|value| {
                 value?.parse().map_err(|error| {
                     rusqlite::Error::FromSqlConversionFailure(
@@ -926,7 +1003,7 @@ impl PrintService {
                 })
             })
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(candidates)
+        Ok(spool_ids)
     }
 }
 

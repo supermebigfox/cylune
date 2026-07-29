@@ -7,7 +7,7 @@ use serde_json::Value;
 use zip::ZipArchive;
 
 use super::gcode::parse_gcode;
-use super::{FilamentProfile, ParsedPrintFile};
+use super::{preset_base, FilamentProfile, ParsedPrintFile};
 use crate::error::{AppError, Result};
 
 pub fn parse_3mf(path: &Path) -> Result<ParsedPrintFile> {
@@ -175,7 +175,7 @@ fn normalize_preset(preset_id: &str, material: &str) -> (String, String) {
         return (String::new(), preset_id.to_owned());
     };
 
-    let preset_name = name.split(" @").next().unwrap_or(name);
+    let preset_name = preset_base(name);
     let series = preset_name
         .strip_prefix(material)
         .unwrap_or(preset_name)
