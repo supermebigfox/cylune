@@ -47,6 +47,16 @@ pub struct PetSettings {
     pub display_id: Option<u64>,
 }
 
+impl PetSettings {
+    pub fn enabled(&self) -> bool {
+        self.mode == PetMode::Real
+    }
+
+    pub fn effective_visibility(&self) -> bool {
+        self.enabled() && self.visible
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CapturePermission {
@@ -90,6 +100,10 @@ fn pet_view(settings: PetSettings, status: PetStatus) -> PetView {
     PetView { settings, status }
 }
 
+fn should_request_permission(patch: &PetSettingsPatch) -> bool {
+    patch.mode == Some(PetMode::Real)
+}
+
 #[tauri::command]
 pub fn get_pet_settings(
     state: tauri::State<'_, PrintState>,
@@ -110,7 +124,7 @@ pub fn set_pet_settings(
     state: tauri::State<'_, PrintState>,
     runtime: tauri::State<'_, PetRuntime>,
 ) -> Result<PetView> {
-    let request_permission = patch.mode == Some(PetMode::Real);
+    let request_permission = should_request_permission(&patch);
     let reset_position = patch.reset_position == Some(true);
     let replace_position =
         reset_position || patch.x.is_some() || patch.y.is_some() || patch.display_id.is_some();
@@ -128,4 +142,65 @@ pub fn set_pet_settings(
         runtime.apply_with_permission_request(settings.clone(), request_permission);
     }
     Ok(pet_view(settings, runtime.status()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        native::PetNativeConfig, should_request_permission, PetFps, PetMode, PetSettings,
+        PetSettingsPatch, PetVisualStyle,
+    };
+
+    #[test]
+    fn lite_requested_mode_is_never_effectively_visible() {
+        let settings = PetSettings {
+            mode: PetMode::Lite,
+            visual_style: PetVisualStyle::Gargantua,
+            size: 220,
+            fps: PetFps::Auto,
+            visible: true,
+            x: None,
+            y: None,
+            display_id: None,
+        };
+
+        assert!(!settings.enabled());
+        assert!(!settings.effective_visibility());
+        assert_eq!(PetNativeConfig::from_settings(&settings, false).visible, 0);
+    }
+
+    #[test]
+    fn real_requested_mode_preserves_the_users_hidden_choice() {
+        let settings = PetSettings {
+            mode: PetMode::Real,
+            visual_style: PetVisualStyle::Gargantua,
+            size: 220,
+            fps: PetFps::Auto,
+            visible: false,
+            x: None,
+            y: None,
+            display_id: None,
+        };
+
+        assert!(settings.enabled());
+        assert!(!settings.effective_visibility());
+    }
+
+    #[test]
+    fn only_an_explicit_turn_on_patch_requests_permission() {
+        assert!(should_request_permission(&PetSettingsPatch {
+            mode: Some(PetMode::Real),
+            visible: Some(true),
+            ..Default::default()
+        }));
+        assert!(!should_request_permission(&PetSettingsPatch {
+            mode: Some(PetMode::Lite),
+            visible: Some(false),
+            ..Default::default()
+        }));
+        assert!(!should_request_permission(&PetSettingsPatch {
+            visible: Some(true),
+            ..Default::default()
+        }));
+    }
 }

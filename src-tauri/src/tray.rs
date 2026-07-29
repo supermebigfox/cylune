@@ -71,6 +71,7 @@ pub struct NativeMenuState {
     quit: tauri::menu::MenuItem<tauri::Wry>,
     tray: tauri::tray::TrayIcon<tauri::Wry>,
     locale: Mutex<String>,
+    pet_enabled: Mutex<bool>,
     pet_visible: Mutex<bool>,
 }
 
@@ -430,8 +431,11 @@ pub fn show_main(app: &tauri::AppHandle) {
     }
 }
 
-pub fn sync_pet_visibility(app: &tauri::AppHandle, visible: bool) {
+pub fn sync_pet_state(app: &tauri::AppHandle, enabled: bool, visible: bool) {
     let state = app.state::<NativeMenuState>();
+    if let Ok(mut saved) = state.pet_enabled.lock() {
+        *saved = enabled;
+    }
     if let Ok(mut saved) = state.pet_visible.lock() {
         *saved = visible;
     }
@@ -441,6 +445,7 @@ pub fn sync_pet_visibility(app: &tauri::AppHandle, visible: bool) {
         .map(|locale| locale.clone())
         .unwrap_or_else(|_| "zh-CN".to_owned());
     let copy = native_copy(&locale);
+    let _ = state.visibility.set_enabled(enabled);
     let _ = state
         .visibility
         .set_text(if visible { copy.hide } else { copy.show });
@@ -462,7 +467,12 @@ pub fn notify_import_error(app: &tauri::AppHandle, code: &str) {
         .show();
 }
 
-pub fn setup(app: &tauri::App, initial_locale: &str, pet_visible: bool) -> tauri::Result<()> {
+pub fn setup(
+    app: &tauri::App,
+    initial_locale: &str,
+    pet_enabled: bool,
+    pet_visible: bool,
+) -> tauri::Result<()> {
     use tauri::{
         menu::{Menu, MenuItemBuilder},
         tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -475,6 +485,7 @@ pub fn setup(app: &tauri::App, initial_locale: &str, pet_visible: bool) -> tauri
         "pet-visibility",
         if pet_visible { copy.hide } else { copy.show },
     )
+    .enabled(pet_enabled)
     .build(app)?;
     let quit = MenuItemBuilder::with_id("quit", copy.quit).build(app)?;
     let menu = Menu::with_items(app, &[&open, &reset, &visibility, &quit])?;
@@ -513,6 +524,7 @@ pub fn setup(app: &tauri::App, initial_locale: &str, pet_visible: bool) -> tauri
         quit,
         tray,
         locale: Mutex::new(initial_locale.to_owned()),
+        pet_enabled: Mutex::new(pet_enabled),
         pet_visible: Mutex::new(pet_visible),
     });
     if let Some(main) = app.get_webview_window("main") {

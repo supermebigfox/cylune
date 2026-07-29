@@ -551,15 +551,17 @@ impl PetRuntime {
         settings: PetSettings,
         request_permission: bool,
     ) -> bool {
-        let visible = settings.visible;
+        let enabled = settings.enabled();
+        let visible = settings.effective_visibility();
         let applied = self.mutation.apply_settings(
             &self.state,
             settings,
             request_permission,
             PositionMerge::PreserveRuntime,
         );
-        crate::tray::sync_pet_visibility(
+        crate::tray::sync_pet_state(
             self.app.as_ref().expect("production runtime has an app"),
+            enabled,
             visible,
         );
         applied
@@ -570,7 +572,8 @@ impl PetRuntime {
         settings: PetSettings,
         request_permission: bool,
     ) -> bool {
-        let visible = settings.visible;
+        let enabled = settings.enabled();
+        let visible = settings.effective_visibility();
         let applied = self.mutation.apply_settings(
             &self.state,
             settings,
@@ -578,7 +581,7 @@ impl PetRuntime {
             PositionMerge::Replace,
         );
         if let Some(app) = self.app.as_ref() {
-            crate::tray::sync_pet_visibility(app, visible);
+            crate::tray::sync_pet_state(app, enabled, visible);
         }
         applied
     }
@@ -647,7 +650,7 @@ impl PetRuntime {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .settings
-            .visible
+            .effective_visibility()
     }
 
     pub fn pending_count(&self) -> u32 {
@@ -682,6 +685,15 @@ impl PetRuntime {
     }
 
     fn set_visible(&self, visible: bool) {
+        if !self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .settings
+            .enabled()
+        {
+            return;
+        }
         let saved = self
             .app
             .as_ref()
@@ -716,8 +728,9 @@ impl PetRuntime {
                         pet.hide();
                     }
                 }
-                crate::tray::sync_pet_visibility(
+                crate::tray::sync_pet_state(
                     self.app.as_ref().expect("production runtime has an app"),
+                    state.settings.enabled(),
                     visible,
                 );
             }
@@ -1850,6 +1863,23 @@ mod tests {
         assert_eq!(core.last_native_config().fps, 60);
         assert_eq!(core.last_native_config().visible, 0);
         assert!(core.import_fixture().is_ok());
+    }
+
+    #[test]
+    fn disabled_mode_cannot_show_even_with_a_stale_visible_flag() {
+        let mut core = RuntimeCore::for_test_with_mapped_fixture();
+        core.apply_settings(PetSettings {
+            mode: PetMode::Lite,
+            visual_style: PetVisualStyle::Gargantua,
+            size: 220,
+            fps: PetFps::Auto,
+            visible: true,
+            x: None,
+            y: None,
+            display_id: None,
+        });
+
+        assert_eq!(core.last_native_config().visible, 0);
     }
 
     #[test]

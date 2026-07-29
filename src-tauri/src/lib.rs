@@ -57,7 +57,8 @@ pub fn run() {
             let initial_pet_settings = pet::PetStore::load(&print_database)?;
             let print_service = PrintService::new(print_database);
             let initial_pending = print_service.pending_summary()?;
-            let pet_visible = initial_pet_settings.visible;
+            let pet_enabled = initial_pet_settings.enabled();
+            let pet_visible = initial_pet_settings.effective_visibility();
             let saved_watch: Option<String> = print_service.database.connection.query_row("SELECT setting_value FROM app_settings WHERE setting_key='watch_folder' AND EXISTS(SELECT 1 FROM app_settings WHERE setting_key='watch_enabled' AND setting_value='true')",[],|row|row.get(0)).optional()?;
             let initial_locale: String = print_service
                 .database
@@ -75,7 +76,7 @@ pub fn run() {
             )));
             app.manage(PrintState::new(print_service));
             app.manage(tray::WatchState(std::sync::Mutex::new(None)));
-            tray::setup(app, &initial_locale, pet_visible)?;
+            tray::setup(app, &initial_locale, pet_enabled, pet_visible)?;
             let pet_runtime = pet::runtime::PetRuntime::start(
                 app.handle().clone(),
                 initial_pet_settings,

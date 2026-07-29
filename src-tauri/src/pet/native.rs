@@ -215,7 +215,7 @@ impl PetNativeConfig {
             y: position.map_or(0.0, |value| value.1),
             display_id: position.map_or(0, |value| value.2),
             fps: fps_value(settings.fps),
-            visible: u8::from(settings.visible),
+            visible: u8::from(settings.effective_visibility()),
             pending_count: 0,
             reduce_motion: 0,
             request_permission: u8::from(request_permission),
