@@ -88,7 +88,17 @@
     "actions": "Actions",
     "newWeight": "New remaining weight",
     "saveCalibration": "Save calibration",
-    "createHint": "Use a scale reading as this spool's starting balance."
+    "createHint": "Use a scale reading as this spool's starting balance.",
+    "chooseMaterial": "Choose a material",
+    "chooseSeries": "Choose a series",
+    "chooseColor": "Choose an official color",
+    "searchColors": "Search colors",
+    "colorCode": "Color code",
+    "classic": "Classic",
+    "selectedColor": "Selected color",
+    "customName": "Custom name",
+    "customNameHint": "Leave blank to use the official color and series name",
+    "noColors": "No matching colors"
   },
   "jobs": {
     "title": "Print jobs",

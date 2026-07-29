@@ -88,7 +88,17 @@
     "actions": "操作",
     "newWeight": "新的剩余重量",
     "saveCalibration": "保存校准",
-    "createHint": "先以称重结果作为这一卷的初始余额。"
+    "createHint": "先以称重结果作为这一卷的初始余额。",
+    "chooseMaterial": "选择材质",
+    "chooseSeries": "选择系列",
+    "chooseColor": "选择官方颜色",
+    "searchColors": "搜索颜色",
+    "colorCode": "色号",
+    "classic": "经典色",
+    "selectedColor": "已选颜色",
+    "customName": "自定义名称",
+    "customNameHint": "留空时使用官方颜色和系列名称",
+    "noColors": "没有找到匹配的颜色"
   },
   "jobs": {
     "title": "打印任务",

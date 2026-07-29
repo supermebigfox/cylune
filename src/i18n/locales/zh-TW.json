@@ -88,7 +88,17 @@
     "actions": "操作",
     "newWeight": "新的剩餘重量",
     "saveCalibration": "儲存校準",
-    "createHint": "先以秤重結果作為這一卷的初始餘量。"
+    "createHint": "先以秤重結果作為這一卷的初始餘量。",
+    "chooseMaterial": "選擇材質",
+    "chooseSeries": "選擇系列",
+    "chooseColor": "選擇官方顏色",
+    "searchColors": "搜尋顏色",
+    "colorCode": "色號",
+    "classic": "經典色",
+    "selectedColor": "已選顏色",
+    "customName": "自訂名稱",
+    "customNameHint": "留空時使用官方顏色和系列名稱",
+    "noColors": "找不到符合的顏色"
   },
   "jobs": {
     "title": "列印任務",
