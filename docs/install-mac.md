@@ -5,29 +5,29 @@
 ## 系统要求
 
 - Task 9 当前交付只包含 `aarch64`，适用于 Apple Silicon 和 macOS 11.0 或更高版本；本次 DMG 不包含 Intel/x86_64 或 universal 二进制。源码与 bundle 配置中的 macOS 10.15 只为未来 Intel/x86_64 构建保留，不能理解为当前 arm64 DMG 可运行在 macOS 10.15。
-- “真实扭曲”使用 ScreenCaptureKit，仅在 macOS 12.3 或更高版本可用；旧系统会自动使用“轻量模式”。
+- 黑洞的实时扭曲使用 ScreenCaptureKit，仅在 macOS 12.3 或更高版本可用；旧系统开启黑洞后会自动使用兼容背景。
 - 从源码构建需要 Xcode Command Line Tools、Node.js 20+ 与 Rust stable；普通用户运行 `.app` 或从 `.dmg` 安装时不需要这些开发工具。
 
 ## 安装或升级
 
-1. 在旧版本的菜单栏菜单中选择“退出”，并确认活动监视器中没有仍在运行的“拓竹耗材管家”。
+1. 在旧版本的菜单栏菜单中选择“退出”，并确认活动监视器中没有仍在运行的“CYLUNE”。
 2. 若曾从临时 `.dmg` 直接运行旧版本，先退出应用并在 Finder 中推出该磁盘映像。
-3. 打开新的 `.dmg`，将“拓竹耗材管家”拖到“应用程序”；不要同时运行下载目录、旧 `.dmg` 和“应用程序”里的多个副本。
+3. 打开新的 `.dmg`，将“CYLUNE”拖到“应用程序”；不要同时运行下载目录、旧 `.dmg` 和“应用程序”里的多个副本。
 4. 首次打开未公证的本地构建时，可在 Finder 中按住 Control 点击应用并选择“打开”，或在“系统设置 → 隐私与安全性”中确认打开。
 
 本项目当前没有声称完成 Apple Developer ID 签名或公证。构建产物使用本机临时签名，只适合本机测试。
 
 ## 屏幕录制权限
 
-“真实扭曲”只截取黑洞附近的一小块桌面来生成局部光学扭曲。首次启用真实模式时，macOS 可能请求屏幕录制权限：
+黑洞只截取附近的一小块桌面来生成局部光学扭曲。全新安装默认关闭黑洞；用户第一次在设置中选择“开启黑洞”时，macOS 可能请求屏幕录制权限：
 
 1. 打开“系统设置 → 隐私与安全性 → 屏幕录制”。
-2. 为“拓竹耗材管家”打开权限。
+2. 为“CYLUNE”打开权限。
 3. 若应用显示“需要重新启动”，从菜单栏彻底退出后只启动“应用程序”中的一个副本。
 
-在较旧的 macOS 中，此入口位于“系统偏好设置 → 安全性与隐私 → 隐私 → 屏幕录制”。拒绝、撤销权限或捕获/Metal 初始化失败时，导入和结算仍可使用，桌宠会回退到轻量模式。
+在较旧的 macOS 中，此入口位于“系统偏好设置 → 安全性与隐私 → 隐私 → 屏幕录制”。拒绝、撤销权限或捕获/Metal 初始化失败时，导入和结算仍可使用，黑洞会改用兼容背景。
 
-如果不想授予权限或希望降低 GPU 使用，可在主窗口“设置 → 桌面黑洞”中选择“轻量模式”。同一处可调整尺寸、帧率、显示/隐藏和重置位置。
+如果不想授予权限或希望停止 GPU 消耗，可在主窗口“设置 → 桌面黑洞”中选择“关闭黑洞”。开启或关闭状态会在退出后保留；开启时同一处可调整尺寸、帧率、显示/隐藏和重置位置。
 
 ## 隐私边界
 
@@ -69,8 +69,8 @@ npm run tauri build
 
 构建成功后：
 
-- `.app` 位于 `src-tauri/target/release/bundle/macos/拓竹耗材管家.app`；
-- `.dmg` 位于 `src-tauri/target/release/bundle/dmg/拓竹耗材管家_0.1.0_aarch64.dmg`。
+- `.app` 位于 `src-tauri/target/release/bundle/macos/CYLUNE.app`；
+- `.dmg` 位于 `src-tauri/target/release/bundle/dmg/CYLUNE_0.1.0_aarch64.dmg`。
 
 若本机的 Finder AppleScript 长时间停在 `Running bundle_dmg.sh`，先确认 release `.app` 已成功生成并中止卡住的 DMG 美化步骤，再使用同一个 Tauri 生成脚本的无 GUI 模式：
 
@@ -78,14 +78,14 @@ npm run tauri build
 cd src-tauri/target/release/bundle/macos
 ../dmg/bundle_dmg.sh \
   --skip-jenkins \
-  --volname '拓竹耗材管家' \
-  --icon '拓竹耗材管家.app' 180 170 \
+  --volname 'CYLUNE' \
+  --icon 'CYLUNE.app' 180 170 \
   --app-drop-link 480 170 \
   --window-size 660 400 \
-  --hide-extension '拓竹耗材管家.app' \
+  --hide-extension 'CYLUNE.app' \
   --volicon '../dmg/icon.icns' \
-  '../dmg/拓竹耗材管家_0.1.0_aarch64.dmg' \
-  '拓竹耗材管家.app'
+  '../dmg/CYLUNE_0.1.0_aarch64.dmg' \
+  'CYLUNE.app'
 ```
 
 若目标 DMG 已存在，应先移走旧产物再执行。`--skip-jenkins` 只跳过 Finder 的图标位置/背景美化；应用内容、`Applications` 链接、卷图标、压缩和校验仍会生成。
