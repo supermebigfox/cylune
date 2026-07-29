@@ -1,0 +1,6453 @@
+{
+  "sourceVersion": "02.08.00.50",
+  "entries": [
+    {
+      "id": "bambu:GFB00:40100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40101",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40102",
+      "colorType": "solid",
+      "colors": [
+        "#87909A"
+      ],
+      "names": {
+        "zh-CN": "银色",
+        "zh-TW": "銀色",
+        "en": "Silver"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40200",
+      "colorType": "solid",
+      "colors": [
+        "#D32941"
+      ],
+      "names": {
+        "zh-CN": "红色",
+        "zh-TW": "紅色",
+        "en": "Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40300",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40300",
+      "colorType": "solid",
+      "colors": [
+        "#FF6A13"
+      ],
+      "names": {
+        "zh-CN": "橙色",
+        "zh-TW": "橙色",
+        "en": "Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40400",
+      "colorType": "solid",
+      "colors": [
+        "#FCE900"
+      ],
+      "names": {
+        "zh-CN": "黄色",
+        "zh-TW": "黃色",
+        "en": "Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40401",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40401",
+      "colorType": "solid",
+      "colors": [
+        "#DFD1A7"
+      ],
+      "names": {
+        "zh-CN": "卡其色",
+        "zh-TW": "卡其色",
+        "en": "Beige"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40402",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40402",
+      "colorType": "solid",
+      "colors": [
+        "#FFC72C"
+      ],
+      "names": {
+        "zh-CN": "橘黄",
+        "zh-TW": "橘黃",
+        "en": "Tangerine Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40500",
+      "colorType": "solid",
+      "colors": [
+        "#00AE42"
+      ],
+      "names": {
+        "zh-CN": "拓竹绿",
+        "zh-TW": "拓竹綠",
+        "en": "Bambu Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40501",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40501",
+      "colorType": "solid",
+      "colors": [
+        "#7AE1BF"
+      ],
+      "names": {
+        "zh-CN": "青色",
+        "zh-TW": "青色",
+        "en": "Mint"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40502",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40502",
+      "colorType": "solid",
+      "colors": [
+        "#789D4A"
+      ],
+      "names": {
+        "zh-CN": "橄榄绿",
+        "zh-TW": "橄欖綠",
+        "en": "Olive"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40600",
+      "colorType": "solid",
+      "colors": [
+        "#0A2CA5"
+      ],
+      "names": {
+        "zh-CN": "蓝色",
+        "zh-TW": "藍色",
+        "en": "Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40601",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40601",
+      "colorType": "solid",
+      "colors": [
+        "#489FDF"
+      ],
+      "names": {
+        "zh-CN": "天蓝色",
+        "zh-TW": "天藍色",
+        "en": "Azure"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40602",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40602",
+      "colorType": "solid",
+      "colors": [
+        "#0C2340"
+      ],
+      "names": {
+        "zh-CN": "藏青色",
+        "zh-TW": "藏青色",
+        "en": "Navy Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40700",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40700",
+      "colorType": "solid",
+      "colors": [
+        "#AF1685"
+      ],
+      "names": {
+        "zh-CN": "紫色",
+        "zh-TW": "紫色",
+        "en": "Purple"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB00:40701",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB00",
+      "sourceType": "ABS",
+      "materialGroup": "ABS",
+      "material": "ABS",
+      "series": "ABS",
+      "presetBase": "Bambu ABS @base",
+      "colorCode": "40701",
+      "colorType": "solid",
+      "colors": [
+        "#7248BD"
+      ],
+      "names": {
+        "zh-CN": "薰衣草紫",
+        "zh-TW": "薰衣草紫",
+        "en": "Lavender"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB50:41100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB50",
+      "sourceType": "ABS-GF",
+      "materialGroup": "ABS",
+      "material": "ABS-GF",
+      "series": "ABS-GF",
+      "presetBase": "Bambu ABS-GF @base",
+      "colorCode": "41100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB50:41101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB50",
+      "sourceType": "ABS-GF",
+      "materialGroup": "ABS",
+      "material": "ABS-GF",
+      "series": "ABS-GF",
+      "presetBase": "Bambu ABS-GF @base",
+      "colorCode": "41101",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB50:41102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB50",
+      "sourceType": "ABS-GF",
+      "materialGroup": "ABS",
+      "material": "ABS-GF",
+      "series": "ABS-GF",
+      "presetBase": "Bambu ABS-GF @base",
+      "colorCode": "41102",
+      "colorType": "solid",
+      "colors": [
+        "#C6C6C6"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB50:41200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB50",
+      "sourceType": "ABS-GF",
+      "materialGroup": "ABS",
+      "material": "ABS-GF",
+      "series": "ABS-GF",
+      "presetBase": "Bambu ABS-GF @base",
+      "colorCode": "41200",
+      "colorType": "solid",
+      "colors": [
+        "#E83100"
+      ],
+      "names": {
+        "zh-CN": "红色",
+        "zh-TW": "紅色",
+        "en": "Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB50:41300",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB50",
+      "sourceType": "ABS-GF",
+      "materialGroup": "ABS",
+      "material": "ABS-GF",
+      "series": "ABS-GF",
+      "presetBase": "Bambu ABS-GF @base",
+      "colorCode": "41300",
+      "colorType": "solid",
+      "colors": [
+        "#F48438"
+      ],
+      "names": {
+        "zh-CN": "橙色",
+        "zh-TW": "橙色",
+        "en": "Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB50:41400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB50",
+      "sourceType": "ABS-GF",
+      "materialGroup": "ABS",
+      "material": "ABS-GF",
+      "series": "ABS-GF",
+      "presetBase": "Bambu ABS-GF @base",
+      "colorCode": "41400",
+      "colorType": "solid",
+      "colors": [
+        "#FFE133"
+      ],
+      "names": {
+        "zh-CN": "黄色",
+        "zh-TW": "黃色",
+        "en": "Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB50:41500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB50",
+      "sourceType": "ABS-GF",
+      "materialGroup": "ABS",
+      "material": "ABS-GF",
+      "series": "ABS-GF",
+      "presetBase": "Bambu ABS-GF @base",
+      "colorCode": "41500",
+      "colorType": "solid",
+      "colors": [
+        "#61BF36"
+      ],
+      "names": {
+        "zh-CN": "绿色",
+        "zh-TW": "綠色",
+        "en": "Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB50:41600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB50",
+      "sourceType": "ABS-GF",
+      "materialGroup": "ABS",
+      "material": "ABS-GF",
+      "series": "ABS-GF",
+      "presetBase": "Bambu ABS-GF @base",
+      "colorCode": "41600",
+      "colorType": "solid",
+      "colors": [
+        "#0C3B95"
+      ],
+      "names": {
+        "zh-CN": "蓝色",
+        "zh-TW": "藍色",
+        "en": "Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB01:45100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB01",
+      "sourceType": "ASA",
+      "materialGroup": "ASA",
+      "material": "ASA",
+      "series": "ASA",
+      "presetBase": "Bambu ASA @base",
+      "colorCode": "45100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFAF2"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB01:45101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB01",
+      "sourceType": "ASA",
+      "materialGroup": "ASA",
+      "material": "ASA",
+      "series": "ASA",
+      "presetBase": "Bambu ASA @base",
+      "colorCode": "45101",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB01:45102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB01",
+      "sourceType": "ASA",
+      "materialGroup": "ASA",
+      "material": "ASA",
+      "series": "ASA",
+      "presetBase": "Bambu ASA @base",
+      "colorCode": "45102",
+      "colorType": "solid",
+      "colors": [
+        "#8A949E"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB01:45200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB01",
+      "sourceType": "ASA",
+      "materialGroup": "ASA",
+      "material": "ASA",
+      "series": "ASA",
+      "presetBase": "Bambu ASA @base",
+      "colorCode": "45200",
+      "colorType": "solid",
+      "colors": [
+        "#E02928"
+      ],
+      "names": {
+        "zh-CN": "红色",
+        "zh-TW": "紅色",
+        "en": "Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB01:45500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB01",
+      "sourceType": "ASA",
+      "materialGroup": "ASA",
+      "material": "ASA",
+      "series": "ASA",
+      "presetBase": "Bambu ASA @base",
+      "colorCode": "45500",
+      "colorType": "solid",
+      "colors": [
+        "#00A6A0"
+      ],
+      "names": {
+        "zh-CN": "绿色",
+        "zh-TW": "綠色",
+        "en": "Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB01:45600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB01",
+      "sourceType": "ASA",
+      "materialGroup": "ASA",
+      "material": "ASA",
+      "series": "ASA",
+      "presetBase": "Bambu ASA @base",
+      "colorCode": "45600",
+      "colorType": "solid",
+      "colors": [
+        "#2140B4"
+      ],
+      "names": {
+        "zh-CN": "蓝色",
+        "zh-TW": "藍色",
+        "en": "Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB02:46100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB02",
+      "sourceType": "ASA Aero",
+      "materialGroup": "ASA",
+      "material": "ASA-AERO",
+      "series": "Aero",
+      "presetBase": "Bambu ASA-Aero @base",
+      "colorCode": "46100",
+      "colorType": "solid",
+      "colors": [
+        "#F5F1DD"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFB51:46101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFB51",
+      "sourceType": "ASA-CF",
+      "materialGroup": "ASA",
+      "material": "ASA-CF",
+      "series": "ASA-CF",
+      "presetBase": "Bambu ASA-CF @base",
+      "colorCode": "46101",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFN05:72100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFN05",
+      "sourceType": "PA6-CF",
+      "materialGroup": "PA",
+      "material": "PA6-CF",
+      "series": "PA6-CF",
+      "presetBase": "Bambu PA6-CF @base",
+      "colorCode": "72100",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFN08:72102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFN08",
+      "sourceType": "PA6-GF",
+      "materialGroup": "PA",
+      "material": "PA-GF",
+      "series": "PA6-GF",
+      "presetBase": "Bambu PA6-GF @base",
+      "colorCode": "72102",
+      "colorType": "solid",
+      "colors": [
+        "#EAEAE4"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFN08:72103",
+      "brand": "Bambu Lab",
+      "filamentId": "GFN08",
+      "sourceType": "PA6-GF",
+      "materialGroup": "PA",
+      "material": "PA-GF",
+      "series": "PA6-GF",
+      "presetBase": "Bambu PA6-GF @base",
+      "colorCode": "72103",
+      "colorType": "solid",
+      "colors": [
+        "#353533"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFN08:72104",
+      "brand": "Bambu Lab",
+      "filamentId": "GFN08",
+      "sourceType": "PA6-GF",
+      "materialGroup": "PA",
+      "material": "PA-GF",
+      "series": "PA6-GF",
+      "presetBase": "Bambu PA6-GF @base",
+      "colorCode": "72104",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFN08:72200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFN08",
+      "sourceType": "PA6-GF",
+      "materialGroup": "PA",
+      "material": "PA-GF",
+      "series": "PA6-GF",
+      "presetBase": "Bambu PA6-GF @base",
+      "colorCode": "72200",
+      "colorType": "solid",
+      "colors": [
+        "#FF4800"
+      ],
+      "names": {
+        "zh-CN": "橙色",
+        "zh-TW": "橙色",
+        "en": "Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFN08:72400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFN08",
+      "sourceType": "PA6-GF",
+      "materialGroup": "PA",
+      "material": "PA-GF",
+      "series": "PA6-GF",
+      "presetBase": "Bambu PA6-GF @base",
+      "colorCode": "72400",
+      "colorType": "solid",
+      "colors": [
+        "#FFCE00"
+      ],
+      "names": {
+        "zh-CN": "黄色",
+        "zh-TW": "黃色",
+        "en": "Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFN08:72500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFN08",
+      "sourceType": "PA6-GF",
+      "materialGroup": "PA",
+      "material": "PA-GF",
+      "series": "PA6-GF",
+      "presetBase": "Bambu PA6-GF @base",
+      "colorCode": "72500",
+      "colorType": "solid",
+      "colors": [
+        "#C5ED48"
+      ],
+      "names": {
+        "zh-CN": "柠檬绿",
+        "zh-TW": "檸檬綠",
+        "en": "Lime"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFN08:72600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFN08",
+      "sourceType": "PA6-GF",
+      "materialGroup": "PA",
+      "material": "PA-GF",
+      "series": "PA6-GF",
+      "presetBase": "Bambu PA6-GF @base",
+      "colorCode": "72600",
+      "colorType": "solid",
+      "colors": [
+        "#75AED8"
+      ],
+      "names": {
+        "zh-CN": "蓝色",
+        "zh-TW": "藍色",
+        "en": "Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFN08:72800",
+      "brand": "Bambu Lab",
+      "filamentId": "GFN08",
+      "sourceType": "PA6-GF",
+      "materialGroup": "PA",
+      "material": "PA-GF",
+      "series": "PA6-GF",
+      "presetBase": "Bambu PA6-GF @base",
+      "colorCode": "72800",
+      "colorType": "solid",
+      "colors": [
+        "#5B492F"
+      ],
+      "names": {
+        "zh-CN": "棕色",
+        "zh-TW": "棕色",
+        "en": "Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFN04:70100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFN04",
+      "sourceType": "PAHT-CF",
+      "materialGroup": "PA",
+      "material": "PA-CF",
+      "series": "PAHT-CF",
+      "presetBase": "Bambu PAHT-CF @base",
+      "colorCode": "70100",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFC00:60100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFC00",
+      "sourceType": "PC",
+      "materialGroup": "PC",
+      "material": "PC",
+      "series": "PC",
+      "presetBase": "Bambu PC @base",
+      "colorCode": "60100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFC00:60101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFC00",
+      "sourceType": "PC",
+      "materialGroup": "PC",
+      "material": "PC",
+      "series": "PC",
+      "presetBase": "Bambu PC @base",
+      "colorCode": "60101",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFC00:60102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFC00",
+      "sourceType": "PC",
+      "materialGroup": "PC",
+      "material": "PC",
+      "series": "PC",
+      "presetBase": "Bambu PC @base",
+      "colorCode": "60102",
+      "colorType": "solid",
+      "colors": [
+        "#686865"
+      ],
+      "names": {
+        "zh-CN": "透明黑",
+        "zh-TW": "透明黑",
+        "en": "Clear Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFC00:60103",
+      "brand": "Bambu Lab",
+      "filamentId": "GFC00",
+      "sourceType": "PC",
+      "materialGroup": "PC",
+      "material": "PC",
+      "series": "PC",
+      "presetBase": "Bambu PC @base",
+      "colorCode": "60103",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "透明",
+        "zh-TW": "透明",
+        "en": "Transparent"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFC01:63100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFC01",
+      "sourceType": "PC FR",
+      "materialGroup": "PC",
+      "material": "PC",
+      "series": "FR",
+      "presetBase": "Bambu PC FR @base",
+      "colorCode": "63100",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFC01:63101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFC01",
+      "sourceType": "PC FR",
+      "materialGroup": "PC",
+      "material": "PC",
+      "series": "FR",
+      "presetBase": "Bambu PC FR @base",
+      "colorCode": "63101",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFC01:63102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFC01",
+      "sourceType": "PC FR",
+      "materialGroup": "PC",
+      "material": "PC",
+      "series": "FR",
+      "presetBase": "Bambu PC FR @base",
+      "colorCode": "63102",
+      "colorType": "solid",
+      "colors": [
+        "#A8A8AA"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFT01:71100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFT01",
+      "sourceType": "PET-CF",
+      "materialGroup": "PET",
+      "material": "PET-CF",
+      "series": "PET-CF",
+      "presetBase": "Bambu PET-CF @base",
+      "colorCode": "71100",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30105",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30105",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30106",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30106",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30107",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30107",
+      "colorType": "solid",
+      "colors": [
+        "#7F7E83"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30108",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30108",
+      "colorType": "solid",
+      "colors": [
+        "#688197"
+      ],
+      "names": {
+        "zh-CN": "蓝灰色",
+        "zh-TW": "藍灰色",
+        "en": "Misty Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30201",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30201",
+      "colorType": "solid",
+      "colors": [
+        "#D6001C"
+      ],
+      "names": {
+        "zh-CN": "红色",
+        "zh-TW": "紅色",
+        "en": "Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30301",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30301",
+      "colorType": "solid",
+      "colors": [
+        "#FF671F"
+      ],
+      "names": {
+        "zh-CN": "橙色",
+        "zh-TW": "橙色",
+        "en": "Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30402",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30402",
+      "colorType": "solid",
+      "colors": [
+        "#FCE300"
+      ],
+      "names": {
+        "zh-CN": "黄色",
+        "zh-TW": "黃色",
+        "en": "Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30403",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30403",
+      "colorType": "solid",
+      "colors": [
+        "#DBC8B6"
+      ],
+      "names": {
+        "zh-CN": "深米色",
+        "zh-TW": "深米色",
+        "en": "Dark Beige"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30502",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30502",
+      "colorType": "solid",
+      "colors": [
+        "#009639"
+      ],
+      "names": {
+        "zh-CN": "绿色",
+        "zh-TW": "綠色",
+        "en": "Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30503",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30503",
+      "colorType": "solid",
+      "colors": [
+        "#034638"
+      ],
+      "names": {
+        "zh-CN": "墨绿色",
+        "zh-TW": "墨綠色",
+        "en": "Pine Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30603",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30603",
+      "colorType": "solid",
+      "colors": [
+        "#001489"
+      ],
+      "names": {
+        "zh-CN": "深蓝色",
+        "zh-TW": "深藍色",
+        "en": "Reflex Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30604",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30604",
+      "colorType": "solid",
+      "colors": [
+        "#0086D6"
+      ],
+      "names": {
+        "zh-CN": "湖蓝色",
+        "zh-TW": "湖藍色",
+        "en": "Navy Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG00:30800",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG00",
+      "sourceType": "PETG Basic",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Basic",
+      "presetBase": "Bambu PETG Basic @base",
+      "colorCode": "30800",
+      "colorType": "solid",
+      "colors": [
+        "#4F2C1D"
+      ],
+      "names": {
+        "zh-CN": "深棕色",
+        "zh-TW": "深棕色",
+        "en": "Dark Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33101",
+      "colorType": "solid",
+      "colors": [
+        "#ADB1B2"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33102",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33103",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33103",
+      "colorType": "solid",
+      "colors": [
+        "#515151"
+      ],
+      "names": {
+        "zh-CN": "深灰",
+        "zh-TW": "深灰",
+        "en": "Dark Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33200",
+      "colorType": "solid",
+      "colors": [
+        "#BC0900"
+      ],
+      "names": {
+        "zh-CN": "红色",
+        "zh-TW": "紅色",
+        "en": "Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33300",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33300",
+      "colorType": "solid",
+      "colors": [
+        "#F75403"
+      ],
+      "names": {
+        "zh-CN": "橙色",
+        "zh-TW": "橙色",
+        "en": "Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33400",
+      "colorType": "solid",
+      "colors": [
+        "#FFD00B"
+      ],
+      "names": {
+        "zh-CN": "黄色",
+        "zh-TW": "黃色",
+        "en": "Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33401",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33401",
+      "colorType": "solid",
+      "colors": [
+        "#F9DFB9"
+      ],
+      "names": {
+        "zh-CN": "奶油白",
+        "zh-TW": "奶油白",
+        "en": "Cream"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33500",
+      "colorType": "solid",
+      "colors": [
+        "#00AE42"
+      ],
+      "names": {
+        "zh-CN": "绿色",
+        "zh-TW": "綠色",
+        "en": "Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33501",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33501",
+      "colorType": "solid",
+      "colors": [
+        "#6EE53C"
+      ],
+      "names": {
+        "zh-CN": "柠檬绿",
+        "zh-TW": "檸檬綠",
+        "en": "Lime Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33502",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33502",
+      "colorType": "solid",
+      "colors": [
+        "#39541A"
+      ],
+      "names": {
+        "zh-CN": "丛林绿",
+        "zh-TW": "叢林綠",
+        "en": "Forest Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33600",
+      "colorType": "solid",
+      "colors": [
+        "#002E96"
+      ],
+      "names": {
+        "zh-CN": "蓝色",
+        "zh-TW": "藍色",
+        "en": "Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33601",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33601",
+      "colorType": "solid",
+      "colors": [
+        "#1F79E5"
+      ],
+      "names": {
+        "zh-CN": "湖蓝",
+        "zh-TW": "湖藍",
+        "en": "Lake Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG02:33801",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG02",
+      "sourceType": "PETG HF",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "HF",
+      "presetBase": "Bambu PETG HF @base",
+      "colorCode": "33801",
+      "colorType": "solid",
+      "colors": [
+        "#875718"
+      ],
+      "names": {
+        "zh-CN": "花生棕",
+        "zh-TW": "花生棕",
+        "en": "Peanut Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG01:32100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG01",
+      "sourceType": "PETG Translucent",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Translucent",
+      "presetBase": "Bambu PETG Translucent @base",
+      "colorCode": "32100",
+      "colorType": "solid",
+      "colors": [
+        "#8E8E8E"
+      ],
+      "names": {
+        "zh-CN": "透明灰",
+        "zh-TW": "透明灰",
+        "en": "Translucent Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG01:32101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG01",
+      "sourceType": "PETG Translucent",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Translucent",
+      "presetBase": "Bambu PETG Translucent @base",
+      "colorCode": "32101",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "透明",
+        "zh-TW": "透明",
+        "en": "Clear"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG01:32200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG01",
+      "sourceType": "PETG Translucent",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Translucent",
+      "presetBase": "Bambu PETG Translucent @base",
+      "colorCode": "32200",
+      "colorType": "solid",
+      "colors": [
+        "#F9C1BD"
+      ],
+      "names": {
+        "zh-CN": "透明粉",
+        "zh-TW": "透明粉",
+        "en": "Translucent Pink"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG01:32300",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG01",
+      "sourceType": "PETG Translucent",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Translucent",
+      "presetBase": "Bambu PETG Translucent @base",
+      "colorCode": "32300",
+      "colorType": "solid",
+      "colors": [
+        "#FF911A"
+      ],
+      "names": {
+        "zh-CN": "透明橘",
+        "zh-TW": "透明橘",
+        "en": "Translucent Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG01:32500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG01",
+      "sourceType": "PETG Translucent",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Translucent",
+      "presetBase": "Bambu PETG Translucent @base",
+      "colorCode": "32500",
+      "colorType": "solid",
+      "colors": [
+        "#748C45"
+      ],
+      "names": {
+        "zh-CN": "透明橄榄绿",
+        "zh-TW": "透明橄欖綠",
+        "en": "Translucent Olive"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG01:32501",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG01",
+      "sourceType": "PETG Translucent",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Translucent",
+      "presetBase": "Bambu PETG Translucent @base",
+      "colorCode": "32501",
+      "colorType": "solid",
+      "colors": [
+        "#77EDD7"
+      ],
+      "names": {
+        "zh-CN": "透明浅绿",
+        "zh-TW": "透明淺綠",
+        "en": "Translucent Teal"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG01:32600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG01",
+      "sourceType": "PETG Translucent",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Translucent",
+      "presetBase": "Bambu PETG Translucent @base",
+      "colorCode": "32600",
+      "colorType": "solid",
+      "colors": [
+        "#61B0FF"
+      ],
+      "names": {
+        "zh-CN": "透明浅蓝",
+        "zh-TW": "透明淺藍",
+        "en": "Translucent Light Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG01:32700",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG01",
+      "sourceType": "PETG Translucent",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Translucent",
+      "presetBase": "Bambu PETG Translucent @base",
+      "colorCode": "32700",
+      "colorType": "solid",
+      "colors": [
+        "#D6ABFF"
+      ],
+      "names": {
+        "zh-CN": "透明紫",
+        "zh-TW": "透明紫",
+        "en": "Translucent Purple"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG01:32800",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG01",
+      "sourceType": "PETG Translucent",
+      "materialGroup": "PETG",
+      "material": "PETG",
+      "series": "Translucent",
+      "presetBase": "Bambu PETG Translucent @base",
+      "colorCode": "32800",
+      "colorType": "solid",
+      "colors": [
+        "#C9A381"
+      ],
+      "names": {
+        "zh-CN": "透明茶色",
+        "zh-TW": "透明茶色",
+        "en": "Translucent Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG50:31100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG50",
+      "sourceType": "PETG-CF",
+      "materialGroup": "PETG",
+      "material": "PETG-CF",
+      "series": "PETG-CF",
+      "presetBase": "Bambu PETG-CF @base",
+      "colorCode": "31100",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG50:31101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG50",
+      "sourceType": "PETG-CF",
+      "materialGroup": "PETG",
+      "material": "PETG-CF",
+      "series": "PETG-CF",
+      "presetBase": "Bambu PETG-CF @base",
+      "colorCode": "31101",
+      "colorType": "solid",
+      "colors": [
+        "#565656"
+      ],
+      "names": {
+        "zh-CN": "钛灰色",
+        "zh-TW": "鈦灰色",
+        "en": "Titan Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG50:31200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG50",
+      "sourceType": "PETG-CF",
+      "materialGroup": "PETG",
+      "material": "PETG-CF",
+      "series": "PETG-CF",
+      "presetBase": "Bambu PETG-CF @base",
+      "colorCode": "31200",
+      "colorType": "solid",
+      "colors": [
+        "#9F332A"
+      ],
+      "names": {
+        "zh-CN": "砖红色",
+        "zh-TW": "磚紅色",
+        "en": "Brick Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG50:31500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG50",
+      "sourceType": "PETG-CF",
+      "materialGroup": "PETG",
+      "material": "PETG-CF",
+      "series": "PETG-CF",
+      "presetBase": "Bambu PETG-CF @base",
+      "colorCode": "31500",
+      "colorType": "solid",
+      "colors": [
+        "#16B08E"
+      ],
+      "names": {
+        "zh-CN": "孔雀绿",
+        "zh-TW": "孔雀綠",
+        "en": "Malachite Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG50:31600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG50",
+      "sourceType": "PETG-CF",
+      "materialGroup": "PETG",
+      "material": "PETG-CF",
+      "series": "PETG-CF",
+      "presetBase": "Bambu PETG-CF @base",
+      "colorCode": "31600",
+      "colorType": "solid",
+      "colors": [
+        "#324585"
+      ],
+      "names": {
+        "zh-CN": "靛蓝色",
+        "zh-TW": "靛藍色",
+        "en": "Indigo Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFG50:31700",
+      "brand": "Bambu Lab",
+      "filamentId": "GFG50",
+      "sourceType": "PETG-CF",
+      "materialGroup": "PETG",
+      "material": "PETG-CF",
+      "series": "PETG-CF",
+      "presetBase": "Bambu PETG-CF @base",
+      "colorCode": "31700",
+      "colorType": "solid",
+      "colors": [
+        "#583061"
+      ],
+      "names": {
+        "zh-CN": "紫罗兰色",
+        "zh-TW": "紫羅蘭色",
+        "en": "Violet Purple"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA11:14102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA11",
+      "sourceType": "PLA Aero",
+      "materialGroup": "PLA",
+      "material": "PLA-AERO",
+      "series": "Aero",
+      "presetBase": "Bambu PLA Aero @base",
+      "colorCode": "14102",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA11:14103",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA11",
+      "sourceType": "PLA Aero",
+      "materialGroup": "PLA",
+      "material": "PLA-AERO",
+      "series": "Aero",
+      "presetBase": "Bambu PLA Aero @base",
+      "colorCode": "14103",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA11:14104",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA11",
+      "sourceType": "PLA Aero",
+      "materialGroup": "PLA",
+      "material": "PLA-AERO",
+      "series": "Aero",
+      "presetBase": "Bambu PLA Aero @base",
+      "colorCode": "14104",
+      "colorType": "solid",
+      "colors": [
+        "#CDCECA"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "玉石白",
+        "zh-TW": "玉石白",
+        "en": "Jade White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10101",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10102",
+      "colorType": "solid",
+      "colors": [
+        "#A6A9AA"
+      ],
+      "names": {
+        "zh-CN": "银色",
+        "zh-TW": "銀色",
+        "en": "Silver"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10103",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10103",
+      "colorType": "solid",
+      "colors": [
+        "#8E9089"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10104",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10104",
+      "colorType": "solid",
+      "colors": [
+        "#D1D3D5"
+      ],
+      "names": {
+        "zh-CN": "浅灰",
+        "zh-TW": "淺灰",
+        "en": "Light Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10105",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10105",
+      "colorType": "solid",
+      "colors": [
+        "#545454"
+      ],
+      "names": {
+        "zh-CN": "深灰",
+        "zh-TW": "深灰",
+        "en": "Dark Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10200",
+      "colorType": "solid",
+      "colors": [
+        "#C12E1F"
+      ],
+      "names": {
+        "zh-CN": "红色",
+        "zh-TW": "紅色",
+        "en": "Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10201",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10201",
+      "colorType": "solid",
+      "colors": [
+        "#F7E6DE"
+      ],
+      "names": {
+        "zh-CN": "杏色",
+        "zh-TW": "杏色",
+        "en": "Beige"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10202",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10202",
+      "colorType": "solid",
+      "colors": [
+        "#EC008C"
+      ],
+      "names": {
+        "zh-CN": "品红",
+        "zh-TW": "品紅",
+        "en": "Magenta"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10203",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10203",
+      "colorType": "solid",
+      "colors": [
+        "#F55A74"
+      ],
+      "names": {
+        "zh-CN": "粉色",
+        "zh-TW": "粉色",
+        "en": "Pink"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10204",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10204",
+      "colorType": "solid",
+      "colors": [
+        "#F5547C"
+      ],
+      "names": {
+        "zh-CN": "桃红色",
+        "zh-TW": "桃紅色",
+        "en": "Hot Pink"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10205",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10205",
+      "colorType": "solid",
+      "colors": [
+        "#9D2235"
+      ],
+      "names": {
+        "zh-CN": "胭脂红",
+        "zh-TW": "胭脂紅",
+        "en": "Maroon Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10300",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10300",
+      "colorType": "solid",
+      "colors": [
+        "#FF6A13"
+      ],
+      "names": {
+        "zh-CN": "橙色",
+        "zh-TW": "橙色",
+        "en": "Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10301",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10301",
+      "colorType": "solid",
+      "colors": [
+        "#FF9016"
+      ],
+      "names": {
+        "zh-CN": "南瓜橙",
+        "zh-TW": "南瓜橙",
+        "en": "Pumpkin Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10400",
+      "colorType": "solid",
+      "colors": [
+        "#F4EE2A"
+      ],
+      "names": {
+        "zh-CN": "黄色",
+        "zh-TW": "黃色",
+        "en": "Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10401",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10401",
+      "colorType": "solid",
+      "colors": [
+        "#E4BD68"
+      ],
+      "names": {
+        "zh-CN": "金色",
+        "zh-TW": "金色",
+        "en": "Gold"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10402",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10402",
+      "colorType": "solid",
+      "colors": [
+        "#FEC600"
+      ],
+      "names": {
+        "zh-CN": "暖黄色",
+        "zh-TW": "暖黃色",
+        "en": "Sunflower Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10501",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10501",
+      "colorType": "solid",
+      "colors": [
+        "#00AE42"
+      ],
+      "names": {
+        "zh-CN": "拓竹绿",
+        "zh-TW": "拓竹綠",
+        "en": "Bambu Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10502",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10502",
+      "colorType": "solid",
+      "colors": [
+        "#3F8E43"
+      ],
+      "names": {
+        "zh-CN": "圣诞绿",
+        "zh-TW": "聖誕綠",
+        "en": "Mistletoe Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10503",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10503",
+      "colorType": "solid",
+      "colors": [
+        "#BECF00"
+      ],
+      "names": {
+        "zh-CN": "苹果绿",
+        "zh-TW": "蘋果綠",
+        "en": "Bright Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10601",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10601",
+      "colorType": "solid",
+      "colors": [
+        "#0A2989"
+      ],
+      "names": {
+        "zh-CN": "蓝色",
+        "zh-TW": "藍色",
+        "en": "Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10602",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10602",
+      "colorType": "solid",
+      "colors": [
+        "#5B6579"
+      ],
+      "names": {
+        "zh-CN": "蓝灰",
+        "zh-TW": "藍灰",
+        "en": "Blue Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10603",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10603",
+      "colorType": "solid",
+      "colors": [
+        "#0086D6"
+      ],
+      "names": {
+        "zh-CN": "青色",
+        "zh-TW": "青色",
+        "en": "Cyan"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10604",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10604",
+      "colorType": "solid",
+      "colors": [
+        "#0056B8"
+      ],
+      "names": {
+        "zh-CN": "钴蓝色",
+        "zh-TW": "鈷藍色",
+        "en": "Cobalt Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10605",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10605",
+      "colorType": "solid",
+      "colors": [
+        "#00B1B7"
+      ],
+      "names": {
+        "zh-CN": "松石绿",
+        "zh-TW": "松石綠",
+        "en": "Turquoise"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10700",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10700",
+      "colorType": "solid",
+      "colors": [
+        "#5E43B7"
+      ],
+      "names": {
+        "zh-CN": "紫色",
+        "zh-TW": "紫色",
+        "en": "Purple"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10701",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10701",
+      "colorType": "solid",
+      "colors": [
+        "#482960"
+      ],
+      "names": {
+        "zh-CN": "绀紫色",
+        "zh-TW": "紺紫色",
+        "en": "Indigo Purple"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10800",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10800",
+      "colorType": "solid",
+      "colors": [
+        "#9D432C"
+      ],
+      "names": {
+        "zh-CN": "棕色",
+        "zh-TW": "棕色",
+        "en": "Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10801",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10801",
+      "colorType": "solid",
+      "colors": [
+        "#847D48"
+      ],
+      "names": {
+        "zh-CN": "青铜",
+        "zh-TW": "青銅",
+        "en": "Bronze"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10802",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10802",
+      "colorType": "solid",
+      "colors": [
+        "#6F5034"
+      ],
+      "names": {
+        "zh-CN": "可可棕",
+        "zh-TW": "可可棕",
+        "en": "Cocoa Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10900",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic Gradient",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10900",
+      "colorType": "gradient",
+      "colors": [
+        "#FFFFFF",
+        "#9CDBD9"
+      ],
+      "names": {
+        "zh-CN": "蓝白渐变",
+        "zh-TW": "藍白漸變",
+        "en": "Arctic Whisper"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10901",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic Gradient",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10901",
+      "colorType": "gradient",
+      "colors": [
+        "#E94B3C",
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "红白渐变",
+        "zh-TW": "紅白漸變",
+        "en": "Solar Breeze"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10902",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic Gradient",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10902",
+      "colorType": "gradient",
+      "colors": [
+        "#307FE2",
+        "#54FF9B"
+      ],
+      "names": {
+        "zh-CN": "蓝绿渐变",
+        "zh-TW": "藍綠漸變",
+        "en": "Ocean to Meadow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10903",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic Gradient",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10903",
+      "colorType": "gradient",
+      "colors": [
+        "#F78F77",
+        "#E4505A"
+      ],
+      "names": {
+        "zh-CN": "霞光粉",
+        "zh-TW": "霞光粉",
+        "en": "Pink Citrus"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10904",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic Gradient",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10904",
+      "colorType": "gradient",
+      "colors": [
+        "#4EC939",
+        "#B6FF43"
+      ],
+      "names": {
+        "zh-CN": "青柠绿",
+        "zh-TW": "青檸綠",
+        "en": "Mint Lime"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10905",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic Gradient",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10905",
+      "colorType": "gradient",
+      "colors": [
+        "#6FCAEF",
+        "#8573DD"
+      ],
+      "names": {
+        "zh-CN": "泡泡紫",
+        "zh-TW": "泡泡紫",
+        "en": "Blueberry Bubblegum"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10906",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic Gradient",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10906",
+      "colorType": "gradient",
+      "colors": [
+        "#CE4406",
+        "#ED9558"
+      ],
+      "names": {
+        "zh-CN": "日落橙",
+        "zh-TW": "日落橙",
+        "en": "Dusk Glare"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA00:10907",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA00",
+      "sourceType": "PLA Basic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Basic Gradient",
+      "presetBase": "Bambu PLA Basic @base",
+      "colorCode": "10907",
+      "colorType": "gradient",
+      "colors": [
+        "#8EC9E9",
+        "#E7C1D5"
+      ],
+      "names": {
+        "zh-CN": "多巴胺（粉蓝渐变）",
+        "zh-TW": "多巴胺（粉藍漸變）",
+        "en": "Cotton Candy Cloud"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA13:15100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA13",
+      "sourceType": "PLA Dynamic",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Dynamic",
+      "presetBase": "Bambu PLA Dynamic @base",
+      "colorCode": "15100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "光变-白变粉",
+        "zh-TW": "光變-白變粉",
+        "en": "UV Color Changing - White to Coral"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA15:13203",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA15",
+      "sourceType": "PLA Galaxy",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Galaxy",
+      "presetBase": "Bambu PLA Galaxy @base",
+      "colorCode": "13203",
+      "colorType": "solid",
+      "colors": [
+        "#684A43"
+      ],
+      "names": {
+        "zh-CN": "星河棕",
+        "zh-TW": "星河棕",
+        "en": "Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA15:13503",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA15",
+      "sourceType": "PLA Galaxy",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Galaxy",
+      "presetBase": "Bambu PLA Galaxy @base",
+      "colorCode": "13503",
+      "colorType": "solid",
+      "colors": [
+        "#3B665E"
+      ],
+      "names": {
+        "zh-CN": "星河绿",
+        "zh-TW": "星河綠",
+        "en": "Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA15:13504",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA15",
+      "sourceType": "PLA Galaxy",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Galaxy",
+      "presetBase": "Bambu PLA Galaxy @base",
+      "colorCode": "13504",
+      "colorType": "solid",
+      "colors": [
+        "#424379"
+      ],
+      "names": {
+        "zh-CN": "星云色",
+        "zh-TW": "星雲色",
+        "en": "Nebulae"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA15:13602",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA15",
+      "sourceType": "PLA Galaxy",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Galaxy",
+      "presetBase": "Bambu PLA Galaxy @base",
+      "colorCode": "13602",
+      "colorType": "solid",
+      "colors": [
+        "#594177"
+      ],
+      "names": {
+        "zh-CN": "星河紫",
+        "zh-TW": "星河紫",
+        "en": "Purple"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA12:15200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA12",
+      "sourceType": "PLA Glow",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Glow",
+      "presetBase": "Bambu PLA Glow @base",
+      "colorCode": "15200",
+      "colorType": "solid",
+      "colors": [
+        "#F17B8F"
+      ],
+      "names": {
+        "zh-CN": "夜光粉",
+        "zh-TW": "夜光粉",
+        "en": "Glow Pink"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA12:15300",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA12",
+      "sourceType": "PLA Glow",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Glow",
+      "presetBase": "Bambu PLA Glow @base",
+      "colorCode": "15300",
+      "colorType": "solid",
+      "colors": [
+        "#FF9D5B"
+      ],
+      "names": {
+        "zh-CN": "夜光橙",
+        "zh-TW": "夜光橙",
+        "en": "Glow Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA12:15400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA12",
+      "sourceType": "PLA Glow",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Glow",
+      "presetBase": "Bambu PLA Glow @base",
+      "colorCode": "15400",
+      "colorType": "solid",
+      "colors": [
+        "#F8FF80"
+      ],
+      "names": {
+        "zh-CN": "夜光黄",
+        "zh-TW": "夜光黃",
+        "en": "Glow Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA12:15500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA12",
+      "sourceType": "PLA Glow",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Glow",
+      "presetBase": "Bambu PLA Glow @base",
+      "colorCode": "15500",
+      "colorType": "solid",
+      "colors": [
+        "#A1FFAC"
+      ],
+      "names": {
+        "zh-CN": "夜光绿",
+        "zh-TW": "夜光綠",
+        "en": "Glow Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA12:15600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA12",
+      "sourceType": "PLA Glow",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Glow",
+      "presetBase": "Bambu PLA Glow @base",
+      "colorCode": "15600",
+      "colorType": "solid",
+      "colors": [
+        "#7AC0E9"
+      ],
+      "names": {
+        "zh-CN": "夜光蓝",
+        "zh-TW": "夜光藍",
+        "en": "Glow Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16100",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16101",
+      "colorType": "solid",
+      "colors": [
+        "#999D9D"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16102",
+      "colorType": "solid",
+      "colors": [
+        "#8C8B8C"
+      ],
+      "names": {
+        "zh-CN": "深灰",
+        "zh-TW": "深灰",
+        "en": "Dark Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16103",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16103",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16200",
+      "colorType": "solid",
+      "colors": [
+        "#C6001A"
+      ],
+      "names": {
+        "zh-CN": "深红色",
+        "zh-TW": "深紅色",
+        "en": "Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16301",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16301",
+      "colorType": "solid",
+      "colors": [
+        "#FF671F"
+      ],
+      "names": {
+        "zh-CN": "橙色",
+        "zh-TW": "橙色",
+        "en": "Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16400",
+      "colorType": "solid",
+      "colors": [
+        "#EFE255"
+      ],
+      "names": {
+        "zh-CN": "黄色",
+        "zh-TW": "黃色",
+        "en": "Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16401",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16401",
+      "colorType": "solid",
+      "colors": [
+        "#FFB549"
+      ],
+      "names": {
+        "zh-CN": "橙黄色",
+        "zh-TW": "橙黃色",
+        "en": "Sunflower Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16501",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16501",
+      "colorType": "solid",
+      "colors": [
+        "#00BB31"
+      ],
+      "names": {
+        "zh-CN": "绿色",
+        "zh-TW": "綠色",
+        "en": "Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16600",
+      "colorType": "solid",
+      "colors": [
+        "#4DAFDA"
+      ],
+      "names": {
+        "zh-CN": "天蓝色",
+        "zh-TW": "天藍色",
+        "en": "Cyan"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16601",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16601",
+      "colorType": "solid",
+      "colors": [
+        "#004EA8"
+      ],
+      "names": {
+        "zh-CN": "蓝色",
+        "zh-TW": "藍色",
+        "en": "Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16700",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16700",
+      "colorType": "solid",
+      "colors": [
+        "#ECC3B2"
+      ],
+      "names": {
+        "zh-CN": "浅肤色",
+        "zh-TW": "淺膚色",
+        "en": "Matte Beige"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA18:16800",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA18",
+      "sourceType": "PLA Lite",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Lite",
+      "presetBase": "Bambu PLA Lite @base",
+      "colorCode": "16800",
+      "colorType": "solid",
+      "colors": [
+        "#745335"
+      ],
+      "names": {
+        "zh-CN": "棕色",
+        "zh-TW": "棕色",
+        "en": "Cocoa Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA07:13103",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA07",
+      "sourceType": "PLA Marble",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Marble",
+      "presetBase": "Bambu PLA Marble @base",
+      "colorCode": "13103",
+      "colorType": "solid",
+      "colors": [
+        "#F7F3F0"
+      ],
+      "names": {
+        "zh-CN": "大理石",
+        "zh-TW": "大理石",
+        "en": "White Marble"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA07:13201",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA07",
+      "sourceType": "PLA Marble",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Marble",
+      "presetBase": "Bambu PLA Marble @base",
+      "colorCode": "13201",
+      "colorType": "solid",
+      "colors": [
+        "#AD4E38"
+      ],
+      "names": {
+        "zh-CN": "砖红",
+        "zh-TW": "磚紅",
+        "en": "Red Granite"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "象牙白",
+        "zh-TW": "象牙白",
+        "en": "Ivory White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11101",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "炭黑",
+        "zh-TW": "炭黑",
+        "en": "Charcoal"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11102",
+      "colorType": "solid",
+      "colors": [
+        "#9B9EA0"
+      ],
+      "names": {
+        "zh-CN": "岩石灰",
+        "zh-TW": "岩石灰",
+        "en": "Ash Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11103",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11103",
+      "colorType": "solid",
+      "colors": [
+        "#CBC6B8"
+      ],
+      "names": {
+        "zh-CN": "骨白",
+        "zh-TW": "骨白",
+        "en": "Bone White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11104",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11104",
+      "colorType": "solid",
+      "colors": [
+        "#757575"
+      ],
+      "names": {
+        "zh-CN": "枪灰色",
+        "zh-TW": "槍灰色",
+        "en": "Nardo Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11200",
+      "colorType": "solid",
+      "colors": [
+        "#DE4343"
+      ],
+      "names": {
+        "zh-CN": "猩红",
+        "zh-TW": "猩紅",
+        "en": "Scarlet Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11201",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11201",
+      "colorType": "solid",
+      "colors": [
+        "#E8AFCF"
+      ],
+      "names": {
+        "zh-CN": "樱花粉",
+        "zh-TW": "櫻花粉",
+        "en": "Sakura Pink"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11202",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11202",
+      "colorType": "solid",
+      "colors": [
+        "#BB3D43"
+      ],
+      "names": {
+        "zh-CN": "暗夜红",
+        "zh-TW": "暗夜紅",
+        "en": "Dark Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11203",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11203",
+      "colorType": "solid",
+      "colors": [
+        "#B15533"
+      ],
+      "names": {
+        "zh-CN": "砖红色",
+        "zh-TW": "磚紅色",
+        "en": "Terracotta"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11204",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11204",
+      "colorType": "solid",
+      "colors": [
+        "#950051"
+      ],
+      "names": {
+        "zh-CN": "莓果紫",
+        "zh-TW": "莓果紫",
+        "en": "Plum"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11300",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11300",
+      "colorType": "solid",
+      "colors": [
+        "#F99963"
+      ],
+      "names": {
+        "zh-CN": "橘橙",
+        "zh-TW": "橘橙",
+        "en": "Mandarin Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11400",
+      "colorType": "solid",
+      "colors": [
+        "#F7D959"
+      ],
+      "names": {
+        "zh-CN": "柠檬黄",
+        "zh-TW": "檸檬黃",
+        "en": "Lemon Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11401",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11401",
+      "colorType": "solid",
+      "colors": [
+        "#E8DBB7"
+      ],
+      "names": {
+        "zh-CN": "沙漠黄",
+        "zh-TW": "沙漠黃",
+        "en": "Desert Tan"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11500",
+      "colorType": "solid",
+      "colors": [
+        "#61C680"
+      ],
+      "names": {
+        "zh-CN": "草绿",
+        "zh-TW": "草綠",
+        "en": "Grass Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11501",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11501",
+      "colorType": "solid",
+      "colors": [
+        "#68724D"
+      ],
+      "names": {
+        "zh-CN": "暗夜绿",
+        "zh-TW": "暗夜綠",
+        "en": "Dark Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11502",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11502",
+      "colorType": "solid",
+      "colors": [
+        "#C2E189"
+      ],
+      "names": {
+        "zh-CN": "果绿色",
+        "zh-TW": "果綠色",
+        "en": "Apple Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11600",
+      "colorType": "solid",
+      "colors": [
+        "#0078BF"
+      ],
+      "names": {
+        "zh-CN": "海蓝",
+        "zh-TW": "海藍",
+        "en": "Marine Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11601",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11601",
+      "colorType": "solid",
+      "colors": [
+        "#A3D8E1"
+      ],
+      "names": {
+        "zh-CN": "冰蓝",
+        "zh-TW": "冰藍",
+        "en": "Ice Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11602",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11602",
+      "colorType": "solid",
+      "colors": [
+        "#042F56"
+      ],
+      "names": {
+        "zh-CN": "暗夜蓝",
+        "zh-TW": "暗夜藍",
+        "en": "Dark Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11603",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11603",
+      "colorType": "solid",
+      "colors": [
+        "#56B7E6"
+      ],
+      "names": {
+        "zh-CN": "天蓝色",
+        "zh-TW": "天藍色",
+        "en": "Sky Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11700",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11700",
+      "colorType": "solid",
+      "colors": [
+        "#AE96D4"
+      ],
+      "names": {
+        "zh-CN": "丁香紫",
+        "zh-TW": "丁香紫",
+        "en": "Lilac Purple"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11800",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11800",
+      "colorType": "solid",
+      "colors": [
+        "#D3B7A7"
+      ],
+      "names": {
+        "zh-CN": "拿铁褐",
+        "zh-TW": "拿鐵褐",
+        "en": "Latte Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11801",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11801",
+      "colorType": "solid",
+      "colors": [
+        "#7D6556"
+      ],
+      "names": {
+        "zh-CN": "暗夜棕",
+        "zh-TW": "暗夜棕",
+        "en": "Dark Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11802",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11802",
+      "colorType": "solid",
+      "colors": [
+        "#4D3324"
+      ],
+      "names": {
+        "zh-CN": "深棕色",
+        "zh-TW": "深棕色",
+        "en": "Dark Chocolate"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA01:11803",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA01",
+      "sourceType": "PLA Matte",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Matte",
+      "presetBase": "Bambu PLA Matte @base",
+      "colorCode": "11803",
+      "colorType": "solid",
+      "colors": [
+        "#AE835B"
+      ],
+      "names": {
+        "zh-CN": "沙棕色",
+        "zh-TW": "沙棕色",
+        "en": "Caramel"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA02:13100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA02",
+      "sourceType": "PLA Metal",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Metal",
+      "presetBase": "Bambu PLA Metal @base",
+      "colorCode": "13100",
+      "colorType": "solid",
+      "colors": [
+        "#43403D"
+      ],
+      "names": {
+        "zh-CN": "深空灰",
+        "zh-TW": "深空灰",
+        "en": "Iron Gray Metallic"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA02:13400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA02",
+      "sourceType": "PLA Metal",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Metal",
+      "presetBase": "Bambu PLA Metal @base",
+      "colorCode": "13400",
+      "colorType": "solid",
+      "colors": [
+        "#B39B84"
+      ],
+      "names": {
+        "zh-CN": "香槟金",
+        "zh-TW": "香檳金",
+        "en": "Iridium Gold Metallic"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA02:13500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA02",
+      "sourceType": "PLA Metal",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Metal",
+      "presetBase": "Bambu PLA Metal @base",
+      "colorCode": "13500",
+      "colorType": "solid",
+      "colors": [
+        "#1D7C6A"
+      ],
+      "names": {
+        "zh-CN": "极光绿",
+        "zh-TW": "極光綠",
+        "en": "Oxide Green Metallic"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA02:13600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA02",
+      "sourceType": "PLA Metal",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Metal",
+      "presetBase": "Bambu PLA Metal @base",
+      "colorCode": "13600",
+      "colorType": "solid",
+      "colors": [
+        "#39699E"
+      ],
+      "names": {
+        "zh-CN": "典雅蓝",
+        "zh-TW": "典雅藍",
+        "en": "Cobalt Blue Metallic"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA02:13800",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA02",
+      "sourceType": "PLA Metal",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Metal",
+      "presetBase": "Bambu PLA Metal @base",
+      "colorCode": "13800",
+      "colorType": "solid",
+      "colors": [
+        "#AA6443"
+      ],
+      "names": {
+        "zh-CN": "咖啡金",
+        "zh-TW": "咖啡金",
+        "en": "Copper Brown Metallic"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA19:17100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA19",
+      "sourceType": "PLA Pure",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Pure",
+      "presetBase": "Bambu PLA Pure @base",
+      "colorCode": "17100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "纯净白",
+        "zh-TW": "純淨白",
+        "en": "Pure White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA19:17101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA19",
+      "sourceType": "PLA Pure",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Pure",
+      "presetBase": "Bambu PLA Pure @base",
+      "colorCode": "17101",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "纯净黑",
+        "zh-TW": "純淨黑",
+        "en": "Absolute Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA19:17200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA19",
+      "sourceType": "PLA Pure",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Pure",
+      "presetBase": "Bambu PLA Pure @base",
+      "colorCode": "17200",
+      "colorType": "solid",
+      "colors": [
+        "#F7CED7"
+      ],
+      "names": {
+        "zh-CN": "水玉粉",
+        "zh-TW": "水玉粉",
+        "en": "Milky Pink"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA19:17300",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA19",
+      "sourceType": "PLA Pure",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Pure",
+      "presetBase": "Bambu PLA Pure @base",
+      "colorCode": "17300",
+      "colorType": "solid",
+      "colors": [
+        "#FFB673"
+      ],
+      "names": {
+        "zh-CN": "杏子黄",
+        "zh-TW": "杏子黃",
+        "en": "Apricot"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA19:17600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA19",
+      "sourceType": "PLA Pure",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Pure",
+      "presetBase": "Bambu PLA Pure @base",
+      "colorCode": "17600",
+      "colorType": "solid",
+      "colors": [
+        "#A4DBE8"
+      ],
+      "names": {
+        "zh-CN": "雪山蓝",
+        "zh-TW": "雪山藍",
+        "en": "Baby Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA05:13104",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13104",
+      "colorType": "solid",
+      "colors": [
+        "#EAECEB"
+      ],
+      "names": {
+        "zh-CN": "银色",
+        "zh-TW": "銀色",
+        "en": "Silver"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA05:13105",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13105",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA05:13202",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13202",
+      "colorType": "solid",
+      "colors": [
+        "#EEB1C1"
+      ],
+      "names": {
+        "zh-CN": "粉色",
+        "zh-TW": "粉色",
+        "en": "Pink"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA05:13300",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13300",
+      "colorType": "solid",
+      "colors": [
+        "#5E4B3C"
+      ],
+      "names": {
+        "zh-CN": "铜色",
+        "zh-TW": "銅色",
+        "en": "Copper"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA05:13401",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13401",
+      "colorType": "solid",
+      "colors": [
+        "#E5B03D"
+      ],
+      "names": {
+        "zh-CN": "金色",
+        "zh-TW": "金色",
+        "en": "Gold"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA05:13502",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13502",
+      "colorType": "solid",
+      "colors": [
+        "#4CE4A0"
+      ],
+      "names": {
+        "zh-CN": "绿色",
+        "zh-TW": "綠色",
+        "en": "Green"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA05:13601",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13601",
+      "colorType": "solid",
+      "colors": [
+        "#147BD1"
+      ],
+      "names": {
+        "zh-CN": "蓝色",
+        "zh-TW": "藍色",
+        "en": "Blue"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA05:13701",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13701",
+      "colorType": "solid",
+      "colors": [
+        "#854CE4"
+      ],
+      "names": {
+        "zh-CN": "紫色",
+        "zh-TW": "紫色",
+        "en": "Purple"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA05:13901",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk Multi-Color",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13901",
+      "colorType": "dual",
+      "colors": [
+        "#FF9425",
+        "#C16784"
+      ],
+      "names": {
+        "zh-CN": "金粉双色",
+        "zh-TW": "金粉雙色",
+        "en": "Gilded Rose"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA05:13902",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk Multi-Color",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13902",
+      "colorType": "dual",
+      "colors": [
+        "#0047BB",
+        "#7D1B49"
+      ],
+      "names": {
+        "zh-CN": "蓝红双色",
+        "zh-TW": "藍紅雙色",
+        "en": "Midnight Blaze"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA05:13903",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk Multi-Color",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13903",
+      "colorType": "dual",
+      "colors": [
+        "#BB22A3",
+        "#0047BB"
+      ],
+      "names": {
+        "zh-CN": "蓝粉双色",
+        "zh-TW": "藍粉雙色",
+        "en": "Neon City"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA05:13904",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk Multi-Color",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13904",
+      "colorType": "dual",
+      "colors": [
+        "#70C884",
+        "#418FDE"
+      ],
+      "names": {
+        "zh-CN": "蓝绿双色",
+        "zh-TW": "藍綠雙色",
+        "en": "Blue Hawaii"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA05:13905",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk Multi-Color",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13905",
+      "colorType": "dual",
+      "colors": [
+        "#000000",
+        "#A34342"
+      ],
+      "names": {
+        "zh-CN": "灰烬红",
+        "zh-TW": "灰燼紅",
+        "en": "Velvet Eclipse (Black-Red)"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA05:13906",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk Multi-Color",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13906",
+      "colorType": "gradient",
+      "colors": [
+        "#00918B",
+        "#F772A4"
+      ],
+      "names": {
+        "zh-CN": "马卡龙",
+        "zh-TW": "馬卡龍",
+        "en": "South Beach"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA05:13909",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk Multi-Color",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13909",
+      "colorType": "gradient",
+      "colors": [
+        "#7F3696",
+        "#006EC9"
+      ],
+      "names": {
+        "zh-CN": "星云紫",
+        "zh-TW": "星雲紫",
+        "en": "Aurora Purple"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA05:13912",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk Multi-Color",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13912",
+      "colorType": "gradient",
+      "colors": [
+        "#EC984C",
+        "#6CD4BC",
+        "#A66EB9",
+        "#D87694"
+      ],
+      "names": {
+        "zh-CN": "浅彩虹",
+        "zh-TW": "淺彩虹",
+        "en": "Dawn Radiance"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA05:13913",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk Multi-Color",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13913",
+      "colorType": "dual",
+      "colors": [
+        "#720062",
+        "#3A913F"
+      ],
+      "names": {
+        "zh-CN": "北极光",
+        "zh-TW": "北極光",
+        "en": "Mystic Magenta"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA05:13916",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA05",
+      "sourceType": "PLA Silk",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk Multi-Color",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13916",
+      "colorType": "dual",
+      "colors": [
+        "#000000",
+        "#00629B"
+      ],
+      "names": {
+        "zh-CN": "幻影蓝",
+        "zh-TW": "幻影藍",
+        "en": "Phantom Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13108",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13108",
+      "colorType": "solid",
+      "colors": [
+        "#5F6367"
+      ],
+      "names": {
+        "zh-CN": "钛灰色",
+        "zh-TW": "鈦灰色",
+        "en": "Titan Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13109",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13109",
+      "colorType": "solid",
+      "colors": [
+        "#C8C8C8"
+      ],
+      "names": {
+        "zh-CN": "丝绸银",
+        "zh-TW": "絲綢銀",
+        "en": "Silver"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13110",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13110",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "丝绸白",
+        "zh-TW": "絲綢白",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13205",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13205",
+      "colorType": "solid",
+      "colors": [
+        "#D02727"
+      ],
+      "names": {
+        "zh-CN": "糖果红",
+        "zh-TW": "糖果紅",
+        "en": "Candy Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13206",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13206",
+      "colorType": "solid",
+      "colors": [
+        "#BA9594"
+      ],
+      "names": {
+        "zh-CN": "烟粉色",
+        "zh-TW": "煙粉色",
+        "en": "Rose Gold"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13207",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13207",
+      "colorType": "solid",
+      "colors": [
+        "#F7ADA6"
+      ],
+      "names": {
+        "zh-CN": "丝绸粉",
+        "zh-TW": "絲綢粉",
+        "en": "Pink"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13404",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13404",
+      "colorType": "solid",
+      "colors": [
+        "#F3CFB2"
+      ],
+      "names": {
+        "zh-CN": "香槟色",
+        "zh-TW": "香檳色",
+        "en": "Champagne"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13405",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13405",
+      "colorType": "solid",
+      "colors": [
+        "#F4A925"
+      ],
+      "names": {
+        "zh-CN": "丝绸金",
+        "zh-TW": "絲綢金",
+        "en": "Gold"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13506",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13506",
+      "colorType": "solid",
+      "colors": [
+        "#018814"
+      ],
+      "names": {
+        "zh-CN": "糖果绿",
+        "zh-TW": "糖果綠",
+        "en": "Candy Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13507",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13507",
+      "colorType": "solid",
+      "colors": [
+        "#96DCB9"
+      ],
+      "names": {
+        "zh-CN": "薄荷绿",
+        "zh-TW": "薄荷綠",
+        "en": "Mint"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13603",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13603",
+      "colorType": "solid",
+      "colors": [
+        "#A8C6EE"
+      ],
+      "names": {
+        "zh-CN": "天空蓝",
+        "zh-TW": "天空藍",
+        "en": "Baby Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13604",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13604",
+      "colorType": "solid",
+      "colors": [
+        "#008BDA"
+      ],
+      "names": {
+        "zh-CN": "丝绸蓝",
+        "zh-TW": "絲綢藍",
+        "en": "Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA06:13702",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA06",
+      "sourceType": "PLA Silk+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Silk+",
+      "presetBase": "Bambu PLA Silk @base",
+      "colorCode": "13702",
+      "colorType": "solid",
+      "colors": [
+        "#8671CB"
+      ],
+      "names": {
+        "zh-CN": "丝绸紫",
+        "zh-TW": "絲綢紫",
+        "en": "Purple"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA08:13101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA08",
+      "sourceType": "PLA Sparkle",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Sparkle",
+      "presetBase": "Bambu PLA Sparkle @base",
+      "colorCode": "13101",
+      "colorType": "solid",
+      "colors": [
+        "#2D2B28"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Onyx Black Sparkle"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA08:13102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA08",
+      "sourceType": "PLA Sparkle",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Sparkle",
+      "presetBase": "Bambu PLA Sparkle @base",
+      "colorCode": "13102",
+      "colorType": "solid",
+      "colors": [
+        "#8E9089"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Slate Gray Sparkle"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA08:13200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA08",
+      "sourceType": "PLA Sparkle",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Sparkle",
+      "presetBase": "Bambu PLA Sparkle @base",
+      "colorCode": "13200",
+      "colorType": "solid",
+      "colors": [
+        "#792B36"
+      ],
+      "names": {
+        "zh-CN": "红色",
+        "zh-TW": "紅色",
+        "en": "Crimson Red Sparkle"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA08:13402",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA08",
+      "sourceType": "PLA Sparkle",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Sparkle",
+      "presetBase": "Bambu PLA Sparkle @base",
+      "colorCode": "13402",
+      "colorType": "solid",
+      "colors": [
+        "#CEA629"
+      ],
+      "names": {
+        "zh-CN": "金色",
+        "zh-TW": "金色",
+        "en": "Classic Gold Sparkle"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA08:13501",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA08",
+      "sourceType": "PLA Sparkle",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Sparkle",
+      "presetBase": "Bambu PLA Sparkle @base",
+      "colorCode": "13501",
+      "colorType": "solid",
+      "colors": [
+        "#3F5443"
+      ],
+      "names": {
+        "zh-CN": "绿色",
+        "zh-TW": "綠色",
+        "en": "Alpine Green Sparkle"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA08:13700",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA08",
+      "sourceType": "PLA Sparkle",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Sparkle",
+      "presetBase": "Bambu PLA Sparkle @base",
+      "colorCode": "13700",
+      "colorType": "solid",
+      "colors": [
+        "#483D8B"
+      ],
+      "names": {
+        "zh-CN": "深蓝",
+        "zh-TW": "深藍",
+        "en": "Royal Purple Sparkle"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA09:12100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA09",
+      "sourceType": "PLA Tough",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12100",
+      "colorType": "solid",
+      "colors": [
+        "#F9F7F4"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA09:12101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA09",
+      "sourceType": "PLA Tough",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12101",
+      "colorType": "solid",
+      "colors": [
+        "#25282A"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA09:12102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA09",
+      "sourceType": "PLA Tough",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12102",
+      "colorType": "solid",
+      "colors": [
+        "#515A6C"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA09:12103",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA09",
+      "sourceType": "PLA Tough",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12103",
+      "colorType": "solid",
+      "colors": [
+        "#898D8D"
+      ],
+      "names": {
+        "zh-CN": "银色",
+        "zh-TW": "銀色",
+        "en": "Silver"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA09:12200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA09",
+      "sourceType": "PLA Tough",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12200",
+      "colorType": "solid",
+      "colors": [
+        "#DD3C22"
+      ],
+      "names": {
+        "zh-CN": "朱砂红",
+        "zh-TW": "硃砂紅",
+        "en": "Vermilion Red"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA09:12300",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA09",
+      "sourceType": "PLA Tough",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12300",
+      "colorType": "solid",
+      "colors": [
+        "#FF7F41"
+      ],
+      "names": {
+        "zh-CN": "橙色",
+        "zh-TW": "橙色",
+        "en": "Orange"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA09:12400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA09",
+      "sourceType": "PLA Tough",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12400",
+      "colorType": "solid",
+      "colors": [
+        "#FEDB00"
+      ],
+      "names": {
+        "zh-CN": "黄色",
+        "zh-TW": "黃色",
+        "en": "Yellow"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA09:12500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA09",
+      "sourceType": "PLA Tough",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12500",
+      "colorType": "solid",
+      "colors": [
+        "#00482B"
+      ],
+      "names": {
+        "zh-CN": "松绿",
+        "zh-TW": "松綠",
+        "en": "Pine Green"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA09:12600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA09",
+      "sourceType": "PLA Tough",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12600",
+      "colorType": "solid",
+      "colors": [
+        "#0085AD"
+      ],
+      "names": {
+        "zh-CN": "浅蓝",
+        "zh-TW": "淺藍",
+        "en": "Light Blue"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA09:12700",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA09",
+      "sourceType": "PLA Tough",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12700",
+      "colorType": "solid",
+      "colors": [
+        "#6667AB"
+      ],
+      "names": {
+        "zh-CN": "薰衣草紫",
+        "zh-TW": "薰衣草紫",
+        "en": "Lavender Blue"
+      },
+      "classic": true
+    },
+    {
+      "id": "bambu:GFA10:12104",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA10",
+      "sourceType": "PLA Tough+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough+",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12104",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA10:12105",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA10",
+      "sourceType": "PLA Tough+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough+",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12105",
+      "colorType": "solid",
+      "colors": [
+        "#AFB1AE"
+      ],
+      "names": {
+        "zh-CN": "浅灰色",
+        "zh-TW": "淺灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA10:12106",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA10",
+      "sourceType": "PLA Tough+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough+",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12106",
+      "colorType": "solid",
+      "colors": [
+        "#959698"
+      ],
+      "names": {
+        "zh-CN": "银色",
+        "zh-TW": "銀色",
+        "en": "Silver"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA10:12107",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA10",
+      "sourceType": "PLA Tough+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough+",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12107",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA10:12301",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA10",
+      "sourceType": "PLA Tough+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough+",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12301",
+      "colorType": "solid",
+      "colors": [
+        "#DC3A27"
+      ],
+      "names": {
+        "zh-CN": "橙色",
+        "zh-TW": "橙色",
+        "en": "Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA10:12401",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA10",
+      "sourceType": "PLA Tough+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough+",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12401",
+      "colorType": "solid",
+      "colors": [
+        "#F4D53F"
+      ],
+      "names": {
+        "zh-CN": "亮黄色",
+        "zh-TW": "亮黃色",
+        "en": "Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA10:12601",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA10",
+      "sourceType": "PLA Tough+",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Tough+",
+      "presetBase": "Bambu PLA Tough @base",
+      "colorCode": "12601",
+      "colorType": "solid",
+      "colors": [
+        "#009BD8"
+      ],
+      "names": {
+        "zh-CN": "天蓝色",
+        "zh-TW": "天藍色",
+        "en": "Cyan"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA17:13210",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA17",
+      "sourceType": "PLA Translucent",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Translucent",
+      "presetBase": "Bambu PLA Translucent @base",
+      "colorCode": "13210",
+      "colorType": "solid",
+      "colors": [
+        "#B50011"
+      ],
+      "names": {
+        "zh-CN": "透明红",
+        "zh-TW": "透明紅",
+        "en": "Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA17:13211",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA17",
+      "sourceType": "PLA Translucent",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Translucent",
+      "presetBase": "Bambu PLA Translucent @base",
+      "colorCode": "13211",
+      "colorType": "solid",
+      "colors": [
+        "#F5B6CD"
+      ],
+      "names": {
+        "zh-CN": "果冻粉",
+        "zh-TW": "果凍粉",
+        "en": "Cherry Pink"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA17:13301",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA17",
+      "sourceType": "PLA Translucent",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Translucent",
+      "presetBase": "Bambu PLA Translucent @base",
+      "colorCode": "13301",
+      "colorType": "solid",
+      "colors": [
+        "#F74E02"
+      ],
+      "names": {
+        "zh-CN": "透明橙",
+        "zh-TW": "透明橙",
+        "en": "Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA17:13410",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA17",
+      "sourceType": "PLA Translucent",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Translucent",
+      "presetBase": "Bambu PLA Translucent @base",
+      "colorCode": "13410",
+      "colorType": "solid",
+      "colors": [
+        "#F5DBAB"
+      ],
+      "names": {
+        "zh-CN": "黄水晶",
+        "zh-TW": "黃水晶",
+        "en": "Mellow Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA17:13510",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA17",
+      "sourceType": "PLA Translucent",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Translucent",
+      "presetBase": "Bambu PLA Translucent @base",
+      "colorCode": "13510",
+      "colorType": "solid",
+      "colors": [
+        "#96D8AF"
+      ],
+      "names": {
+        "zh-CN": "浅青玉",
+        "zh-TW": "淺青玉",
+        "en": "Light Jade"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA17:13610",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA17",
+      "sourceType": "PLA Translucent",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Translucent",
+      "presetBase": "Bambu PLA Translucent @base",
+      "colorCode": "13610",
+      "colorType": "solid",
+      "colors": [
+        "#B8CDE9"
+      ],
+      "names": {
+        "zh-CN": "冰蓝",
+        "zh-TW": "冰藍",
+        "en": "Ice Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA17:13611",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA17",
+      "sourceType": "PLA Translucent",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Translucent",
+      "presetBase": "Bambu PLA Translucent @base",
+      "colorCode": "13611",
+      "colorType": "solid",
+      "colors": [
+        "#0047BB"
+      ],
+      "names": {
+        "zh-CN": "透明蓝",
+        "zh-TW": "透明藍",
+        "en": "Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA17:13612",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA17",
+      "sourceType": "PLA Translucent",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Translucent",
+      "presetBase": "Bambu PLA Translucent @base",
+      "colorCode": "13612",
+      "colorType": "solid",
+      "colors": [
+        "#009FA1"
+      ],
+      "names": {
+        "zh-CN": "蓝绿色",
+        "zh-TW": "藍綠色",
+        "en": "Teal"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA17:13710",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA17",
+      "sourceType": "PLA Translucent",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Translucent",
+      "presetBase": "Bambu PLA Translucent @base",
+      "colorCode": "13710",
+      "colorType": "solid",
+      "colors": [
+        "#8344B0"
+      ],
+      "names": {
+        "zh-CN": "透明紫",
+        "zh-TW": "透明紫",
+        "en": "Purple"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA17:13711",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA17",
+      "sourceType": "PLA Translucent",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Translucent",
+      "presetBase": "Bambu PLA Translucent @base",
+      "colorCode": "13711",
+      "colorType": "solid",
+      "colors": [
+        "#B8ACD6"
+      ],
+      "names": {
+        "zh-CN": "紫罗兰",
+        "zh-TW": "紫羅蘭",
+        "en": "Lavender"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA16:13106",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA16",
+      "sourceType": "PLA Wood",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Wood",
+      "presetBase": "Bambu PLA Wood @base",
+      "colorCode": "13106",
+      "colorType": "solid",
+      "colors": [
+        "#D6CCA3"
+      ],
+      "names": {
+        "zh-CN": "白橡木",
+        "zh-TW": "白橡木",
+        "en": "White Oak"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA16:13107",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA16",
+      "sourceType": "PLA Wood",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Wood",
+      "presetBase": "Bambu PLA Wood @base",
+      "colorCode": "13107",
+      "colorType": "solid",
+      "colors": [
+        "#4F3F24"
+      ],
+      "names": {
+        "zh-CN": "黑胡桃",
+        "zh-TW": "黑胡桃",
+        "en": "Black Walnut"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA16:13204",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA16",
+      "sourceType": "PLA Wood",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Wood",
+      "presetBase": "Bambu PLA Wood @base",
+      "colorCode": "13204",
+      "colorType": "solid",
+      "colors": [
+        "#4C241C"
+      ],
+      "names": {
+        "zh-CN": "红木",
+        "zh-TW": "紅木",
+        "en": "Rosewood"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA16:13403",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA16",
+      "sourceType": "PLA Wood",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Wood",
+      "presetBase": "Bambu PLA Wood @base",
+      "colorCode": "13403",
+      "colorType": "solid",
+      "colors": [
+        "#C98935"
+      ],
+      "names": {
+        "zh-CN": "赭石黄",
+        "zh-TW": "赭石黃",
+        "en": "Ochre Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA16:13505",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA16",
+      "sourceType": "PLA Wood",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Wood",
+      "presetBase": "Bambu PLA Wood @base",
+      "colorCode": "13505",
+      "colorType": "solid",
+      "colors": [
+        "#918669"
+      ],
+      "names": {
+        "zh-CN": "经典桦木",
+        "zh-TW": "經典樺木",
+        "en": "Classic Birch"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA16:13801",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA16",
+      "sourceType": "PLA Wood",
+      "materialGroup": "PLA",
+      "material": "PLA",
+      "series": "Wood",
+      "presetBase": "Bambu PLA Wood @base",
+      "colorCode": "13801",
+      "colorType": "solid",
+      "colors": [
+        "#995F11"
+      ],
+      "names": {
+        "zh-CN": "陶土褐",
+        "zh-TW": "陶土褐",
+        "en": "Clay Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA50:14100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA50",
+      "sourceType": "PLA-CF",
+      "materialGroup": "PLA",
+      "material": "PLA-CF",
+      "series": "PLA-CF",
+      "presetBase": "Bambu PLA-CF @base",
+      "colorCode": "14100",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA50:14101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA50",
+      "sourceType": "PLA-CF",
+      "materialGroup": "PLA",
+      "material": "PLA-CF",
+      "series": "PLA-CF",
+      "presetBase": "Bambu PLA-CF @base",
+      "colorCode": "14101",
+      "colorType": "solid",
+      "colors": [
+        "#4D5054"
+      ],
+      "names": {
+        "zh-CN": "熔岩灰",
+        "zh-TW": "熔岩灰",
+        "en": "Lava Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA50:14200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA50",
+      "sourceType": "PLA-CF",
+      "materialGroup": "PLA",
+      "material": "PLA-CF",
+      "series": "PLA-CF",
+      "presetBase": "Bambu PLA-CF @base",
+      "colorCode": "14200",
+      "colorType": "solid",
+      "colors": [
+        "#951E23"
+      ],
+      "names": {
+        "zh-CN": "勃艮第红",
+        "zh-TW": "勃艮第紅",
+        "en": "Burgundy Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA50:14500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA50",
+      "sourceType": "PLA-CF",
+      "materialGroup": "PLA",
+      "material": "PLA-CF",
+      "series": "PLA-CF",
+      "presetBase": "Bambu PLA-CF @base",
+      "colorCode": "14500",
+      "colorType": "solid",
+      "colors": [
+        "#5C9748"
+      ],
+      "names": {
+        "zh-CN": "抹茶绿",
+        "zh-TW": "抹茶綠",
+        "en": "Matcha Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA50:14600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA50",
+      "sourceType": "PLA-CF",
+      "materialGroup": "PLA",
+      "material": "PLA-CF",
+      "series": "PLA-CF",
+      "presetBase": "Bambu PLA-CF @base",
+      "colorCode": "14600",
+      "colorType": "solid",
+      "colors": [
+        "#6E88BC"
+      ],
+      "names": {
+        "zh-CN": "牛仔蓝",
+        "zh-TW": "牛仔藍",
+        "en": "Jeans Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA50:14601",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA50",
+      "sourceType": "PLA-CF",
+      "materialGroup": "PLA",
+      "material": "PLA-CF",
+      "series": "PLA-CF",
+      "presetBase": "Bambu PLA-CF @base",
+      "colorCode": "14601",
+      "colorType": "solid",
+      "colors": [
+        "#2842AD"
+      ],
+      "names": {
+        "zh-CN": "皇家蓝",
+        "zh-TW": "皇家藍",
+        "en": "Royal Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFA50:14700",
+      "brand": "Bambu Lab",
+      "filamentId": "GFA50",
+      "sourceType": "PLA-CF",
+      "materialGroup": "PLA",
+      "material": "PLA-CF",
+      "series": "PLA-CF",
+      "presetBase": "Bambu PLA-CF @base",
+      "colorCode": "14700",
+      "colorType": "solid",
+      "colors": [
+        "#69398E"
+      ],
+      "names": {
+        "zh-CN": "鸢尾花紫",
+        "zh-TW": "鳶尾花紫",
+        "en": "Iris Purple"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFN06:73100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFN06",
+      "sourceType": "PPA-CF",
+      "materialGroup": "PPA",
+      "material": "PPA-CF",
+      "series": "PPA-CF",
+      "presetBase": "Bambu PPA-CF @base",
+      "colorCode": "73100",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFT02:76100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFT02",
+      "sourceType": "PPS-CF",
+      "materialGroup": "PPS",
+      "material": "PPS-CF",
+      "series": "PPS-CF",
+      "presetBase": "Bambu PPS-CF @base",
+      "colorCode": "76100",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFS04:66400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFS04",
+      "sourceType": "PVA",
+      "materialGroup": "支撑材料",
+      "material": "PVA",
+      "series": "PVA",
+      "presetBase": "Bambu PVA @base",
+      "colorCode": "66400",
+      "colorType": "solid",
+      "colors": [
+        "#F0F1A8"
+      ],
+      "names": {
+        "zh-CN": "透明浅黄色",
+        "zh-TW": "透明淺黃色",
+        "en": "Clear"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFS06:66100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFS06",
+      "sourceType": "Support for ABS",
+      "materialGroup": "支撑材料",
+      "material": "ABS",
+      "series": "Support for ABS",
+      "presetBase": "Bambu Support for ABS @base",
+      "colorCode": "66100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFS03:65500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFS03",
+      "sourceType": "Support for PA/PET",
+      "materialGroup": "支撑材料",
+      "material": "PA",
+      "series": "Support for PA/PET",
+      "presetBase": "Bambu Support For PA/PET @base",
+      "colorCode": "65500",
+      "colorType": "solid",
+      "colors": [
+        "#C0DF16"
+      ],
+      "names": {
+        "zh-CN": "绿色",
+        "zh-TW": "綠色",
+        "en": "Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFS02:65104",
+      "brand": "Bambu Lab",
+      "filamentId": "GFS02",
+      "sourceType": "Support for PLA",
+      "materialGroup": "支撑材料",
+      "material": "PLA",
+      "series": "Support for PLA",
+      "presetBase": "Bambu Support For PLA @base",
+      "colorCode": "65104",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFS05:65102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFS05",
+      "sourceType": "Support for PLA/PETG",
+      "materialGroup": "支撑材料",
+      "material": "PLA",
+      "series": "Support for PLA/PETG",
+      "presetBase": "Bambu Support For PLA/PETG @base",
+      "colorCode": "65102",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "半透明",
+        "zh-TW": "半透明",
+        "en": "Nature"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFS05:65103",
+      "brand": "Bambu Lab",
+      "filamentId": "GFS05",
+      "sourceType": "Support for PLA/PETG",
+      "materialGroup": "支撑材料",
+      "material": "PLA",
+      "series": "Support for PLA/PETG",
+      "presetBase": "Bambu Support For PLA/PETG @base",
+      "colorCode": "65103",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU04:51107",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU04",
+      "sourceType": "TPU 85A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "85A",
+      "presetBase": "Bambu TPU 85A @base",
+      "colorCode": "51107",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU04:51201",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU04",
+      "sourceType": "TPU 85A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "85A",
+      "presetBase": "Bambu TPU 85A @base",
+      "colorCode": "51201",
+      "colorType": "solid",
+      "colors": [
+        "#F3CFB2"
+      ],
+      "names": {
+        "zh-CN": "肤色",
+        "zh-TW": "膚色",
+        "en": "Flesh"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU04:51305",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU04",
+      "sourceType": "TPU 85A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "85A",
+      "presetBase": "Bambu TPU 85A @base",
+      "colorCode": "51305",
+      "colorType": "solid",
+      "colors": [
+        "#F68B1B"
+      ],
+      "names": {
+        "zh-CN": "暖橙色",
+        "zh-TW": "暖橙色",
+        "en": "Neon Orange"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU04:51500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU04",
+      "sourceType": "TPU 85A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "85A",
+      "presetBase": "Bambu TPU 85A @base",
+      "colorCode": "51500",
+      "colorType": "solid",
+      "colors": [
+        "#C3E2D6"
+      ],
+      "names": {
+        "zh-CN": "苍青色",
+        "zh-TW": "蒼青色",
+        "en": "Light Cyan"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU04:51501",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU04",
+      "sourceType": "TPU 85A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "85A",
+      "presetBase": "Bambu TPU 85A @base",
+      "colorCode": "51501",
+      "colorType": "solid",
+      "colors": [
+        "#CDEA80"
+      ],
+      "names": {
+        "zh-CN": "苹果绿",
+        "zh-TW": "蘋果綠",
+        "en": "Lime Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU03:51103",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU03",
+      "sourceType": "TPU 90A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "90A",
+      "presetBase": "Bambu TPU 90A @base",
+      "colorCode": "51103",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU03:51105",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU03",
+      "sourceType": "TPU 90A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "90A",
+      "presetBase": "Bambu TPU 90A @base",
+      "colorCode": "51105",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU03:51106",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU03",
+      "sourceType": "TPU 90A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "90A",
+      "presetBase": "Bambu TPU 90A @base",
+      "colorCode": "51106",
+      "colorType": "solid",
+      "colors": [
+        "#9EA2A2"
+      ],
+      "names": {
+        "zh-CN": "水银色",
+        "zh-TW": "水銀色",
+        "en": "Quicksilver"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU03:51601",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU03",
+      "sourceType": "TPU 90A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "90A",
+      "presetBase": "Bambu TPU 90A @base",
+      "colorCode": "51601",
+      "colorType": "solid",
+      "colors": [
+        "#7EB4E1"
+      ],
+      "names": {
+        "zh-CN": "水晶蓝",
+        "zh-TW": "水晶藍",
+        "en": "Crystal Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU03:51700",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU03",
+      "sourceType": "TPU 90A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "90A",
+      "presetBase": "Bambu TPU 90A @base",
+      "colorCode": "51700",
+      "colorType": "solid",
+      "colors": [
+        "#D6ABFF"
+      ],
+      "names": {
+        "zh-CN": "果冻紫",
+        "zh-TW": "果凍紫",
+        "en": "Grape Jelly"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU03:51800",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU03",
+      "sourceType": "TPU 90A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "90A",
+      "presetBase": "Bambu TPU 90A @base",
+      "colorCode": "51800",
+      "colorType": "solid",
+      "colors": [
+        "#5C4738"
+      ],
+      "names": {
+        "zh-CN": "皮革棕",
+        "zh-TW": "皮革棕",
+        "en": "Cocoa Brown"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU03:51900",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU03",
+      "sourceType": "TPU 90A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "90A",
+      "presetBase": "Bambu TPU 90A @base",
+      "colorCode": "51900",
+      "colorType": "gradient",
+      "colors": [
+        "#FFFFFF",
+        "#40B6E4"
+      ],
+      "names": {
+        "zh-CN": "冰封蓝",
+        "zh-TW": "冰封藍",
+        "en": "Frozen"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU03:51901",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU03",
+      "sourceType": "TPU 90A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "90A",
+      "presetBase": "Bambu TPU 90A @base",
+      "colorCode": "51901",
+      "colorType": "gradient",
+      "colors": [
+        "#D21B3C",
+        "#F1AAA8"
+      ],
+      "names": {
+        "zh-CN": "西瓜红",
+        "zh-TW": "西瓜紅",
+        "en": "Blaze"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU01:50100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU01",
+      "sourceType": "TPU 95A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "95A",
+      "presetBase": "Bambu TPU 95A @base",
+      "colorCode": "50100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU01:50101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU01",
+      "sourceType": "TPU 95A",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "95A",
+      "presetBase": "Bambu TPU 95A @base",
+      "colorCode": "50101",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU00:51100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU00",
+      "sourceType": "TPU 95A HF",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "95A HF",
+      "presetBase": "Bambu TPU 95A HF @base",
+      "colorCode": "51100",
+      "colorType": "solid",
+      "colors": [
+        "#101820"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU00:51101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU00",
+      "sourceType": "TPU 95A HF",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "95A HF",
+      "presetBase": "Bambu TPU 95A HF @base",
+      "colorCode": "51101",
+      "colorType": "solid",
+      "colors": [
+        "#898D8D"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU00:51102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU00",
+      "sourceType": "TPU 95A HF",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "95A HF",
+      "presetBase": "Bambu TPU 95A HF @base",
+      "colorCode": "51102",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU00:51200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU00",
+      "sourceType": "TPU 95A HF",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "95A HF",
+      "presetBase": "Bambu TPU 95A HF @base",
+      "colorCode": "51200",
+      "colorType": "solid",
+      "colors": [
+        "#C8102E"
+      ],
+      "names": {
+        "zh-CN": "红色",
+        "zh-TW": "紅色",
+        "en": "Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU00:51400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU00",
+      "sourceType": "TPU 95A HF",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "95A HF",
+      "presetBase": "Bambu TPU 95A HF @base",
+      "colorCode": "51400",
+      "colorType": "solid",
+      "colors": [
+        "#F3E600"
+      ],
+      "names": {
+        "zh-CN": "黄色",
+        "zh-TW": "黃色",
+        "en": "Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU00:51600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU00",
+      "sourceType": "TPU 95A HF",
+      "materialGroup": "TPU",
+      "material": "TPU",
+      "series": "95A HF",
+      "presetBase": "Bambu TPU 95A HF @base",
+      "colorCode": "51600",
+      "colorType": "solid",
+      "colors": [
+        "#0072CE"
+      ],
+      "names": {
+        "zh-CN": "蓝色",
+        "zh-TW": "藍色",
+        "en": "Blue"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU02:53100",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU02",
+      "sourceType": "TPU for AMS",
+      "materialGroup": "TPU",
+      "material": "TPU-AMS",
+      "series": "for AMS",
+      "presetBase": "Bambu TPU for AMS @base",
+      "colorCode": "53100",
+      "colorType": "solid",
+      "colors": [
+        "#FFFFFF"
+      ],
+      "names": {
+        "zh-CN": "白色",
+        "zh-TW": "白色",
+        "en": "White"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU02:53101",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU02",
+      "sourceType": "TPU for AMS",
+      "materialGroup": "TPU",
+      "material": "TPU-AMS",
+      "series": "for AMS",
+      "presetBase": "Bambu TPU for AMS @base",
+      "colorCode": "53101",
+      "colorType": "solid",
+      "colors": [
+        "#000000"
+      ],
+      "names": {
+        "zh-CN": "黑色",
+        "zh-TW": "黑色",
+        "en": "Black"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU02:53102",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU02",
+      "sourceType": "TPU for AMS",
+      "materialGroup": "TPU",
+      "material": "TPU-AMS",
+      "series": "for AMS",
+      "presetBase": "Bambu TPU for AMS @base",
+      "colorCode": "53102",
+      "colorType": "solid",
+      "colors": [
+        "#939393"
+      ],
+      "names": {
+        "zh-CN": "灰色",
+        "zh-TW": "灰色",
+        "en": "Gray"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU02:53200",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU02",
+      "sourceType": "TPU for AMS",
+      "materialGroup": "TPU",
+      "material": "TPU-AMS",
+      "series": "for AMS",
+      "presetBase": "Bambu TPU for AMS @base",
+      "colorCode": "53200",
+      "colorType": "solid",
+      "colors": [
+        "#ED0000"
+      ],
+      "names": {
+        "zh-CN": "红色",
+        "zh-TW": "紅色",
+        "en": "Red"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU02:53400",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU02",
+      "sourceType": "TPU for AMS",
+      "materialGroup": "TPU",
+      "material": "TPU-AMS",
+      "series": "for AMS",
+      "presetBase": "Bambu TPU for AMS @base",
+      "colorCode": "53400",
+      "colorType": "solid",
+      "colors": [
+        "#F9EF41"
+      ],
+      "names": {
+        "zh-CN": "黄色",
+        "zh-TW": "黃色",
+        "en": "Yellow"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU02:53500",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU02",
+      "sourceType": "TPU for AMS",
+      "materialGroup": "TPU",
+      "material": "TPU-AMS",
+      "series": "for AMS",
+      "presetBase": "Bambu TPU for AMS @base",
+      "colorCode": "53500",
+      "colorType": "solid",
+      "colors": [
+        "#90FF1A"
+      ],
+      "names": {
+        "zh-CN": "荧光绿",
+        "zh-TW": "熒光綠",
+        "en": "Neon Green"
+      },
+      "classic": false
+    },
+    {
+      "id": "bambu:GFU02:53600",
+      "brand": "Bambu Lab",
+      "filamentId": "GFU02",
+      "sourceType": "TPU for AMS",
+      "materialGroup": "TPU",
+      "material": "TPU-AMS",
+      "series": "for AMS",
+      "presetBase": "Bambu TPU for AMS @base",
+      "colorCode": "53600",
+      "colorType": "solid",
+      "colors": [
+        "#5898DD"
+      ],
+      "names": {
+        "zh-CN": "蓝色",
+        "zh-TW": "藍色",
+        "en": "Blue"
+      },
+      "classic": false
+    }
+  ]
+}
