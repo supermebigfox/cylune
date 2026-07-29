@@ -12,6 +12,7 @@ grep -Fq 'ghostty-blackhole' src-tauri/native/mac/tiyda/THIRD_PARTY_NOTICES.md
 grep -Fq 'float2 center;' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'ingestProgress' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'ejectProgress' src-tauri/native/mac/tiyda/BlackHole.metal
+grep -Fq 'successJetProgress' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'blackHoleSuccessJetProgress' \
   src-tauri/native/mac/tiyda/BlackHoleDesktop.h
 grep -Fq 'successJetProgress' \
@@ -25,7 +26,7 @@ grep -Fq 'inflowContour' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'fullSurfaceEnvelope' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'float flowGain' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'clockwiseTangent' src-tauri/native/mac/tiyda/BlackHole.metal
-! grep -Fq 'float2 tangent=' src-tauri/native/mac/tiyda/BlackHole.metal
+grep -Fq 'float2 tangent=' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'diskLuminousFlow' src-tauri/native/mac/tiyda/BlackHole.metal
 grep -Fq 'diskOcclusion' src-tauri/native/mac/tiyda/BlackHole.metal
 ! grep -Fq 'flowBoundary' src-tauri/native/mac/tiyda/BlackHole.metal

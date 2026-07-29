@@ -2,7 +2,7 @@
 #include <metal_stdlib>
 using namespace metal;
 
-struct Params { float2 resolution; float time, size, brightness, speed; uint style; float2 center; float ingestProgress, ejectProgress, pullGain; };
+struct Params { float2 resolution; float time, size, brightness, speed; uint style; float2 center; float ingestProgress, ejectProgress, pullGain, successJetProgress; };
 struct VertexOut { float4 position [[position]]; float2 uv; };
 struct Preset {
     float diskTemp, diskIncl, diskRoll, diskInner, diskOuter, diskOpacity, dopplerMix;
@@ -78,6 +78,24 @@ float3 diskTintForStyle(uint style, float heat) {
     if(style==1) return mix(float3(.46,.012,.002),float3(1.00,.25,.012),h);
     return mix(float3(.025,.012,.34),float3(.40,.025,.92),h);
 }
+float4 successJet(float2 p, float rh, float t, float progress) {
+    float burst=sin(3.14159265*clamp(progress,0.0,1.0));
+    float2 axis=normalize(float2(-0.12,1.0));
+    float2 tangent=float2(axis.y,-axis.x);
+    float axial=dot(p,axis)/max(rh,.0001);
+    float lateral=abs(dot(p,tangent))/max(rh,.0001);
+    float reach=.85+4.25*smoothstep(0.0,.58,progress);
+    float coneWidth=.055+.055*abs(axial);
+    float core=exp(-pow(lateral/max(coneWidth,.001),2.0)*3.4);
+    float lobe=smoothstep(.55,.88,abs(axial))*
+               (1.0-smoothstep(reach-.45,reach,abs(axial)));
+    float particles=.58+.42*noise(float2(lateral*34.0-t*5.2,
+                                         abs(axial)*7.0-t*9.0));
+    float alpha=core*lobe*particles*burst;
+    float whiteCore=exp(-pow(lateral/max(coneWidth*.38,.001),2.0)*4.0);
+    float3 color=mix(float3(.04,.32,1.0),float3(.72,.94,1.0),whiteCore);
+    return float4(color*alpha,alpha);
+}
 
 fragment float4 blackHoleFragment(VertexOut in [[stage_in]], texture2d<float> desktop [[texture(0)]], constant Params &P [[buffer(0)]]) {
     constexpr sampler linearSampler(filter::linear, address::clamp_to_edge);
@@ -94,10 +112,11 @@ fragment float4 blackHoleFragment(VertexOut in [[stage_in]], texture2d<float> de
     float normalizedRadius=plen/max(rh,.0001);
     float warpedRadius=length(p+spacetimeFlow*.24)/max(rh,.0001);
     float mask=1.0-smoothstep(3.10,5.0,warpedRadius);
-    if (mask<0.002) return float4(0);
+    float4 jet=successJet(p,rh,t,P.successJetProgress);
+    if (mask < 0.002 && jet.a < 0.002) return float4(0);
     constexpr float B=2.5980762, Z0=14.0;
     float W=B/max(rh,0.0001); float2 pr=rot(float2(p.x,-p.y),S.diskRoll)*W; float b=length(pr);
-    if (b>S.diskOuter+3.0) { float defl=(2.0/(W*W))/max(plen,.0001)*(13.0/window*window)*window; float2 s=mirrorUV(center+(p+spacetimeFlow-normalize(p)*defl)/float2(aspect,1)); return float4(desktop.sample(linearSampler,wallpaperUV(s,desktop,res)).rgb,mask); }
+    if (b>S.diskOuter+3.0) { float defl=(2.0/(W*W))/max(plen,.0001)*(13.0/window*window)*window; float2 s=mirrorUV(center+(p+spacetimeFlow-normalize(p)*defl)/float2(aspect,1)); return float4(desktop.sample(linearSampler,wallpaperUV(s,desktop,res)).rgb+jet.rgb,max(mask,jet.a)); }
     float3 x=float3(pr,Z0), v=float3(0,0,-1), prev=x; float h2=dot(pr,pr); float3 n=float3(0,sin(S.diskIncl),cos(S.diskIncl)); float prevPlane=dot(x,n); float3 emission=0; float trans=1; bool captured=false;
     for(uint i=0;i<40;i++) { float r2=dot(x,x); if(r2<1){captured=true;break;} if(x.z < -Z0 && v.z<0) break; float r=sqrt(r2), dt=clamp(.16*r,.03,1.5); float3 a=-1.5*h2*x/(r2*r2*r); v+=a*.5*dt; x+=v*dt; r2=dot(x,x); r=sqrt(r2); a=-1.5*h2*x/(r2*r2*r); v+=a*.5*dt; float plane=dot(x,n); if(plane*prevPlane<0 && trans>.02) { float f=prevPlane/(prevPlane-plane); float3 hit=mix(prev,x,f); float rc=length(hit); if(rc>S.diskInner && rc<S.diskOuter) { float phi=atan2(dot(hit,float3(0,cos(S.diskIncl),-sin(S.diskIncl))),hit.x); float grain=noise(float2(rc*2.8+phi*S.diskWind*.12,phi*3.0-t*S.diskSpeed*.55)); float contrastMix=clamp(S.diskContrast*.5,0.0,1.0); float streak=mix(1.0,.25+1.9*pow(grain,1.0+S.diskContrast),contrastMix); float band=smoothstep(S.diskInner,S.diskInner+.45,rc)*(1.0-smoothstep(max(S.diskInner+.5,S.diskOuter-2.4),S.diskOuter,rc)); float beta=clamp(rsqrt(max(2.0*(rc-1.0),.2)),0.0,.99); float gPhysics=sqrt(max(1.0-1.5/rc,.02))/max(1.0+beta*dot(normalize(cross(n,hit)),normalize(v)),.05); float g=mix(1.0,gPhysics,S.dopplerMix); float temp=pow(S.diskInner/rc,.75)*pow(max(1.0-sqrt(S.diskInner/rc),0.0),.25)/.488; float diskLuminousFlow=.24+2.82*pow(.5+.5*cos(phi*2.0-t*S.diskSpeed*1.82+rc*.92),10.0); float density=band*streak; emission+=trans*blackbody(S.diskTemp*temp*g)*(4.8*S.diskGain*density*diskLuminousFlow*temp*temp*pow(g,S.diskBeam)); trans*=1.0-clamp(S.diskOpacity*density,0.0,.95); } } prevPlane=plane; prev=x; }
     float2 flowingUV=center+(p+spacetimeFlow)/float2(aspect,1);
@@ -115,5 +134,6 @@ fragment float4 blackHoleFragment(VertexOut in [[stage_in]], texture2d<float> de
     float diskOcclusion=clamp(diskAbsorption+diskPeak*.82,0.0,.92);
     float3 lit=bg*(1.0-diskOcclusion)+diskLight;
     float shadowEdge=shadow ? 1.0-smoothstep(rh*0.90,rh*1.06,plen) : 0.0;
-    return float4(mix(lit,float3(0),shadowEdge),mask);
+    float3 finalColor=mix(lit,float3(0),shadowEdge)+jet.rgb;
+    return float4(finalColor,max(mask,jet.a));
 }
