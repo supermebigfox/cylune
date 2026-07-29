@@ -1,5 +1,6 @@
 #import "BlackHoleDesktop.h"
 #import "black_hole_params.h"
+#import "capture_policy.h"
 #import <MetalKit/MetalKit.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <simd/simd.h>
@@ -15,6 +16,8 @@ typedef struct {
 } RenderParams;
 
 @interface MetalBlackHoleView () <MTKViewDelegate>
+- (void)configureScreenCaptureOnMacOS14 API_AVAILABLE(macos(14.0));
+- (void)refreshScreenTextureOnMacOS14 API_AVAILABLE(macos(14.0));
 @end
 
 @implementation MetalBlackHoleView {
@@ -24,8 +27,8 @@ typedef struct {
     MTKTextureLoader *_textureLoader;
     id<MTLTexture> _wallpaperTexture;
     id<MTLTexture> _screenTexture;
-    SCContentFilter *_captureFilter;
-    SCStreamConfiguration *_captureConfiguration;
+    id _captureFilter;
+    id _captureConfiguration;
     BOOL _captureConfigurationInFlight;
     BOOL _captureInFlight;
     BOOL _captureErrorLogged;
@@ -33,6 +36,7 @@ typedef struct {
     CFAbsoluteTime _lastCaptureTime;
     CFAbsoluteTime _startTime;
     BOOL _captureEnabled;
+    uint64_t _captureGeneration;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame
@@ -87,6 +91,7 @@ typedef struct {
 - (void)setCaptureEnabled:(BOOL)enabled {
     _captureEnabled = enabled;
     if (!enabled) {
+        _captureGeneration += 1;
         _screenTexture = nil;
         _captureFilter = nil;
         _captureConfiguration = nil;
@@ -104,6 +109,10 @@ typedef struct {
 
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
+    _captureGeneration += 1;
+    _screenTexture = nil;
+    _captureFilter = nil;
+    _captureConfiguration = nil;
     NSScreen *screen = self.window.screen;
     NSURL *wallpaperURL = screen ? [NSWorkspace.sharedWorkspace desktopImageURLForScreen:screen] : nil;
     if (!wallpaperURL) return;
@@ -119,20 +128,42 @@ typedef struct {
     } else {
         NSLog(@"Black Hole: wallpaper texture error: %@", textureError);
     }
+    if (_captureEnabled) {
+        [self refreshBackgroundNow];
+    }
 }
 
-- (void)configureScreenCaptureIfNeeded {
-    if (_captureFilter || _captureConfigurationInFlight || !_captureEnabled || !CGPreflightScreenCaptureAccess()) return;
+- (void)applyCaptureDecision:(BHCaptureResult)result {
+    const BHCaptureDecision decision = BHDecideCapture(result);
+    if (decision.clearPreviousScreenTexture) {
+        _screenTexture = nil;
+    }
+}
+
+- (void)configureScreenCaptureOnMacOS14 {
+    if (_captureFilter || _captureConfigurationInFlight || !_captureEnabled) {
+        return;
+    }
+    if (!CGPreflightScreenCaptureAccess()) {
+        [self applyCaptureDecision:BHCapturePermissionDenied];
+        return;
+    }
     _captureConfigurationInFlight = YES;
+    const uint64_t generation = _captureGeneration;
     __weak MetalBlackHoleView *weakSelf = self;
     [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
         MetalBlackHoleView *strongSelf = weakSelf;
         if (!strongSelf) return;
         dispatch_async(dispatch_get_main_queue(), ^{
             strongSelf->_captureConfigurationInFlight = NO;
-            if (error) {
+            if (generation != strongSelf->_captureGeneration ||
+                !strongSelf->_captureEnabled) {
+                return;
+            }
+            if (error || !content) {
                 if (!strongSelf->_captureErrorLogged) NSLog(@"Black Hole: screen background unavailable: %@", error);
                 strongSelf->_captureErrorLogged = YES;
+                [strongSelf applyCaptureDecision:BHCaptureTransientFailure];
                 return;
             }
             NSScreen *screen = strongSelf.window.screen;
@@ -142,7 +173,10 @@ typedef struct {
             for (SCDisplay *candidate in content.displays) {
                 if (candidate.displayID == displayID) { display = candidate; break; }
             }
-            if (!display) return;
+            if (!display) {
+                [strongSelf applyCaptureDecision:BHCaptureUnavailable];
+                return;
+            }
 
             NSMutableArray<SCWindow *> *ownWindows = [NSMutableArray array];
             pid_t processID = NSProcessInfo.processInfo.processIdentifier;
@@ -151,34 +185,58 @@ typedef struct {
             }
             strongSelf->_captureFilter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:ownWindows];
             SCStreamConfiguration *configuration = [SCStreamConfiguration new];
-            configuration.width = (size_t)round(NSWidth(screen.frame));
-            configuration.height = (size_t)round(NSHeight(screen.frame));
+            CGFloat scale = MAX(screen.backingScaleFactor, 1.0);
+            configuration.width = (size_t)round(NSWidth(screen.frame) * scale);
+            configuration.height = (size_t)round(NSHeight(screen.frame) * scale);
             configuration.showsCursor = NO;
             strongSelf->_captureConfiguration = configuration;
+            [strongSelf refreshScreenTextureOnMacOS14];
         });
     }];
 }
 
 - (void)refreshScreenTextureIfNeeded {
-    if (!_captureEnabled || !CGPreflightScreenCaptureAccess()) return;
+    if (!_captureEnabled) {
+        [self applyCaptureDecision:BHCaptureUnavailable];
+        return;
+    }
+    if (@available(macOS 14.0, *)) {
+        [self refreshScreenTextureOnMacOS14];
+    } else {
+        [self applyCaptureDecision:BHCaptureUnavailable];
+    }
+}
+
+- (void)refreshScreenTextureOnMacOS14 {
+    if (!CGPreflightScreenCaptureAccess()) {
+        [self applyCaptureDecision:BHCapturePermissionDenied];
+        return;
+    }
     if (!_captureFilter) {
-        [self configureScreenCaptureIfNeeded];
+        [self configureScreenCaptureOnMacOS14];
         return;
     }
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (_captureInFlight || now - _lastCaptureTime < 0.10) return;
     _captureInFlight = YES;
     _lastCaptureTime = now;
+    const uint64_t generation = _captureGeneration;
     __weak MetalBlackHoleView *weakSelf = self;
-    [SCScreenshotManager captureImageWithFilter:_captureFilter configuration:_captureConfiguration completionHandler:^(CGImageRef image, NSError *error) {
+    [SCScreenshotManager captureImageWithFilter:(SCContentFilter *)_captureFilter configuration:(SCStreamConfiguration *)_captureConfiguration completionHandler:^(CGImageRef image, NSError *error) {
         MetalBlackHoleView *strongSelf = weakSelf;
         if (!strongSelf) return;
         CGImageRef retainedImage = image ? CGImageRetain(image) : nil;
         dispatch_async(dispatch_get_main_queue(), ^{
             strongSelf->_captureInFlight = NO;
+            if (generation != strongSelf->_captureGeneration ||
+                !strongSelf->_captureEnabled) {
+                if (retainedImage) CGImageRelease(retainedImage);
+                return;
+            }
             if (!retainedImage) {
                 if (!strongSelf->_captureErrorLogged) NSLog(@"Black Hole: screen background capture failed: %@", error);
                 strongSelf->_captureErrorLogged = YES;
+                [strongSelf applyCaptureDecision:BHCaptureTransientFailure];
                 return;
             }
             NSError *textureError = nil;
@@ -194,9 +252,12 @@ typedef struct {
                 strongSelf->_captureErrorLogged = NO;
                 if (!strongSelf->_captureEnabledLogged) NSLog(@"Black Hole: live application background enabled");
                 strongSelf->_captureEnabledLogged = YES;
-            } else if (!strongSelf->_captureErrorLogged) {
-                NSLog(@"Black Hole: screen texture error: %@", textureError);
-                strongSelf->_captureErrorLogged = YES;
+            } else {
+                [strongSelf applyCaptureDecision:BHCaptureTransientFailure];
+                if (!strongSelf->_captureErrorLogged) {
+                    NSLog(@"Black Hole: screen texture error: %@", textureError);
+                    strongSelf->_captureErrorLogged = YES;
+                }
             }
         });
     }];
