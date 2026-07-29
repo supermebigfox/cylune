@@ -90,33 +90,33 @@ pub struct NativeCopy {
 pub fn native_copy(locale: &str) -> NativeCopy {
     match locale {
         "en" => NativeCopy {
-            open: "Open Spool Keeper",
+            open: "Open CYLUNE",
             reset: "Reset black hole position",
             show: "Show black hole",
             hide: "Hide black hole",
             quit: "Quit",
-            tooltip: "Spool Keeper",
-            notification_title: "Spool Keeper",
+            tooltip: "CYLUNE",
+            notification_title: "CYLUNE",
             notification_body: "A print is awaiting settlement",
         },
         "zh-TW" => NativeCopy {
-            open: "開啟耗材管家",
+            open: "開啟 CYLUNE",
             reset: "重設黑洞位置",
             show: "顯示黑洞",
             hide: "隱藏黑洞",
             quit: "結束",
-            tooltip: "耗材管家",
-            notification_title: "耗材管家",
+            tooltip: "CYLUNE",
+            notification_title: "CYLUNE",
             notification_body: "有一個列印任務等待結算",
         },
         _ => NativeCopy {
-            open: "打开耗材管家",
+            open: "打开 CYLUNE",
             reset: "重置黑洞位置",
             show: "显示黑洞",
             hide: "隐藏黑洞",
             quit: "退出",
-            tooltip: "耗材管家",
-            notification_title: "耗材管家",
+            tooltip: "CYLUNE",
+            notification_title: "CYLUNE",
             notification_body: "有一个打印任务等待结算",
         },
     }
@@ -490,7 +490,7 @@ pub fn setup(
     let quit = MenuItemBuilder::with_id("quit", copy.quit).build(app)?;
     let menu = Menu::with_items(app, &[&open, &reset, &visibility, &quit])?;
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/trayTemplate.png"))?;
-    let tray = TrayIconBuilder::with_id("spool-keeper")
+    let tray = TrayIconBuilder::with_id("cylune")
         .icon(icon)
         .icon_as_template(true)
         .tooltip(copy.tooltip)
@@ -611,11 +611,16 @@ mod tests {
 
     #[test]
     fn native_menu_and_notifications_follow_the_selected_locale() {
+        for locale in ["en", "zh-TW", "zh-CN"] {
+            let copy = native_copy(locale);
+            assert_eq!(copy.tooltip, "CYLUNE");
+            assert_eq!(copy.notification_title, "CYLUNE");
+            assert!(copy.open.contains("CYLUNE"));
+        }
         assert_eq!(
             native_copy("en").notification_body,
             "A print is awaiting settlement"
         );
-        assert_eq!(native_copy("zh-TW").open, "開啟耗材管家");
         assert_eq!(native_copy("zh-TW").reset, "重設黑洞位置");
         assert_eq!(native_copy("zh-TW").show, "顯示黑洞");
         assert_eq!(native_copy("zh-TW").hide, "隱藏黑洞");

@@ -24,14 +24,14 @@ it("uses localized backup labels and filenames", async () => {
   const saveDialog = vi.fn(async () => "/tmp/backup.json");
 
   expect(await pickBackupToImport("耗材备份", openDialog as never)).toBe("/tmp/backup.json");
-  expect(await pickBackupDestination("耗材备份", "耗材管家-备份.json", saveDialog as never)).toBe("/tmp/backup.json");
+  expect(await pickBackupDestination("耗材备份", "CYLUNE-备份.json", saveDialog as never)).toBe("/tmp/backup.json");
   expect(openDialog).toHaveBeenCalledWith({
     multiple: false,
     directory: false,
     filters: [{ name: "耗材备份", extensions: ["json"] }],
   });
   expect(saveDialog).toHaveBeenCalledWith({
-    defaultPath: "耗材管家-备份.json",
+    defaultPath: "CYLUNE-备份.json",
     filters: [{ name: "耗材备份", extensions: ["json"] }],
   });
 });

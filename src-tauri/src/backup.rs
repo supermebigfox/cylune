@@ -262,7 +262,7 @@ pub fn import_from_path(database: &mut AppDatabase, path: &Path) -> Result<PathB
     let bytes = fs::read(path)?;
     let backup: Backup = serde_json::from_slice(&bytes).map_err(|_| AppError::InvalidFile)?;
     validate(&backup)?;
-    let automatic = path.with_file_name(format!("spool-keeper-auto-{}.json", Uuid::new_v4()));
+    let automatic = path.with_file_name(format!("cylune-auto-{}.json", Uuid::new_v4()));
     export_to_path(database, &automatic)?;
     let transaction = database.connection.transaction()?;
     restore(&transaction, &backup)?;

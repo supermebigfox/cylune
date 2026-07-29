@@ -4,3 +4,4 @@ dist/
 .firecrawl/
 src-tauri/target/
 src-tauri/gen/
+/发布/

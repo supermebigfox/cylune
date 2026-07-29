@@ -49,7 +49,7 @@ it("guards backup restore against double clicks and keeps localized dialog copy"
   fireEvent.click(restore);
 
   await waitFor(() => expect(importBackup).toHaveBeenCalledTimes(1));
-  expect(dialogs.importBackup).toHaveBeenCalledWith("耗材管家 JSON 备份");
+  expect(dialogs.importBackup).toHaveBeenCalledWith("CYLUNE JSON 备份");
   expect(restore).toBeDisabled();
   await act(async () => finish());
   await waitFor(() => expect(restore).not.toBeDisabled());
