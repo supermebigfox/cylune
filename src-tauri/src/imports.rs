@@ -21,6 +21,11 @@ mod tests {
         NewSpool {
             display_name: format!("{preset_id} {color_hex}"),
             preset_id: Some(preset_id.to_owned()),
+            catalog_id: None,
+            color_name: None,
+            color_code: None,
+            color_hexes: vec![color_hex.to_owned()],
+            preset_base: None,
             brand: "Bambu Lab".to_owned(),
             material: "PLA".to_owned(),
             series: if preset_id.contains("Matte") {

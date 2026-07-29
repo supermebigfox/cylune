@@ -13,6 +13,12 @@ pub struct NewSpool {
     pub display_name: String,
     #[serde(default)]
     pub preset_id: Option<String>,
+    pub catalog_id: Option<String>,
+    pub color_name: Option<String>,
+    pub color_code: Option<String>,
+    #[serde(default)]
+    pub color_hexes: Vec<String>,
+    pub preset_base: Option<String>,
     pub brand: String,
     pub material: String,
     pub series: String,
@@ -42,13 +48,25 @@ impl InventoryService {
         } else {
             "available"
         };
+        let color_hexes = if spool.color_hexes.is_empty() {
+            vec![spool.color_hex.clone()]
+        } else {
+            spool.color_hexes
+        };
+        let color_hexes_json = serde_json::to_string(&color_hexes)
+            .map_err(|error| AppError::Database(error.to_string()))?;
         let transaction = self.database.connection.transaction()?;
         transaction.execute(
-            "INSERT INTO spools (spool_id, display_name, preset_id, brand, material, series, color_hex, remaining_grams, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO spools (spool_id, display_name, preset_id, catalog_id, color_name, color_code, color_hexes, preset_base, brand, material, series, color_hex, remaining_grams, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 spool_id.to_string(),
                 spool.display_name,
                 spool.preset_id,
+                spool.catalog_id,
+                spool.color_name,
+                spool.color_code,
+                color_hexes_json,
+                spool.preset_base,
                 spool.brand,
                 spool.material,
                 spool.series,
@@ -72,7 +90,7 @@ impl InventoryService {
 
     pub fn get_spool(&self, spool_id: Uuid) -> Result<Spool> {
         self.database.connection.query_row(
-            "SELECT spool_id, display_name, preset_id, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE spool_id = ?1",
+            "SELECT spool_id, display_name, preset_id, catalog_id, color_name, color_code, color_hexes, preset_base, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE spool_id = ?1",
             params![spool_id.to_string()],
             spool_from_row,
         ).map_err(Into::into)
@@ -278,7 +296,7 @@ impl InventoryService {
 
     pub fn list_spools(&self) -> Result<Vec<Spool>> {
         let mut statement = self.database.connection.prepare(
-            "SELECT spool_id, display_name, preset_id, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE status <> 'archived' ORDER BY created_at, spool_id",
+            "SELECT spool_id, display_name, preset_id, catalog_id, color_name, color_code, color_hexes, preset_base, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE status <> 'archived' ORDER BY created_at, spool_id",
         )?;
         let spools = statement
             .query_map([], spool_from_row)?
@@ -330,7 +348,7 @@ fn ensure_slot_exists(transaction: &rusqlite::Transaction<'_>, slot_number: u8) 
 
 fn spool_in_transaction(transaction: &rusqlite::Transaction<'_>, spool_id: Uuid) -> Result<Spool> {
     transaction.query_row(
-        "SELECT spool_id, display_name, preset_id, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE spool_id = ?1",
+        "SELECT spool_id, display_name, preset_id, catalog_id, color_name, color_code, color_hexes, preset_base, brand, material, series, color_hex, remaining_grams, status FROM spools WHERE spool_id = ?1",
         params![spool_id.to_string()],
         spool_from_row,
     ).map_err(Into::into)
@@ -399,7 +417,13 @@ pub(crate) fn status_for(
 }
 
 fn spool_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Spool> {
-    let status: String = row.get(8)?;
+    let color_hex: String = row.get(11)?;
+    let color_hexes = row
+        .get::<_, Option<String>>(6)?
+        .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+        .filter(|colors| !colors.is_empty())
+        .unwrap_or_else(|| vec![color_hex.clone()]);
+    let status: String = row.get(13)?;
     Ok(Spool {
         spool_id: row.get::<_, String>(0)?.parse().map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
@@ -410,11 +434,16 @@ fn spool_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Spool> {
         })?,
         display_name: row.get(1)?,
         preset_id: row.get(2)?,
-        brand: row.get(3)?,
-        material: row.get(4)?,
-        series: row.get(5)?,
-        color_hex: row.get(6)?,
-        remaining_grams: row.get(7)?,
+        catalog_id: row.get(3)?,
+        color_name: row.get(4)?,
+        color_code: row.get(5)?,
+        color_hexes,
+        preset_base: row.get(7)?,
+        brand: row.get(8)?,
+        material: row.get(9)?,
+        series: row.get(10)?,
+        color_hex,
+        remaining_grams: row.get(12)?,
         status: spool_status(&status)?,
     })
 }
@@ -528,11 +557,85 @@ mod tests {
         NewSpool {
             display_name: "Bambu PLA Basic Black".to_owned(),
             preset_id: None,
+            catalog_id: None,
+            color_name: None,
+            color_code: None,
+            color_hexes: vec!["#000000".to_owned()],
+            preset_base: None,
             brand: "Bambu Lab".to_owned(),
             material: "PLA".to_owned(),
             series: "Basic".to_owned(),
             color_hex: "#000000".to_owned(),
             remaining_grams: 1000.0,
+        }
+    }
+
+    #[test]
+    fn create_spool_round_trips_catalog_metadata() {
+        let mut service = InventoryService::new(AppDatabase::open_in_memory().unwrap());
+        let id = service
+            .create_spool(NewSpool {
+                display_name: "多巴胺 · PLA Basic Gradient".into(),
+                preset_id: Some("Bambu PLA Basic".into()),
+                preset_base: Some("Bambu PLA Basic".into()),
+                catalog_id: Some("bambu:GFA00:10907".into()),
+                brand: "Bambu Lab".into(),
+                material: "PLA".into(),
+                series: "Basic Gradient".into(),
+                color_name: Some("多巴胺（粉蓝渐变）".into()),
+                color_code: Some("10907".into()),
+                color_hex: "#8EC9E9".into(),
+                color_hexes: vec!["#8EC9E9".into(), "#E7C1D5".into()],
+                remaining_grams: 1000.0,
+            })
+            .unwrap();
+
+        let spool = service.get_spool(id).unwrap();
+        assert_eq!(spool.color_code.as_deref(), Some("10907"));
+        assert_eq!(spool.color_hexes, vec!["#8EC9E9", "#E7C1D5"]);
+    }
+
+    #[test]
+    fn create_spool_normalizes_empty_color_hexes_before_persisting() {
+        let mut service = InventoryService::new(AppDatabase::open_in_memory().unwrap());
+        let id = service
+            .create_spool(NewSpool {
+                color_hexes: Vec::new(),
+                ..new_bambu_black()
+            })
+            .unwrap();
+
+        let persisted: String = service
+            .database
+            .connection
+            .query_row(
+                "SELECT color_hexes FROM spools WHERE spool_id = ?1",
+                rusqlite::params![id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Vec<String>>(&persisted).unwrap(),
+            vec!["#000000"]
+        );
+    }
+
+    #[test]
+    fn legacy_missing_invalid_or_empty_color_hexes_fall_back_to_primary_color() {
+        let mut service = InventoryService::new(AppDatabase::open_in_memory().unwrap());
+        let id = service.create_spool(new_bambu_black()).unwrap();
+
+        for persisted in [None, Some("not-json"), Some("[]")] {
+            service
+                .database
+                .connection
+                .execute(
+                    "UPDATE spools SET color_hexes = ?1 WHERE spool_id = ?2",
+                    rusqlite::params![persisted, id.to_string()],
+                )
+                .unwrap();
+
+            assert_eq!(service.get_spool(id).unwrap().color_hexes, vec!["#000000"]);
         }
     }
 

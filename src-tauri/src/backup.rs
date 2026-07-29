@@ -713,6 +713,11 @@ mod tests {
             .create_spool(NewSpool {
                 display_name: "Cloud White".into(),
                 preset_id: Some("Bambu PLA Basic @BBL A1".into()),
+                catalog_id: None,
+                color_name: None,
+                color_code: None,
+                color_hexes: vec!["#FFFEFC".into()],
+                preset_base: None,
                 brand: "Bambu Lab".into(),
                 material: "PLA".into(),
                 series: "Basic".into(),
@@ -837,6 +842,11 @@ mod tests {
             .create_spool(NewSpool {
                 display_name: "Later spool".into(),
                 preset_id: None,
+                catalog_id: None,
+                color_name: None,
+                color_code: None,
+                color_hexes: vec!["#000000".into()],
+                preset_base: None,
                 brand: "Bambu Lab".into(),
                 material: "PETG".into(),
                 series: "Basic".into(),

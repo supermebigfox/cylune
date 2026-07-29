@@ -6,6 +6,7 @@ const INITIAL_MIGRATION: &str = include_str!("../migrations/001_init.sql");
 const LEDGER_CREATION_MIGRATION: &str = include_str!("../migrations/002_ledger_creation.sql");
 const PRINT_JOBS_MIGRATION: &str = include_str!("../migrations/003_print_jobs.sql");
 const REPEAT_JOBS_MIGRATION: &str = include_str!("../migrations/004_repeat_jobs.sql");
+const CATALOG_MIGRATION: &str = include_str!("../migrations/005_catalog.sql");
 
 pub struct AppDatabase {
     pub(crate) connection: Connection,
@@ -35,6 +36,9 @@ impl AppDatabase {
         if table_exists(&connection, "job_imports")? && !table_exists(&connection, "parse_cache")? {
             connection.execute_batch(REPEAT_JOBS_MIGRATION)?;
         }
+        if !column_exists(&connection, "spools", "catalog_id")? {
+            connection.execute_batch(CATALOG_MIGRATION)?;
+        }
         Ok(Self { connection })
     }
 
@@ -58,6 +62,15 @@ fn table_exists(connection: &Connection, table: &str) -> Result<bool> {
     Ok(exists != 0)
 }
 
+fn column_exists(connection: &Connection, table: &str, column: &str) -> Result<bool> {
+    let exists = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2)",
+        params![table, column],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok(exists != 0)
+}
+
 fn ledger_supports_creation(connection: &Connection) -> Result<bool> {
     let definition: String = connection.query_row(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ledger_events'",
@@ -69,7 +82,7 @@ fn ledger_supports_creation(connection: &Connection) -> Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppDatabase, INITIAL_MIGRATION, PRINT_JOBS_MIGRATION};
+    use super::{column_exists, AppDatabase, INITIAL_MIGRATION, PRINT_JOBS_MIGRATION};
     use crate::{domain::SpoolStatus, inventory::InventoryService};
     use rusqlite::{Connection, OptionalExtension};
 
@@ -86,6 +99,20 @@ mod tests {
             "app_settings",
         ] {
             assert!(database.table_exists(table).unwrap(), "missing {table}");
+        }
+    }
+
+    #[test]
+    fn catalog_migration_adds_nullable_spool_metadata() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        for column in [
+            "catalog_id",
+            "color_name",
+            "color_code",
+            "color_hexes",
+            "preset_base",
+        ] {
+            assert!(column_exists(&database.connection, "spools", column).unwrap());
         }
     }
 
