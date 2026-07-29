@@ -17,7 +17,7 @@ use std::{
 };
 use uuid::Uuid;
 
-pub const BACKUP_SCHEMA_VERSION: u32 = 1;
+pub const BACKUP_SCHEMA_VERSION: u32 = 2;
 const SAFE_SETTINGS: &[&str] = &["theme", "locale", "notifications_enabled"];
 
 #[tauri::command]
@@ -60,6 +60,16 @@ struct SpoolRow {
     spool_id: String,
     display_name: String,
     preset_id: Option<String>,
+    #[serde(default)]
+    catalog_id: Option<String>,
+    #[serde(default)]
+    color_name: Option<String>,
+    #[serde(default)]
+    color_code: Option<String>,
+    #[serde(default)]
+    color_hexes: Vec<String>,
+    #[serde(default)]
+    preset_base: Option<String>,
     brand: String,
     material: String,
     series: String,
@@ -281,7 +291,33 @@ where
 fn read_backup(db: &AppDatabase) -> Result<Backup> {
     Ok(Backup {
         schema_version: BACKUP_SCHEMA_VERSION,
-        spools: rows(db, "SELECT spool_id,display_name,preset_id,brand,material,series,color_hex,remaining_grams,status,created_at FROM spools ORDER BY spool_id", |r| Ok(SpoolRow{spool_id:r.get(0)?,display_name:r.get(1)?,preset_id:r.get(2)?,brand:r.get(3)?,material:r.get(4)?,series:r.get(5)?,color_hex:r.get(6)?,remaining_grams:r.get(7)?,status:r.get(8)?,created_at:r.get(9)?}))?,
+        spools: rows(db, "SELECT spool_id,display_name,preset_id,catalog_id,color_name,color_code,color_hexes,preset_base,brand,material,series,color_hex,remaining_grams,status,created_at FROM spools ORDER BY spool_id", |r| {
+            let color_hexes_json: String = r.get(6)?;
+            let color_hexes = serde_json::from_str(&color_hexes_json).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    6,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?;
+            Ok(SpoolRow {
+                spool_id: r.get(0)?,
+                display_name: r.get(1)?,
+                preset_id: r.get(2)?,
+                catalog_id: r.get(3)?,
+                color_name: r.get(4)?,
+                color_code: r.get(5)?,
+                color_hexes,
+                preset_base: r.get(7)?,
+                brand: r.get(8)?,
+                material: r.get(9)?,
+                series: r.get(10)?,
+                color_hex: r.get(11)?,
+                remaining_grams: r.get(12)?,
+                status: r.get(13)?,
+                created_at: r.get(14)?,
+            })
+        })?,
         slots: rows(db, "SELECT slot_number,spool_id,assigned_at FROM ams_slots ORDER BY slot_number", |r| Ok(SlotRow{slot_number:r.get(0)?,spool_id:r.get(1)?,assigned_at:r.get(2)?}))?,
         parse_cache: read_parse_cache(db)?,
         jobs: rows(db, "SELECT job_id,source_hash,outcome,settlement_version,created_at FROM print_jobs ORDER BY job_id", |r| Ok(JobRow{job_id:r.get(0)?,source_hash:r.get(1)?,outcome:r.get(2)?,settlement_version:r.get(3)?,created_at:r.get(4)?}))?,
@@ -317,7 +353,7 @@ fn valid_uuid(value: &str) -> bool {
     Uuid::parse_str(value).is_ok()
 }
 fn validate(b: &Backup) -> Result<()> {
-    if b.schema_version != BACKUP_SCHEMA_VERSION || b.slots.len() != 4 {
+    if !matches!(b.schema_version, 1 | BACKUP_SCHEMA_VERSION) || b.slots.len() != 4 {
         return Err(AppError::InvalidFile);
     }
     let unique = |values: Vec<&str>| {
@@ -619,7 +655,14 @@ fn restore(tx: &Transaction<'_>, b: &Backup) -> Result<()> {
         tx.execute("DELETE FROM app_settings WHERE setting_key=?1", [key])?;
     }
     for s in &b.spools {
-        tx.execute("INSERT INTO spools(spool_id,display_name,preset_id,brand,material,series,color_hex,remaining_grams,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![s.spool_id,s.display_name,s.preset_id,s.brand,s.material,s.series,s.color_hex,s.remaining_grams,s.status,s.created_at])?;
+        let color_hexes = if s.color_hexes.is_empty() {
+            vec![s.color_hex.clone()]
+        } else {
+            s.color_hexes.clone()
+        };
+        let color_hexes_json =
+            serde_json::to_string(&color_hexes).map_err(|_| AppError::InvalidFile)?;
+        tx.execute("INSERT INTO spools(spool_id,display_name,preset_id,catalog_id,color_name,color_code,color_hexes,preset_base,brand,material,series,color_hex,remaining_grams,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",params![s.spool_id,s.display_name,s.preset_id,s.catalog_id,s.color_name,s.color_code,color_hexes_json,s.preset_base,s.brand,s.material,s.series,s.color_hex,s.remaining_grams,s.status,s.created_at])?;
     }
     for p in &b.parse_cache {
         let parsed: ParsedPrintFile = p.parsed.clone().into();
@@ -713,15 +756,15 @@ mod tests {
             .create_spool(NewSpool {
                 display_name: "Cloud White".into(),
                 preset_id: Some("Bambu PLA Basic @BBL A1".into()),
-                catalog_id: None,
-                color_name: None,
-                color_code: None,
-                color_hexes: vec!["#FFFEFC".into()],
-                preset_base: None,
+                catalog_id: Some("bambu-pla-basic".into()),
+                color_name: Some("Jade White".into()),
+                color_code: Some("10100".into()),
+                color_hexes: vec!["#FFFFFF".into()],
+                preset_base: Some("Bambu PLA Basic".into()),
                 brand: "Bambu Lab".into(),
                 material: "PLA".into(),
                 series: "Basic".into(),
-                color_hex: "#FFFEFC".into(),
+                color_hex: "#FFFFFF".into(),
                 remaining_grams: 812.5,
             })
             .unwrap();
@@ -769,8 +812,13 @@ mod tests {
         export_to_path(&database, &path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["schema_version"], 2);
         assert_eq!(value["spools"].as_array().unwrap().len(), 1);
+        assert_eq!(value["spools"][0]["color_code"], "10100");
+        assert_eq!(
+            value["spools"][0]["color_hexes"],
+            serde_json::json!(["#FFFFFF"])
+        );
         assert!(!text.contains("never-export-me"));
         assert!(!text.contains("device_token"));
         for forbidden in [
@@ -788,6 +836,48 @@ mod tests {
         assert!(value["parse_cache"][0].get("parsed").is_some());
         assert!(value["parse_cache"][0].get("parsed_json").is_none());
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn version_one_backup_restores_catalog_defaults() {
+        let source = populated();
+        let spool_id: Uuid = source
+            .connection
+            .query_row("SELECT spool_id FROM spools", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap()
+            .parse()
+            .unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "version-one-spool-backup-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        export_to_path(&source, &path).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        value["schema_version"] = serde_json::json!(1);
+        let spool = value["spools"][0].as_object_mut().unwrap();
+        for field in [
+            "catalog_id",
+            "color_name",
+            "color_code",
+            "color_hexes",
+            "preset_base",
+        ] {
+            spool.remove(field);
+        }
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+
+        let mut target = AppDatabase::open_in_memory().unwrap();
+        let automatic = import_from_path(&mut target, &path).unwrap();
+        let service = InventoryService::new(target);
+        let restored = service.get_spool(spool_id).unwrap();
+        assert_eq!(restored.catalog_id, None);
+        assert_eq!(restored.color_hexes, vec!["#FFFFFF"]);
+
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(automatic).unwrap();
     }
 
     #[test]
