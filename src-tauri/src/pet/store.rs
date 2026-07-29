@@ -13,12 +13,13 @@ pub struct PetStore;
 
 impl PetStore {
     pub fn load(database: &AppDatabase) -> Result<PetSettings> {
+        let mode = parse_mode(setting(database, "pet_mode")?)?;
         let settings = PetSettings {
-            mode: parse_mode(setting(database, "pet_mode")?)?,
+            mode,
             visual_style: parse_visual_style(setting(database, "pet_visual_style")?)?,
             size: parse_size(setting(database, "pet_size")?)?,
             fps: parse_fps(setting(database, "pet_fps")?)?,
-            visible: parse_visible(setting(database, "pet_visible")?)?,
+            visible: parse_visible(setting(database, "pet_visible")?, mode)?,
             x: parse_coordinate(setting(database, "pet_x")?)?,
             y: parse_coordinate(setting(database, "pet_y")?)?,
             display_id: parse_display_id(setting(database, "pet_display_id")?)?,
@@ -123,11 +124,12 @@ fn parse_fps(value: Option<String>) -> Result<PetFps> {
     }
 }
 
-fn parse_visible(value: Option<String>) -> Result<bool> {
-    match value.as_deref().unwrap_or("true") {
-        "true" => Ok(true),
-        "false" => Ok(false),
-        _ => Err(AppError::InvalidPetSettings),
+fn parse_visible(value: Option<String>, mode: PetMode) -> Result<bool> {
+    match value.as_deref() {
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        None => Ok(mode == PetMode::Real),
+        Some(_) => Err(AppError::InvalidPetSettings),
     }
 }
 
@@ -315,12 +317,42 @@ mod tests {
                 visual_style: PetVisualStyle::Gargantua,
                 size: 220,
                 fps: PetFps::Auto,
-                visible: true,
+                visible: false,
                 x: None,
                 y: None,
                 display_id: None,
             }
         );
+    }
+
+    #[test]
+    fn existing_real_mode_without_visibility_remains_enabled_and_visible() {
+        let db = AppDatabase::open_in_memory().unwrap();
+        db.connection
+            .execute(
+                "INSERT INTO app_settings(setting_key, setting_value) VALUES ('pet_mode', 'real')",
+                [],
+            )
+            .unwrap();
+
+        let loaded = PetStore::load(&db).unwrap();
+        assert_eq!(loaded.mode, PetMode::Real);
+        assert!(loaded.visible);
+    }
+
+    #[test]
+    fn explicit_hidden_real_mode_remains_hidden() {
+        let db = AppDatabase::open_in_memory().unwrap();
+        db.connection
+            .execute_batch(
+                "INSERT INTO app_settings(setting_key, setting_value) VALUES ('pet_mode', 'real');
+                 INSERT INTO app_settings(setting_key, setting_value) VALUES ('pet_visible', 'false');",
+            )
+            .unwrap();
+
+        let loaded = PetStore::load(&db).unwrap();
+        assert_eq!(loaded.mode, PetMode::Real);
+        assert!(!loaded.visible);
     }
 
     #[test]
