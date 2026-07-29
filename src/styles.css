@@ -188,8 +188,9 @@ select { appearance: auto; }
 .spool-identity strong, .spool-identity small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spool-identity strong { font-size: 13px; }
 .spool-identity small { color: var(--text-muted); margin-top: 3px; font-size: 10px; }
-.swatch { --swatch: #888; display: inline-block; flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; background: var(--swatch); border: 2px solid var(--surface); box-shadow: 0 0 0 1px color-mix(in srgb, var(--swatch) 45%, var(--border)); }
-.swatch.large { width: 34px; height: 34px; border-width: 4px; }
+.swatch { --swatch: #888; display: inline-block; flex: 0 0 auto; border-radius: 50%; background: var(--swatch); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border); }
+.swatch-small { width: 18px; height: 18px; }
+.swatch-large, .swatch.large { width: 34px; height: 34px; border-width: 4px; }
 .balance-row { display: flex; align-items: baseline; justify-content: space-between; margin-top: 21px; }
 .balance-row strong { font-size: 19px; }
 .balance-row span { font-size: 10px; color: var(--text-muted); }
