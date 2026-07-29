@@ -67,8 +67,9 @@ float2 inwardAccretionFlow(float2 p, float plen, float rh, float t) {
     float stream=noise(float2(angle*1.65-t*.96,normalizedRadius*2.10+t*2.62));
     float filament=noise(float2(angle*4.60-t*1.52,normalizedRadius*3.70+t*3.48));
     float spiralInflow=contour;
-    float radialPull=safeRadius*fullSurfaceEnvelope*(1.38+1.30*spiralInflow+.82*stream);
-    float rotationalPull=safeRadius*fullSurfaceEnvelope*(1.02+.92*spiralInflow+.52*filament);
+    float flowGain=1.20;
+    float radialPull=safeRadius*fullSurfaceEnvelope*flowGain*(1.38+1.30*spiralInflow+.82*stream);
+    float rotationalPull=safeRadius*fullSurfaceEnvelope*flowGain*(1.02+.92*spiralInflow+.52*filament);
     return radial*radialPull+tangent*rotationalPull;
 }
 float3 blackbody(float T) { float t=clamp(T,1500.0f,40000.0f)/100.0f; float r=t<=66?1.0:clamp(1.292936*pow(t-60.0,-0.1332047),0.0,1.0); float g=t<=66?clamp(0.3900816*log(t)-0.6318414,0.0,1.0):clamp(1.1298909*pow(t-60.0,-0.0755148),0.0,1.0); float b=t>=66?1.0:(t<=19?0.0:clamp(0.5432068*log(t-10.0)-1.196254,0.0,1.0)); return float3(r,g,b); }
