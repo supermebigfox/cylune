@@ -2,6 +2,7 @@ import { X } from "@phosphor-icons/react";
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,6 +20,10 @@ import {
 import { Swatch } from "../../components/Swatch";
 import { t, useLocale } from "../../i18n";
 import type { NewSpool, Spool } from "../../lib/tauri";
+
+export type CreateSpoolResult =
+  | { ok: true }
+  | { ok: false; error: string };
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -74,7 +79,7 @@ export function Add({
   spools: Spool[];
   busy: boolean;
   onClose(): void;
-  onCreate(spool: NewSpool): Promise<boolean | void>;
+  onCreate(spool: NewSpool): Promise<CreateSpoolResult>;
 }): JSX.Element | null {
   const locale = useLocale();
   const copy = (
@@ -92,6 +97,33 @@ export function Add({
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
   const [grams, setGrams] = useState("1000");
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const submitSession = useRef(0);
+  const submitPending = useRef(false);
+
+  const resetRollFields = () => {
+    setSelected(null);
+    setQuery("");
+    setName("");
+    setGrams("1000");
+  };
+
+  useLayoutEffect(() => {
+    const activeSession = submitSession.current + 1;
+    submitSession.current = activeSession;
+    if (!open) {
+      setSubmitError(null);
+      if (submitPending.current) {
+        submitPending.current = false;
+        resetRollFields();
+      }
+    }
+    return () => {
+      if (submitSession.current === activeSession) {
+        submitSession.current += 1;
+      }
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open || !dialog.current) return;
@@ -169,6 +201,7 @@ export function Add({
   );
 
   const chooseGroup = (nextGroup: string) => {
+    setSubmitError(null);
     setGroup(nextGroup);
     setSeries(null);
     setSelected(null);
@@ -176,6 +209,7 @@ export function Add({
   };
 
   const chooseSeries = (nextSeries: string) => {
+    setSubmitError(null);
     setSeries(nextSeries);
     setSelected(null);
     setQuery("");
@@ -208,13 +242,18 @@ export function Add({
       remaining_grams: numericGrams,
     };
 
-    const succeeded = await onCreate(draft);
-    if (succeeded === false) return;
+    const activeSession = submitSession.current;
+    submitPending.current = true;
+    setSubmitError(null);
+    const result = await onCreate(draft);
+    if (submitSession.current !== activeSession) return;
+    submitPending.current = false;
+    if (!result.ok) {
+      setSubmitError(result.error.trim() || copy("errors.io"));
+      return;
+    }
 
-    setSelected(null);
-    setQuery("");
-    setName("");
-    setGrams("1000");
+    resetRollFields();
     onClose();
   };
 
@@ -382,6 +421,12 @@ export function Add({
             onChange={(event) => setGrams(event.target.value)}
           />
         </div>
+
+        {submitError ? (
+          <p className="add-dialog-error" role="alert">
+            {submitError}
+          </p>
+        ) : null}
 
         <div className="form-actions">
           <button type="button" className="ghost" onClick={onClose}>

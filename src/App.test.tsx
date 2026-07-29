@@ -1,5 +1,6 @@
 import React from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App, DesktopApp } from "./App";
 import { setLocale } from "./i18n";
@@ -138,6 +139,173 @@ describe("App localization", () => {
     await waitFor(() => expect(unmountSlot).toHaveBeenCalledWith(3));
     expect(listSpools).toHaveBeenCalledTimes(2);
     expect(listSlots).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps spool creation failures accessible inside the portal dialog and refreshes them on retry", async () => {
+    const user = userEvent.setup();
+    let rejectRetry: (reason: unknown) => void = () => undefined;
+    const createSpool = vi.fn()
+      .mockRejectedValueOnce({ code: "database" })
+      .mockImplementationOnce(() => new Promise<string>((_resolve, reject) => {
+        rejectRetry = reject;
+      }));
+    render(
+      <DesktopApp
+        apiClient={fakeTauriApi({ createSpool })}
+        pickFile={async () => null}
+      />,
+    );
+    await screen.findByText("持久化蓝色 PLA");
+
+    await user.click(screen.getByRole("button", { name: "耗材库" }));
+    await user.click(screen.getByRole("button", { name: "添加一卷耗材" }));
+    await user.click(screen.getByRole("button", { name: "PLA" }));
+    await user.click(screen.getByRole("button", { name: "Basic" }));
+    await user.click(screen.getByRole("button", { name: /玉石白.*10100/ }));
+    await user.type(screen.getByLabelText("自定义名称"), "失败后保留");
+    await user.clear(screen.getByLabelText("当前剩余量"));
+    await user.type(screen.getByLabelText("当前剩余量"), "900");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    const dialog = screen.getByRole("dialog", { name: "添加一卷耗材" });
+    const dialogAlert = await within(dialog).findByRole("alert");
+    expect(dialog).toBeVisible();
+    expect(dialogAlert).toHaveTextContent("本地数据暂时无法读取");
+    expect(dialogAlert.closest("[inert]")).toBeNull();
+    expect(
+      within(dialog).getByRole("button", { name: /玉石白.*10100/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(within(dialog).getByLabelText("自定义名称")).toHaveValue(
+      "失败后保留",
+    );
+    expect(within(dialog).getByLabelText("当前剩余量")).toHaveValue(900);
+
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument(),
+    );
+    await act(async () => {
+      rejectRetry({ code: "invalid_slot" });
+    });
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "AMS Lite 槽位编号无效",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "关闭" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "AMS Lite 槽位编号无效",
+    );
+    expect(screen.getByRole("button", { name: "重试" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "添加一卷耗材" }));
+    const reopenedDialog = screen.getByRole("dialog", {
+      name: "添加一卷耗材",
+    });
+    expect(within(reopenedDialog).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not carry a late create failure into a new dialog session", async () => {
+    const user = userEvent.setup();
+    let rejectCreate: (reason: unknown) => void = () => undefined;
+    const createSpool = vi.fn(() => new Promise<string>((_resolve, reject) => {
+      rejectCreate = reject;
+    }));
+    render(
+      <DesktopApp
+        apiClient={fakeTauriApi({ createSpool })}
+        pickFile={async () => null}
+      />,
+    );
+    await screen.findByText("持久化蓝色 PLA");
+
+    await user.click(screen.getByRole("button", { name: "耗材库" }));
+    await user.click(screen.getByRole("button", { name: "添加一卷耗材" }));
+    await user.click(screen.getByRole("button", { name: "PLA" }));
+    await user.click(screen.getByRole("button", { name: "Basic" }));
+    await user.click(screen.getByRole("button", { name: /玉石白.*10100/ }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "关闭" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+
+    await act(async () => {
+      rejectCreate({ code: "database" });
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "本地数据暂时无法读取",
+    );
+    expect(screen.getByRole("button", { name: "重试" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "添加一卷耗材" }));
+    const reopenedDialog = screen.getByRole("dialog", {
+      name: "添加一卷耗材",
+    });
+    expect(within(reopenedDialog).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("resets a closed pending draft before a late create success", async () => {
+    const user = userEvent.setup();
+    let resolveCreate: (spoolId: string) => void = () => undefined;
+    const createSpool = vi.fn(() => new Promise<string>((resolve) => {
+      resolveCreate = resolve;
+    }));
+    render(
+      <DesktopApp
+        apiClient={fakeTauriApi({ createSpool })}
+        pickFile={async () => null}
+      />,
+    );
+    await screen.findByText("持久化蓝色 PLA");
+
+    await user.click(screen.getByRole("button", { name: "耗材库" }));
+    await user.click(screen.getByRole("button", { name: "添加一卷耗材" }));
+    await user.click(screen.getByRole("button", { name: "PLA" }));
+    await user.click(screen.getByRole("button", { name: "Basic" }));
+    await user.type(screen.getByLabelText("搜索颜色"), "10100");
+    await user.click(screen.getByRole("button", { name: /玉石白.*10100/ }));
+    await user.type(screen.getByLabelText("自定义名称"), "不应重复的旧卷");
+    await user.clear(screen.getByLabelText("当前剩余量"));
+    await user.type(screen.getByLabelText("当前剩余量"), "900");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "关闭" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+
+    await act(async () => {
+      resolveCreate("new-spool");
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "添加一卷耗材" }),
+      ).toBeEnabled(),
+    );
+    await user.click(screen.getByRole("button", { name: "添加一卷耗材" }));
+
+    const reopenedDialog = screen.getByRole("dialog", {
+      name: "添加一卷耗材",
+    });
+    expect(
+      within(reopenedDialog).getByRole("button", { name: "PLA" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(reopenedDialog).getByRole("button", { name: "Basic" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(reopenedDialog).getByRole("button", { name: /玉石白.*10100/ }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(within(reopenedDialog).getByLabelText("搜索颜色")).toHaveValue("");
+    expect(within(reopenedDialog).getByLabelText("自定义名称")).toHaveValue("");
+    expect(within(reopenedDialog).getByLabelText("当前剩余量")).toHaveValue(
+      1000,
+    );
+    expect(
+      within(reopenedDialog).getByRole("button", { name: "保存" }),
+    ).toBeDisabled();
   });
 
   it("selects and imports a sliced 3MF from the main window", async () => {

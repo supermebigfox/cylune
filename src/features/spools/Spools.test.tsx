@@ -106,7 +106,7 @@ function renderSpools(
   const props: ComponentProps<typeof Spools> = {
     spools: [],
     slotBySpool: {},
-    onCreate: vi.fn().mockResolvedValue(true),
+    onCreate: vi.fn().mockResolvedValue({ ok: true }),
     onCalibrate: vi.fn(),
     onArchive: vi.fn(),
     onMount: vi.fn(),
@@ -164,7 +164,7 @@ it.each(["close button", "Escape"])(
 
 it("creates identical official colors as separate rolls", async () => {
   const user = userEvent.setup();
-  const onCreate = vi.fn().mockResolvedValue(true);
+  const onCreate = vi.fn().mockResolvedValue({ ok: true });
   renderSpools({ spools: [officialWhite], onCreate });
 
   await openAndChooseJadeWhite(user);
@@ -218,7 +218,7 @@ it("keeps same-color spools as independently actionable entities", async () => {
     <Spools
       spools={identicalBlackSpools}
       slotBySpool={{ "spool-black-a": 1 }}
-      onCreate={async () => undefined}
+      onCreate={async () => ({ ok: true })}
       onCalibrate={onCalibrate}
       onArchive={async () => undefined}
       onMount={async () => undefined}
@@ -249,7 +249,7 @@ it("filters explicitly by color and mounts an available spool into a chosen slot
     <Spools
       spools={mixedSpools}
       slotBySpool={{ "spool-black-a": 1 }}
-      onCreate={async () => undefined}
+      onCreate={async () => ({ ok: true })}
       onCalibrate={async () => undefined}
       onArchive={async () => undefined}
       onMount={onMount}
@@ -277,7 +277,7 @@ it("moves a mounted spool to a chosen slot and can unmount it", async () => {
     <Spools
       spools={identicalBlackSpools}
       slotBySpool={{ "spool-black-a": 1 }}
-      onCreate={async () => undefined}
+      onCreate={async () => ({ ok: true })}
       onCalibrate={async () => undefined}
       onArchive={async () => undefined}
       onMount={async () => undefined}

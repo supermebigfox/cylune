@@ -4,7 +4,7 @@
 
 验证分支：`feature/macos-local-prototype`
 
-验证范围：离线拓竹耗材目录、卷元数据迁移与备份、跨预设匹配、原厂卷添加流程，以及真实 `.gcode.3mf` 解析与结算回归。
+验证范围：离线拓竹耗材目录、卷元数据迁移与备份、跨预设匹配、原厂卷添加流程、创建失败时的模态内可访问反馈，以及真实 `.gcode.3mf` 解析与结算回归。
 
 本记录独立于 `docs/qa-black-hole.md`。本次目录工作没有修改桌面黑洞的外观、动画、捕获、拖放、导入、待处理反馈或结算行为；黑洞既有 QA 状态也未改写。
 
@@ -56,10 +56,32 @@ git diff --exit-code -- src/catalog/bambu.json
 ### 前端
 
 ```bash
+npm test -- --run \
+  src/features/spools/Add.test.tsx \
+  src/features/spools/Spools.test.tsx \
+  src/App.test.tsx
+```
+
+结果：退出 0；3 个定向测试文件通过，54 个测试通过，0 失败。其中真实
+装配测试从 `DesktopApp` 导航到 `Spools`，打开 portal 中的 `Add`，让
+`create_spool` 失败，并确认：
+
+- dialog 保持打开，官方颜色选择、自定义名称和克数均保留；
+- 本地化 `role="alert"` 位于 dialog 内，不在任何 `[inert]` 祖先下；
+- 再次保存时旧提示先清理，并在新失败到达后更新；
+- 关闭后保留既有全局错误与重试入口，但重新打开 Add 不显示上一会话的
+  旧创建错误；
+- 请求仍在进行时关闭 dialog，晚到失败只更新全局错误，不会写回已失效的
+  Add 会话或污染下一次打开。
+- 请求仍在进行时通过关闭按钮、取消按钮或 Escape 关闭，材料与系列保留，
+  但颜色、搜索、自定义名称和克数重置；晚到成功不能触碰新会话，重新打开
+  后保存保持禁用，不能重复提交旧卷。
+
+```bash
 npm test -- --run
 ```
 
-结果：退出 0；15 个测试文件通过，112 个测试通过，0 失败。
+结果：退出 0；15 个测试文件通过，135 个测试通过，0 失败。
 
 ```bash
 npm run build
@@ -81,7 +103,7 @@ cd src-tauri
 cargo test
 ```
 
-结果：退出 0；库测试 145 个通过、0 失败、1 个 ignored；该 ignored 项为需要用户真实文件环境变量的 smoke test。主程序与文档测试均为 0 个测试、0 失败。
+结果：退出 0；库测试 150 个通过、0 失败、1 个 ignored；该 ignored 项为需要用户真实文件环境变量的 smoke test。主程序与文档测试均为 0 个测试、0 失败。
 
 覆盖结果包括：五列目录迁移、目录元数据持久化、schema version 2 备份往返、version 1 兼容恢复、多色回退，以及 exact → base → legacy 匹配优先级。
 

@@ -5,6 +5,7 @@ import { Home } from "./features/home/Home";
 import { Job } from "./features/jobs/Job";
 import { Settings } from "./features/settings/Settings";
 import { Spools } from "./features/spools/Spools";
+import type { CreateSpoolResult } from "./features/spools/Add";
 import { t, useLocale } from "./i18n";
 import { pickSliced3mf } from "./lib/dialog";
 import { api, demoPreview, demoSlots, demoSpools, type ImportPreview, type JobOutcome, type NewSpool, type SettlementResult, type SlotAssignment, type SlotView, type Spool as SpoolData, type TauriApi, type ToolMapping } from "./lib/tauri";
@@ -148,7 +149,11 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscrib
     return slotAssignments.map((slot) => ({ ...slot, spool: spools.find((spool) => spool.spool_id === slot.spool_id) ?? null }));
   }, [slotAssignments, spools]);
   const slotBySpool = useMemo(() => Object.fromEntries(slots.filter((slot) => slot.spool_id).map((slot) => [slot.spool_id as string, slot.slot_number])), [slots]);
-  const runAction = async (key: string, operation: () => Promise<void>) => {
+  const runAction = async (
+    key: string,
+    operation: () => Promise<void>,
+    onFailure?: (message: string) => void,
+  ) => {
     if (busyRef.current) return false;
     busyRef.current = true;
     setBusyAction(key);
@@ -158,7 +163,9 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscrib
       return true;
     }
     catch (actionError) {
-      setError(copy(`errors.${errorCode(actionError)}`));
+      const message = copy(`errors.${errorCode(actionError)}`);
+      setError(message);
+      onFailure?.(message);
       return false;
     }
     finally {
@@ -167,7 +174,22 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscrib
     }
   };
   const actions = {
-    create: (spool: NewSpool) => runAction("create", async () => { await apiClient.createSpool(spool); await loadInventory(); }),
+    create: async (spool: NewSpool): Promise<CreateSpoolResult> => {
+      let failureMessage = copy("errors.io");
+      const succeeded = await runAction(
+        "create",
+        async () => {
+          await apiClient.createSpool(spool);
+          await loadInventory();
+        },
+        (message) => {
+          failureMessage = message;
+        },
+      );
+      return succeeded
+        ? { ok: true }
+        : { ok: false, error: failureMessage };
+    },
     calibrate: (spoolId: string, grams: number) => runAction("calibrate", async () => { await apiClient.calibrateSpool(spoolId, grams); await loadInventory(); }),
     archive: (spoolId: string) => runAction("archive", async () => { await apiClient.archiveSpool(spoolId); await loadInventory(); }),
     mount: (spoolId: string, slot: number) => runAction("mount", async () => { await apiClient.mountSpool(slot, spoolId); await loadInventory(); }),

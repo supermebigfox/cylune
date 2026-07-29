@@ -5,13 +5,13 @@ import { colorById } from "../../catalog/bambu";
 import { Swatch } from "../../components/Swatch";
 import { t, useLocale } from "../../i18n";
 import type { NewSpool, Spool, SpoolStatus } from "../../lib/tauri";
-import { Add } from "./Add";
+import { Add, type CreateSpoolResult } from "./Add";
 
 export function Spools({ spools, slotBySpool, busy = false, onCreate, onCalibrate, onArchive, onMount, onUnmount, onMove }: {
   spools: Spool[];
   slotBySpool: Record<string, number>;
   busy?: boolean;
-  onCreate(spool: NewSpool): Promise<boolean | void>;
+  onCreate(spool: NewSpool): Promise<CreateSpoolResult>;
   onCalibrate(spoolId: string, grams: number): boolean | void | Promise<boolean | void>;
   onArchive(spoolId: string): boolean | void | Promise<boolean | void>;
   onMount(spoolId: string, slot: number): boolean | void | Promise<boolean | void>;

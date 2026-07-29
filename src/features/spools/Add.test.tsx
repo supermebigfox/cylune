@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { setLocale } from "../../i18n";
@@ -53,7 +53,7 @@ async function selectJadeWhite(user: ReturnType<typeof userEvent.setup>) {
 
 test("selects material, series, and an official Chinese color", async () => {
   const user = userEvent.setup();
-  const onCreate = vi.fn().mockResolvedValue(true);
+  const onCreate = vi.fn().mockResolvedValue({ ok: true });
   render(
     <Add
       open
@@ -428,7 +428,7 @@ test("restores previous inert attributes after close and unmount", () => {
 
 test("uses exact catalog fields and numbers duplicate active spools", async () => {
   const user = userEvent.setup();
-  const onCreate = vi.fn().mockResolvedValue(true);
+  const onCreate = vi.fn().mockResolvedValue({ ok: true });
   render(
     <Add
       open
@@ -464,7 +464,7 @@ test("uses exact catalog fields and numbers duplicate active spools", async () =
 
 test("uses a trimmed custom name and a positive custom weight", async () => {
   const user = userEvent.setup();
-  const onCreate = vi.fn().mockResolvedValue(true);
+  const onCreate = vi.fn().mockResolvedValue({ ok: true });
   render(
     <Add
       open
@@ -516,7 +516,10 @@ test.each(["", "0", "-1"])(
 test("keeps every field open when creation fails", async () => {
   const user = userEvent.setup();
   const onClose = vi.fn();
-  const onCreate = vi.fn().mockResolvedValue(false);
+  const onCreate = vi.fn().mockResolvedValue({
+    ok: false,
+    error: "本地数据暂时无法读取",
+  });
   render(
     <Add
       open
@@ -542,7 +545,68 @@ test("keeps every field open when creation fails", async () => {
   expect(screen.getByLabelText("自定义名称")).toHaveValue("失败后保留");
   expect(screen.getByLabelText("当前剩余量")).toHaveValue(900);
   expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "本地数据暂时无法读取",
+  );
 });
+
+test.each(["close button", "cancel button", "Escape"] as const)(
+  "resets only roll-specific fields when closing a pending creation with %s",
+  async (method) => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    let resolveCreate: (result: { ok: true }) => void = () => undefined;
+    const onCreate = vi.fn(() => new Promise<{ ok: true }>((resolve) => {
+      resolveCreate = resolve;
+    }));
+    const props = {
+      spools: [],
+      busy: false,
+      onClose,
+      onCreate,
+    };
+    const { rerender } = render(<Add {...props} open />);
+
+    await user.click(screen.getByRole("button", { name: "PLA" }));
+    await user.click(screen.getByRole("button", { name: "Basic" }));
+    await user.type(screen.getByLabelText("搜索颜色"), "10100");
+    await user.click(screen.getByRole("button", { name: /玉石白.*10100/ }));
+    await user.type(screen.getByLabelText("自定义名称"), "待处理旧卷");
+    await user.clear(screen.getByLabelText("当前剩余量"));
+    await user.type(screen.getByLabelText("当前剩余量"), "900");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    if (method === "Escape") {
+      await user.keyboard("{Escape}");
+    } else {
+      await user.click(screen.getByRole("button", {
+        name: method === "close button" ? "关闭" : "取消",
+      }));
+    }
+    expect(onClose).toHaveBeenCalledOnce();
+    rerender(<Add {...props} open={false} />);
+    await act(async () => {
+      resolveCreate({ ok: true });
+    });
+    rerender(<Add {...props} open />);
+
+    expect(screen.getByRole("button", { name: "PLA" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Basic" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: /玉石白.*10100/ }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByLabelText("搜索颜色")).toHaveValue("");
+    expect(screen.getByLabelText("自定义名称")).toHaveValue("");
+    expect(screen.getByLabelText("当前剩余量")).toHaveValue(1000);
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  },
+);
 
 test("successful creation clears transient fields but retains material and series", async () => {
   const user = userEvent.setup();
@@ -553,7 +617,7 @@ test("successful creation clears transient fields but retains material and serie
       spools={[]}
       busy={false}
       onClose={onClose}
-      onCreate={vi.fn().mockResolvedValue(true)}
+      onCreate={vi.fn().mockResolvedValue({ ok: true })}
     />,
   );
 
