@@ -431,4 +431,23 @@ describe("Job", () => {
       background: "#F2A65A",
     });
   });
+
+  it("keeps the work area but removes duplicate page chrome when embedded", () => {
+    render(
+      <Job
+        embedded
+        preview={preview}
+        spools={spools}
+        onConfirmMapping={async () => undefined}
+        onSettle={async () => undefined}
+        onConfirmNewPrint={async () => undefined}
+        onReverse={async () => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("heading", { name: "打印任务" })).not.toBeInTheDocument();
+    expect(screen.queryByText("萨莫面具-布莱克.gcode.3mf")).not.toBeInTheDocument();
+    expect(screen.getByText("Bambu PLA Basic @BBL A1")).toBeVisible();
+    expect(screen.getByRole("group", { name: "这次打印的结果" })).toBeVisible();
+  });
 });

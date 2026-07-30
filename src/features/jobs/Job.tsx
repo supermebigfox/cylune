@@ -6,13 +6,14 @@ import type { ImportPreview, JobOutcome, SettlementResult, Spool, ToolMapping } 
 
 type OutcomeChoice = "success" | "failed" | "cancelled" | "estimated";
 
-export function Job({ preview, spools, initialMappings = {}, settled = false, result, busy = false, onConfirmMapping, onSettle, onConfirmNewPrint, onDiscard, onReverse }: {
+export function Job({ preview, spools, initialMappings = {}, settled = false, result, busy = false, embedded = false, onConfirmMapping, onSettle, onConfirmNewPrint, onDiscard, onReverse }: {
   preview: ImportPreview | null;
   spools: Spool[];
   initialMappings?: Record<number, string>;
   settled?: boolean;
   result?: SettlementResult | null;
   busy?: boolean;
+  embedded?: boolean;
   onConfirmMapping(jobId: string, mappings: ToolMapping[]): boolean | void | Promise<boolean | void>;
   onSettle(jobId: string, outcome: JobOutcome): boolean | void | Promise<boolean | void>;
   onConfirmNewPrint(sourceHash: string): boolean | void | Promise<boolean | void>;
@@ -53,13 +54,17 @@ export function Job({ preview, spools, initialMappings = {}, settled = false, re
     return onSettle(preview.job_id, { kind: outcome, stop_layer: Math.max(0, Number(layer) - 1) });
   };
 
-  return <section className="page job-page" aria-labelledby="jobs-title">
-    <div className="page-heading"><div><h1 id="jobs-title">{copy("jobs.title")}</h1><p>{copy("jobs.jobHint")}</p></div><span className="file-status"><CheckCircle size={18} weight="fill" />{copy("import.ready")}</span></div>
-    <article className="job-file">
+  return <section
+    className={embedded ? "job-workspace" : "page job-page"}
+    aria-label={embedded ? copy("project.jobWorkspace") : undefined}
+    aria-labelledby={embedded ? undefined : "jobs-title"}
+  >
+    {!embedded ? <div className="page-heading"><div><h1 id="jobs-title">{copy("jobs.title")}</h1><p>{copy("jobs.jobHint")}</p></div><span className="file-status"><CheckCircle size={18} weight="fill" />{copy("import.ready")}</span></div> : null}
+    {!embedded ? <article className="job-file">
       <div className="file-icon"><FileText size={28} weight="duotone" /></div>
       <div><h2>{preview.source_file_name}</h2><p>{copy("jobs.layerCount", { count: preview.max_layer })}</p></div>
       <div className="job-total"><span>{copy("jobs.plannedTotal")}</span><strong className="data">{preview.filaments.reduce((sum, item) => sum + item.total_grams, 0).toFixed(1)} {copy("common.grams")}</strong></div>
-    </article>
+    </article> : null}
 
     {preview.state === "new_print_confirmation_required" ? <div className="callout warning"><Warning size={21} weight="fill" /><div><strong>{copy("import.duplicate")}</strong><p>{copy("jobs.repeatHint")}</p></div><button className="secondary" disabled={busy} onClick={() => onConfirmNewPrint(preview.source_hash)}>{busy ? copy("common.saving") : copy("jobs.confirmNew")}</button></div> : null}
 
