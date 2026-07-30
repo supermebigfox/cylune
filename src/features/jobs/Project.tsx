@@ -130,10 +130,10 @@ export function Project({
 }: {
   project: PrintProjectDetail;
   selectedPlateId: string | null;
-  preview?: ImportPreview | null;
+  preview?: { plateId: string; value: ImportPreview } | null;
   spools: Spool[];
   initialMappings?: Record<number, string>;
-  result?: SettlementResult | null;
+  result?: { plateId: string; value: SettlementResult } | null;
   busy?: boolean;
   onSelectPlate(plateId: string): void;
   onConfirmMapping(jobId: string, mappings: ToolMapping[]): boolean | void | Promise<boolean | void>;
@@ -151,6 +151,12 @@ export function Project({
   const selectedPlate = project.plates.find(
     (plate) => plate.plate_id === selectedPlateId,
   );
+  const selectedPreview = preview?.plateId === selectedPlateId
+    ? preview.value
+    : null;
+  const selectedResult = result?.plateId === selectedPlateId
+    ? result.value
+    : null;
 
   return (
     <section className="page project-page" aria-labelledby="project-title">
@@ -229,6 +235,31 @@ export function Project({
                       {copy("project.layers", { count: plate.max_layer })}
                     </span>
                   </span>
+                  <span className="plate-filaments">
+                    {plate.filaments.map((filament) => (
+                      <span className="plate-filament" key={filament.profile.tool}>
+                        <span
+                          aria-label={copy("project.colorSwatch", {
+                            color: filament.profile.color_hex,
+                          })}
+                          className="plate-color-swatch"
+                          role="img"
+                        >
+                          <Swatch colors={[filament.profile.color_hex]} />
+                        </span>
+                        <span className="data">
+                          {filament.total_grams.toFixed(1)} {copy("common.grams")}
+                        </span>
+                      </span>
+                    ))}
+                    <strong className="plate-total data">
+                      {copy("project.plateTotal", {
+                        grams: plate.filaments
+                          .reduce((sum, filament) => sum + filament.total_grams, 0)
+                          .toFixed(1),
+                      })}
+                    </strong>
+                  </span>
                 </span>
               </button>
             );
@@ -253,10 +284,10 @@ export function Project({
           </div>
 
           {pendingStatuses.has(selectedPlate.status) ? (
-            preview ? (
+            selectedPreview ? (
               <>
                 <div className="plate-filament-summary" aria-label={copy("project.filamentSummary")}>
-                  {preview.filaments.map((filament) => (
+                  {selectedPreview.filaments.map((filament) => (
                     <span key={filament.tool}>
                       <Swatch colors={[filament.profile.color_hex]} />
                       <span>
@@ -277,7 +308,7 @@ export function Project({
                   onDiscard={onDiscard}
                   onReverse={onReverse}
                   onSettle={onSettle}
-                  preview={preview}
+                  preview={selectedPreview}
                   spools={spools}
                 />
               </>
@@ -295,6 +326,11 @@ export function Project({
                 <p>{copy("project.skippedNoDeduction")}</p>
               </div>
             </div>
+          ) : !selectedResult ? (
+            <div className="plate-detail-empty" role="status">
+              <Hourglass aria-hidden="true" size={24} weight="duotone" />
+              <span>{copy("project.loadingResult")}</span>
+            </div>
           ) : (
             <div className="plate-result-layout">
               <div className={`plate-result ${selectedPlate.status === "estimated" ? "estimated" : ""}`}>
@@ -310,27 +346,23 @@ export function Project({
                       : "project.settledResult")}
                   </strong>
                   <p>
-                    {result
-                      ? copy("project.deducted", {
-                        grams: result.consumption
-                          .reduce((sum, item) => sum + item.grams, 0)
-                          .toFixed(1),
-                      })
-                      : copy("project.resultRecorded")}
+                    {copy("project.deducted", {
+                      grams: selectedResult.consumption
+                        .reduce((sum, item) => sum + item.grams, 0)
+                        .toFixed(1),
+                    })}
                   </p>
                 </div>
               </div>
-              {result ? (
-                <button
-                  className="ghost"
-                  disabled={busy}
-                  onClick={() => onReverse(result.job_id)}
-                  type="button"
-                >
-                  <ArrowCounterClockwise aria-hidden="true" size={17} />
-                  {copy("jobs.reverse")}
-                </button>
-              ) : null}
+              <button
+                className="ghost"
+                disabled={busy}
+                onClick={() => onReverse(selectedResult.job_id)}
+                type="button"
+              >
+                <ArrowCounterClockwise aria-hidden="true" size={17} />
+                {copy("jobs.reverse")}
+              </button>
             </div>
           )}
         </section>

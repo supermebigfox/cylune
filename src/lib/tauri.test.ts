@@ -86,6 +86,10 @@ it("demo history keeps a two-plate project tied to existing spool identities", a
       plate_id: "demo-mask-plate-1",
       thumbnail_url: "/demo/plates/mask-1.png",
       status: "pending_mapping",
+      filaments: expect.arrayContaining([expect.objectContaining({
+        profile: expect.objectContaining({ color_hex: "#FFFEFC" }),
+        total_grams: 26.4,
+      })]),
     }),
     expect.objectContaining({
       plate_id: "demo-mask-plate-2",

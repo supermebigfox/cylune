@@ -1,5 +1,8 @@
 use crate::{
-    domain::{PlateStatus, PrintPlateSummary, PrintProjectDetail, PrintProjectSummary},
+    domain::{
+        PlateStatus, PrintFilamentSummary, PrintPlateSummary, PrintProjectDetail,
+        PrintProjectSummary,
+    },
     error::{AppError, Result},
     imports::{FilamentPreview, ImportState, PrintService, PrintState},
     parser::ParsedPrintFile,
@@ -287,6 +290,22 @@ fn plate_summaries(
         let parsed: ParsedPrintFile = serde_json::from_str(&parsed_json)
             .map_err(|_| AppError::Database("invalid plate history".to_owned()))?;
         let status = status_for_job(outcome.as_deref(), mapping_count, parsed.filaments.len())?;
+        let filaments = parsed
+            .filaments
+            .iter()
+            .map(|profile| {
+                let total_mm = parsed
+                    .gcode
+                    .totals_mm
+                    .get(&profile.tool)
+                    .copied()
+                    .unwrap_or(0.0);
+                PrintFilamentSummary {
+                    profile: profile.clone(),
+                    total_grams: profile.grams_for_length_mm(total_mm),
+                }
+            })
+            .collect();
         grouped
             .entry(project_id.clone())
             .or_default()
@@ -300,6 +319,7 @@ fn plate_summaries(
                 estimated_seconds,
                 max_layer,
                 status,
+                filaments,
             });
     }
     Ok(grouped)
@@ -389,7 +409,7 @@ mod tests {
         db::AppDatabase,
         domain::PlateStatus,
         imports::PrintService,
-        parser::{gcode::GcodeReport, ParsedPrintFile},
+        parser::{gcode::GcodeReport, FilamentProfile, ParsedPrintFile},
     };
     use rusqlite::params;
     use std::{collections::BTreeMap, fs, path::Path};
@@ -406,10 +426,20 @@ mod tests {
         asset_id: Option<&str>,
     ) {
         let parsed = serde_json::to_string(&ParsedPrintFile {
-            filaments: Vec::new(),
+            filaments: vec![FilamentProfile {
+                tool: 0,
+                preset_id: "Bambu PLA Basic".to_owned(),
+                brand: "Bambu Lab".to_owned(),
+                material: "PLA".to_owned(),
+                series: "Basic".to_owned(),
+                color_hex: "#1C4EBB".to_owned(),
+                diameter_mm: 1.75,
+                density_g_cm3: 1.24,
+                unknown_fields: BTreeMap::new(),
+            }],
             gcode: GcodeReport {
                 layers: Vec::new(),
-                totals_mm: BTreeMap::new(),
+                totals_mm: BTreeMap::from([(0, 1000.0)]),
                 max_layer: 4,
                 declared_estimated_seconds: None,
                 declared_total_layers: None,
@@ -597,11 +627,16 @@ mod tests {
         assert!(pending_project
             .plates
             .iter()
-            .all(|plate| plate.status == PlateStatus::Ready));
+            .all(|plate| plate.status == PlateStatus::PendingMapping));
         assert!(pending_project
             .plates
             .iter()
             .all(|plate| { plate.thumbnail_url.as_deref() == Some(expected_url.as_str()) }));
+        assert!(pending_project.plates.iter().all(|plate| {
+            plate.filaments.len() == 1
+                && plate.filaments[0].profile.color_hex == "#1C4EBB"
+                && (plate.filaments[0].total_grams - 2.9825495255018097).abs() < 1e-9
+        }));
 
         let partial_project = history
             .iter()
@@ -622,7 +657,7 @@ mod tests {
                 .iter()
                 .map(|plate| plate.status)
                 .collect::<Vec<_>>(),
-            vec![PlateStatus::Success, PlateStatus::Ready]
+            vec![PlateStatus::Success, PlateStatus::PendingMapping]
         );
 
         let detail = service.get_print_project(partial_id).unwrap();

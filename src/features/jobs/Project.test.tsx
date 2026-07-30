@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale } from "../../i18n";
 import type {
@@ -8,6 +9,20 @@ import type {
   Spool,
 } from "../../lib/tauri";
 import { formatDuration, Project } from "./Project";
+
+const plateFilament = (tool: number, colorHex: string, grams: number) => ({
+  profile: {
+    tool,
+    preset_id: "Bambu PLA Basic @BBL A1",
+    brand: "Bambu Lab",
+    material: "PLA",
+    series: "Basic",
+    color_hex: colorHex,
+    diameter_mm: 1.75,
+    density_g_cm3: 1.26,
+  },
+  total_grams: grams,
+});
 
 const project: PrintProjectDetail = {
   project_id: "project-dragon",
@@ -30,6 +45,7 @@ const project: PrintProjectDetail = {
       estimated_seconds: 18300,
       max_layer: 208,
       status: "pending_mapping",
+      filaments: [plateFilament(0, "#1C4EBB", 42.7)],
     },
     {
       plate_id: "plate-body",
@@ -41,6 +57,10 @@ const project: PrintProjectDetail = {
       estimated_seconds: 7200,
       max_layer: 265,
       status: "estimated",
+      filaments: [
+        plateFilament(0, "#FE3D36", 10.3),
+        plateFilament(1, "#1C4EBB", 8.1),
+      ],
     },
     {
       plate_id: "plate-tail",
@@ -52,6 +72,7 @@ const project: PrintProjectDetail = {
       estimated_seconds: 5400,
       max_layer: 144,
       status: "skipped",
+      filaments: [plateFilament(0, "#676977", 5.5)],
     },
   ],
 };
@@ -154,6 +175,32 @@ describe("Project", () => {
     expect(screen.getAllByRole("button", { name: /打开第 \d 盘/ })).toHaveLength(3);
     expect(screen.getByText("5 小时 5 分钟")).toBeVisible();
     expect(screen.getByText("208 层")).toBeVisible();
+    const pendingPlate = screen.getByRole("button", { name: /打开第 1 盘/ });
+    const settledPlate = screen.getByRole("button", { name: /打开第 2 盘/ });
+    const skippedPlate = screen.getByRole("button", { name: /打开第 3 盘/ });
+    expect(within(pendingPlate).getByRole("img", { name: "颜色 #1C4EBB" })).toBeVisible();
+    expect(within(pendingPlate).getByText("预计共 42.7 克")).toBeVisible();
+    expect(within(settledPlate).getByRole("img", { name: "颜色 #FE3D36" })).toBeVisible();
+    expect(within(settledPlate).getByText("10.3 克")).toBeVisible();
+    expect(within(settledPlate).getByText("8.1 克")).toBeVisible();
+    expect(within(settledPlate).getByText("预计共 18.4 克")).toBeVisible();
+    expect(within(skippedPlate).getByRole("img", { name: "颜色 #676977" })).toBeVisible();
+    expect(within(skippedPlate).getByText("预计共 5.5 克")).toBeVisible();
+  });
+
+  it("keeps every plate card keyboard focusable", async () => {
+    const user = userEvent.setup();
+    render(
+      <Project
+        {...baseActions}
+        project={project}
+        selectedPlateId={null}
+        onSelectPlate={() => undefined}
+      />,
+    );
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: /打开第 1 盘/ })).toHaveFocus();
   });
 
   it("selects a plate and embeds the existing Job workspace without repeating the project name", () => {
@@ -174,7 +221,7 @@ describe("Project", () => {
       <Project
         {...baseActions}
         project={project}
-        preview={preview}
+        preview={{ plateId: "plate-head", value: preview }}
         selectedPlateId="plate-head"
         onSelectPlate={onSelectPlate}
       />,
@@ -182,7 +229,7 @@ describe("Project", () => {
 
     expect(screen.getAllByText("机械龙套件.gcode.3mf")).toHaveLength(1);
     expect(screen.getByText("Bambu PLA Basic @BBL A1")).toBeVisible();
-    expect(screen.getAllByText("42.7 克")).toHaveLength(2);
+    expect(screen.getAllByText("42.7 克")).toHaveLength(3);
     expect(screen.getByText("#1C4EBB")).toBeVisible();
     expect(
       screen.getByRole("group", { name: "这次打印的结果" }),
@@ -195,7 +242,7 @@ describe("Project", () => {
       <Project
         {...baseActions}
         project={project}
-        result={estimatedResult}
+        result={{ plateId: "plate-body", value: estimatedResult }}
         selectedPlateId="plate-body"
         onSelectPlate={() => undefined}
         onReverse={onReverse}
@@ -239,5 +286,67 @@ describe("Project", () => {
     );
 
     expect(screen.getByText("正在准备这盘的耗材映射")).toBeVisible();
+  });
+
+  it("does not expose a stale pending preview after selection changes", () => {
+    const onSettle = vi.fn();
+    const { rerender } = render(
+      <Project
+        {...baseActions}
+        onSettle={onSettle}
+        project={project}
+        preview={{ plateId: "plate-head", value: preview }}
+        selectedPlateId="plate-head"
+        onSelectPlate={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("group", { name: "这次打印的结果" })).toBeVisible();
+
+    rerender(
+      <Project
+        {...baseActions}
+        onSettle={onSettle}
+        project={project}
+        preview={{ plateId: "plate-head", value: preview }}
+        selectedPlateId="plate-body"
+        onSelectPlate={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("group", { name: "这次打印的结果" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "确认扣减耗材" })).not.toBeInTheDocument();
+    expect(screen.getByText("正在加载这盘的结算结果")).toBeVisible();
+    expect(onSettle).not.toHaveBeenCalled();
+  });
+
+  it("does not expose a stale settled result or reversal after selection changes", () => {
+    const onReverse = vi.fn();
+    const { rerender } = render(
+      <Project
+        {...baseActions}
+        onReverse={onReverse}
+        project={project}
+        result={{ plateId: "plate-body", value: estimatedResult }}
+        selectedPlateId="plate-body"
+        onSelectPlate={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "撤销本次扣减" })).toBeVisible();
+
+    rerender(
+      <Project
+        {...baseActions}
+        onReverse={onReverse}
+        project={project}
+        result={{ plateId: "plate-body", value: estimatedResult }}
+        selectedPlateId="plate-head"
+        onSelectPlate={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "撤销本次扣减" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "这次打印的结果" })).not.toBeInTheDocument();
+    expect(screen.getByText("正在准备这盘的耗材映射")).toBeVisible();
+    expect(onReverse).not.toHaveBeenCalled();
   });
 });

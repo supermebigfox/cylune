@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale } from "../../i18n";
 import type { PrintProjectSummary } from "../../lib/tauri";
@@ -23,6 +24,7 @@ const singlePlateProject: PrintProjectSummary = {
       estimated_seconds: 18300,
       max_layer: 412,
       status: "pending_mapping",
+      filaments: [],
     },
   ],
 };
@@ -46,6 +48,7 @@ const threePlateProject: PrintProjectSummary = {
       estimated_seconds: 7200,
       max_layer: 208,
       status: "success",
+      filaments: [],
     },
     {
       plate_id: "plate-two",
@@ -57,6 +60,7 @@ const threePlateProject: PrintProjectSummary = {
       estimated_seconds: 9000,
       max_layer: 265,
       status: "estimated",
+      filaments: [],
     },
     {
       plate_id: "plate-three",
@@ -68,6 +72,7 @@ const threePlateProject: PrintProjectSummary = {
       estimated_seconds: 8400,
       max_layer: 244,
       status: "skipped",
+      filaments: [],
     },
   ],
 };
@@ -107,6 +112,20 @@ describe("History", () => {
     );
 
     expect(onOpenProject).toHaveBeenCalledWith("project-single");
+  });
+
+  it("keeps every project card keyboard focusable", async () => {
+    const user = userEvent.setup();
+    render(
+      <History
+        pending={[singlePlateProject]}
+        history={[]}
+        onOpenProject={() => undefined}
+      />,
+    );
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: /打开月球灯\.gcode\.3mf/ })).toHaveFocus();
   });
 
   it("labels available covers and replaces failed media with the CYLUNE fallback", () => {

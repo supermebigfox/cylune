@@ -1,3 +1,4 @@
+use crate::parser::FilamentProfile;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -44,7 +45,7 @@ pub struct PrintJob {
     pub settlement_version: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrintProjectSummary {
     pub project_id: Uuid,
     pub source_file_name: String,
@@ -56,7 +57,7 @@ pub struct PrintProjectSummary {
     pub plates: Vec<PrintPlateSummary>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrintProjectDetail {
     pub project_id: Uuid,
     pub source_hash: String,
@@ -70,7 +71,13 @@ pub struct PrintProjectDetail {
     pub plates: Vec<PrintPlateSummary>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PrintFilamentSummary {
+    pub profile: FilamentProfile,
+    pub total_grams: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrintPlateSummary {
     pub plate_id: Uuid,
     pub project_id: Uuid,
@@ -81,6 +88,7 @@ pub struct PrintPlateSummary {
     pub estimated_seconds: Option<u32>,
     pub max_layer: u32,
     pub status: PlateStatus,
+    pub filaments: Vec<PrintFilamentSummary>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -137,9 +145,11 @@ pub enum JobOutcome {
 #[cfg(test)]
 mod tests {
     use super::{
-        LedgerEvent, LedgerEventType, PlateStatus, PrintPlateSummary, PrintProjectDetail,
-        PrintProjectSummary, Spool, SpoolStatus,
+        LedgerEvent, LedgerEventType, PlateStatus, PrintFilamentSummary, PrintPlateSummary,
+        PrintProjectDetail, PrintProjectSummary, Spool, SpoolStatus,
     };
+    use crate::parser::FilamentProfile;
+    use std::collections::BTreeMap;
     use uuid::Uuid;
 
     #[test]
@@ -232,6 +242,20 @@ mod tests {
                 estimated_seconds: Some(900),
                 max_layer: 42,
                 status: PlateStatus::Success,
+                filaments: vec![PrintFilamentSummary {
+                    profile: FilamentProfile {
+                        tool: 0,
+                        preset_id: "Bambu PLA Basic".to_owned(),
+                        brand: "Bambu Lab".to_owned(),
+                        material: "PLA".to_owned(),
+                        series: "Basic".to_owned(),
+                        color_hex: "#1C4EBB".to_owned(),
+                        diameter_mm: 1.75,
+                        density_g_cm3: 1.24,
+                        unknown_fields: BTreeMap::new(),
+                    },
+                    total_grams: 42.7,
+                }],
             }],
         };
         let summary = PrintProjectSummary {
@@ -251,6 +275,14 @@ mod tests {
         assert_eq!(detail_value["project_id"], project_id.to_string());
         assert_eq!(detail_value["plates"][0]["plate_id"], plate_id.to_string());
         assert_eq!(detail_value["plates"][0]["status"], "success");
+        assert_eq!(
+            detail_value["plates"][0]["filaments"][0]["profile"]["color_hex"],
+            "#1C4EBB"
+        );
+        assert_eq!(
+            detail_value["plates"][0]["filaments"][0]["total_grams"],
+            42.7
+        );
         assert_eq!(summary_value["plate_count"], 1);
     }
 

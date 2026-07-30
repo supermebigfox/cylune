@@ -106,6 +106,11 @@ export type PlateStatus =
   | "estimated"
   | "skipped";
 
+export interface PrintFilamentSummary {
+  profile: FilamentProfile;
+  total_grams: number;
+}
+
 export interface PrintPlateSummary {
   plate_id: string;
   project_id: string;
@@ -116,6 +121,7 @@ export interface PrintPlateSummary {
   estimated_seconds: number | null;
   max_layer: number;
   status: PlateStatus;
+  filaments: PrintFilamentSummary[];
 }
 
 export interface PrintProjectSummary {
@@ -309,6 +315,10 @@ const demoProjectPlates: PrintPlateSummary[] = [
     estimated_seconds: 5400,
     max_layer: 186,
     status: "pending_mapping",
+    filaments: demoPreview.filaments.slice(0, 2).map((filament) => ({
+      profile: { ...filament.profile },
+      total_grams: filament.total_grams,
+    })),
   },
   {
     plate_id: "demo-mask-plate-2",
@@ -320,6 +330,10 @@ const demoProjectPlates: PrintPlateSummary[] = [
     estimated_seconds: 4200,
     max_layer: 154,
     status: "ready",
+    filaments: demoPreview.filaments.slice(2, 4).map((filament) => ({
+      profile: { ...filament.profile },
+      total_grams: filament.total_grams,
+    })),
   },
 ];
 
