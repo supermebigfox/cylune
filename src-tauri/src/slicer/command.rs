@@ -162,6 +162,11 @@ fn validate_output_path(path: &Path) -> Result<()> {
     let Some(parent) = path.parent() else {
         return Err(AppError::InvalidFile);
     };
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
     if !is_regular_directory(parent) {
         return Err(AppError::InvalidFile);
     }
@@ -372,13 +377,27 @@ mod tests {
     #[test]
     fn rejects_a_destination_equal_to_the_input() {
         let fixture = Fixture::new();
+        let sliced_name = fixture.root.join("same-file.gcode.3mf");
+        fs::write(&sliced_name, b"project").unwrap();
         let mut request = fixture.request();
-        request.destination = fixture.input.clone();
+        request.input = sliced_name.clone();
+        request.destination = sliced_name;
 
         assert!(matches!(
             build_bambu_args(&request, &fixture.temporary_output),
             Err(AppError::InvalidFile)
         ));
+    }
+
+    #[test]
+    fn accepts_bare_relative_output_names_in_the_current_directory() {
+        let fixture = Fixture::new();
+        let unique = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
+        let mut request = fixture.request();
+        request.destination = PathBuf::from(format!("relative-{unique}.gcode.3mf"));
+        let temporary_output = PathBuf::from(format!("temporary-{unique}.gcode.3mf"));
+
+        assert!(build_bambu_args(&request, &temporary_output).is_ok());
     }
 
     #[test]
