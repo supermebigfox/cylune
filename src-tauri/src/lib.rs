@@ -141,6 +141,7 @@ pub fn run() {
             tray::open_main,
             tray::open_job_in_main,
             tray::take_pending_job,
+            tray::take_pending_navigation,
             tray::set_native_locale,
         ])
         .build(tauri::generate_context!())

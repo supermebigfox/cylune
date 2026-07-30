@@ -208,12 +208,35 @@ pub struct PendingNavigation {
     pub job_id: Uuid,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingNavigationTarget {
+    pub project_id: Option<Uuid>,
+    pub plate_id: Option<Uuid>,
+    pub job_id: Uuid,
+}
+
+impl From<PendingNavigation> for PendingNavigationTarget {
+    fn from(navigation: PendingNavigation) -> Self {
+        Self {
+            project_id: Some(navigation.project_id),
+            plate_id: Some(navigation.plate_id),
+            job_id: navigation.job_id,
+        }
+    }
+}
+
 pub fn pending_navigation_for_job(
     database: &crate::db::AppDatabase,
     job_id: Uuid,
 ) -> Result<Option<PendingNavigation>> {
-    database
-        .connection
+    pending_navigation_for_job_in(&database.connection, job_id)
+}
+
+fn pending_navigation_for_job_in(
+    connection: &rusqlite::Connection,
+    job_id: Uuid,
+) -> Result<Option<PendingNavigation>> {
+    connection
         .query_row(
             "SELECT pending_plates.project_id, pending_plates.plate_id, pending_jobs.job_id
              FROM print_jobs AS requested_jobs
@@ -228,6 +251,39 @@ pub fn pending_navigation_for_job(
              ORDER BY pending_plates.plate_index
              LIMIT 1",
             params![job_id.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()?
+        .map(|(project_id, plate_id, job_id)| {
+            Ok(PendingNavigation {
+                project_id: project_id.parse().map_err(|_| AppError::InvalidJob)?,
+                plate_id: plate_id.parse().map_err(|_| AppError::InvalidJob)?,
+                job_id: job_id.parse().map_err(|_| AppError::InvalidJob)?,
+            })
+        })
+        .transpose()
+}
+
+fn pending_navigation_for_project_in(
+    connection: &rusqlite::Connection,
+    project_id: Uuid,
+) -> Result<Option<PendingNavigation>> {
+    connection
+        .query_row(
+            "SELECT plates.project_id, plates.plate_id, jobs.job_id
+             FROM print_plates AS plates
+             JOIN print_jobs AS jobs ON jobs.plate_id = plates.plate_id
+             WHERE plates.project_id = ?1
+               AND jobs.outcome IS NULL
+             ORDER BY plates.plate_index
+             LIMIT 1",
+            params![project_id.to_string()],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -448,36 +504,54 @@ pub fn persist_pending_job(database: &crate::db::AppDatabase, job_id: &str) -> R
 pub fn take_pending_job_from_database(
     database: &mut crate::db::AppDatabase,
 ) -> Result<Option<String>> {
+    Ok(take_pending_navigation_from_database(database)?
+        .map(|navigation| navigation.job_id.to_string()))
+}
+
+pub fn take_pending_navigation_from_database(
+    database: &mut crate::db::AppDatabase,
+) -> Result<Option<PendingNavigationTarget>> {
     let transaction = database.connection.transaction()?;
-    let job_id: Option<String> = transaction
+    let saved: Option<String> = transaction
         .query_row(
             "SELECT setting_value FROM app_settings WHERE setting_key='pending_job_id'",
             [],
             |row| row.get(0),
         )
         .optional()?;
-    let valid = job_id
-        .and_then(|value| {
-            serde_json::from_str::<PendingNavigation>(&value)
-                .map(|navigation| navigation.job_id.to_string())
-                .ok()
-                .or_else(|| Uuid::parse_str(&value).ok().map(|_| value))
-        })
-        .filter(|id| {
-            transaction
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM print_jobs WHERE job_id=?1 AND outcome IS NULL)",
-                    params![id],
-                    |row| row.get::<_, bool>(0),
-                )
-                .unwrap_or(false)
-        });
+    let target = if let Some(saved) = saved {
+        if let Ok(navigation) = serde_json::from_str::<PendingNavigation>(&saved) {
+            pending_navigation_for_project_in(&transaction, navigation.project_id)?.map(Into::into)
+        } else if let Ok(job_id) = Uuid::parse_str(&saved) {
+            if let Some(navigation) = pending_navigation_for_job_in(&transaction, job_id)? {
+                Some(navigation.into())
+            } else {
+                let pending_legacy_job: bool = transaction.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM print_jobs
+                        WHERE job_id = ?1 AND plate_id IS NULL AND outcome IS NULL
+                     )",
+                    params![job_id.to_string()],
+                    |row| row.get(0),
+                )?;
+                pending_legacy_job.then_some(PendingNavigationTarget {
+                    project_id: None,
+                    plate_id: None,
+                    job_id,
+                })
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     transaction.execute(
         "DELETE FROM app_settings WHERE setting_key='pending_job_id'",
         [],
     )?;
     transaction.commit()?;
-    Ok(valid)
+    Ok(target)
 }
 
 #[tauri::command]
@@ -511,6 +585,16 @@ pub fn take_pending_job(print_state: tauri::State<'_, PrintState>) -> Result<Opt
         .lock()
         .map_err(|_| AppError::Database("print lock poisoned".into()))?;
     take_pending_job_from_database(&mut service.database)
+}
+
+#[tauri::command]
+pub fn take_pending_navigation(
+    print_state: tauri::State<'_, PrintState>,
+) -> Result<Option<PendingNavigationTarget>> {
+    let mut service = print_state
+        .lock()
+        .map_err(|_| AppError::Database("print lock poisoned".into()))?;
+    take_pending_navigation_from_database(&mut service.database)
 }
 
 #[tauri::command]
@@ -684,12 +768,14 @@ pub fn setup(
 mod tests {
     use super::{
         import_error_copy, import_notification_body, import_with_retry, is_supported_print_path,
-        native_copy, persist_pending_job, take_pending_job_from_database, watch_import_event,
-        Debouncer,
+        native_copy, persist_pending_job, take_pending_job_from_database,
+        take_pending_navigation_from_database, watch_import_event, Debouncer,
     };
     use crate::{
         db::AppDatabase,
-        imports::{ImportState, PrintService},
+        domain::JobOutcome,
+        imports::{ImportState, PrintService, ToolMapping},
+        inventory::{InventoryService, NewSpool},
     };
     use std::{
         fs::{self, File, OpenOptions},
@@ -953,6 +1039,107 @@ mod tests {
         assert_eq!(
             navigation["job_id"],
             project.plates[0].job_id.to_string().as_str()
+        );
+    }
+
+    #[test]
+    fn persisted_project_navigation_re_resolves_the_first_pending_plate_after_restart() {
+        let database_path = std::env::temp_dir().join(format!(
+            "pending-project-navigation-{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        let fixture = two_plate_fixture();
+        let (project_id, second_plate_id, second_job_id) = {
+            let database = AppDatabase::open(&database_path).unwrap();
+            let mut inventory = InventoryService::new(database);
+            let spool_id = inventory
+                .create_spool(NewSpool {
+                    display_name: "Restart navigation".to_owned(),
+                    preset_id: Some("Bambu PLA Basic @BBL A1".to_owned()),
+                    catalog_id: None,
+                    color_name: None,
+                    color_code: None,
+                    color_hexes: vec!["#FF0000".to_owned()],
+                    preset_base: None,
+                    brand: "Bambu Lab".to_owned(),
+                    material: "PLA".to_owned(),
+                    series: "Basic".to_owned(),
+                    color_hex: "#FF0000".to_owned(),
+                    remaining_grams: 1000.0,
+                })
+                .unwrap();
+            inventory.mount_spool(1, spool_id).unwrap();
+            let mut service =
+                PrintService::with_stability_delay(inventory.into_database(), Duration::ZERO);
+            let project = service.import_print_project(&fixture).unwrap();
+            let first_job_id = project.plates[0].job_id;
+            persist_pending_job(&service.database, &first_job_id.to_string()).unwrap();
+            service
+                .confirm_job_mapping(first_job_id, vec![ToolMapping { tool: 0, spool_id }])
+                .unwrap();
+            service
+                .settle_job(first_job_id, JobOutcome::Success)
+                .unwrap();
+            (
+                project.project_id,
+                project.plates[1].plate_id,
+                project.plates[1].job_id,
+            )
+        };
+
+        let mut reopened = AppDatabase::open(&database_path).unwrap();
+        let navigation = take_pending_navigation_from_database(&mut reopened)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(navigation.project_id, Some(project_id));
+        assert_eq!(navigation.plate_id, Some(second_plate_id));
+        assert_eq!(navigation.job_id, second_job_id);
+        assert_eq!(
+            take_pending_navigation_from_database(&mut reopened).unwrap(),
+            None
+        );
+
+        drop(reopened);
+        fs::remove_file(fixture).unwrap();
+        fs::remove_file(database_path).unwrap();
+    }
+
+    #[test]
+    fn raw_uuid_pending_job_remains_a_legacy_navigation_fallback() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bambu_multicolor.3mf");
+        let job_id = service.import_print_file(&fixture).unwrap().job_id;
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_jobs SET plate_id = NULL WHERE job_id = ?1",
+                [job_id.to_string()],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "INSERT INTO app_settings(setting_key, setting_value)
+                 VALUES('pending_job_id', ?1)",
+                [job_id.to_string()],
+            )
+            .unwrap();
+
+        let target = take_pending_navigation_from_database(&mut service.database)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(target.project_id, None);
+        assert_eq!(target.plate_id, None);
+        assert_eq!(target.job_id, job_id);
+        assert_eq!(
+            take_pending_navigation_from_database(&mut service.database).unwrap(),
+            None
         );
     }
 }
