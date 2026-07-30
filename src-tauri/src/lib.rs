@@ -4,6 +4,7 @@ pub mod domain;
 pub mod error;
 pub mod imports;
 pub mod inventory;
+pub mod media;
 pub mod parser;
 pub mod pet;
 pub mod settlement;
@@ -13,6 +14,7 @@ use crate::{
     db::AppDatabase,
     imports::{PrintService, PrintState},
     inventory::{InventoryService, InventoryState},
+    media::MediaStore,
 };
 use rusqlite::OptionalExtension;
 use tauri::Manager;
@@ -51,6 +53,7 @@ pub fn run() {
                 .map(std::path::PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?);
             std::fs::create_dir_all(&data_dir)?;
+            std::fs::create_dir_all(data_dir.join("media"))?;
             let database_path = data_dir.join("inventory.sqlite");
             let inventory_database = AppDatabase::open(&database_path)?;
             let print_database = AppDatabase::open(&database_path)?;
@@ -75,6 +78,7 @@ pub fn run() {
                 inventory_database,
             )));
             app.manage(PrintState::new(print_service));
+            app.manage(MediaStore::new(data_dir.clone())?);
             app.manage(tray::WatchState(std::sync::Mutex::new(None)));
             tray::setup(app, &initial_locale, pet_enabled, pet_visible)?;
             let pet_runtime = pet::runtime::PetRuntime::start(
