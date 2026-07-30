@@ -44,6 +44,50 @@ pub struct PrintJob {
     pub settlement_version: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrintProjectSummary {
+    pub project_id: Uuid,
+    pub source_file_name: String,
+    pub imported_at: String,
+    pub plate_count: u32,
+    pub cover_asset_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrintProjectDetail {
+    pub project_id: Uuid,
+    pub source_hash: String,
+    pub source_file_name: String,
+    pub source_path: Option<String>,
+    pub imported_at: String,
+    pub plate_count: u32,
+    pub cover_asset_id: Option<Uuid>,
+    pub plates: Vec<PrintPlateSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrintPlateSummary {
+    pub plate_id: Uuid,
+    pub project_id: Uuid,
+    pub plate_index: u32,
+    pub display_name: Option<String>,
+    pub thumbnail_asset_id: Option<Uuid>,
+    pub estimated_seconds: Option<u32>,
+    pub max_layer: u32,
+    pub status: PlateStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlateStatus {
+    Pending,
+    InProgress,
+    Success,
+    Failed,
+    Cancelled,
+    Estimated,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LedgerEvent {
     pub event_id: Uuid,
@@ -85,7 +129,10 @@ pub enum JobOutcome {
 
 #[cfg(test)]
 mod tests {
-    use super::{LedgerEvent, LedgerEventType, Spool, SpoolStatus};
+    use super::{
+        LedgerEvent, LedgerEventType, PlateStatus, PrintPlateSummary, PrintProjectDetail,
+        PrintProjectSummary, Spool, SpoolStatus,
+    };
     use uuid::Uuid;
 
     #[test]
@@ -152,5 +199,45 @@ mod tests {
             serde_json::to_value(event).unwrap()["event_type"],
             "creation"
         );
+    }
+
+    #[test]
+    fn print_project_history_dtos_serialize_ids_and_plate_status() {
+        let project_id = "11111111-1111-4111-8111-111111111111".parse().unwrap();
+        let plate_id = "22222222-2222-4222-8222-222222222222".parse().unwrap();
+        let project = PrintProjectDetail {
+            project_id,
+            source_hash: "legacy-source-hash".to_owned(),
+            source_file_name: "legacy.gcode.3mf".to_owned(),
+            source_path: None,
+            imported_at: "2026-07-30 10:00:00".to_owned(),
+            plate_count: 1,
+            cover_asset_id: None,
+            plates: vec![PrintPlateSummary {
+                plate_id,
+                project_id,
+                plate_index: 1,
+                display_name: Some("Main plate".to_owned()),
+                thumbnail_asset_id: None,
+                estimated_seconds: Some(900),
+                max_layer: 42,
+                status: PlateStatus::Success,
+            }],
+        };
+        let summary = PrintProjectSummary {
+            project_id,
+            source_file_name: "legacy.gcode.3mf".to_owned(),
+            imported_at: "2026-07-30 10:00:00".to_owned(),
+            plate_count: 1,
+            cover_asset_id: None,
+        };
+
+        let detail_value = serde_json::to_value(project).unwrap();
+        let summary_value = serde_json::to_value(summary).unwrap();
+
+        assert_eq!(detail_value["project_id"], project_id.to_string());
+        assert_eq!(detail_value["plates"][0]["plate_id"], plate_id.to_string());
+        assert_eq!(detail_value["plates"][0]["status"], "success");
+        assert_eq!(summary_value["plate_count"], 1);
     }
 }

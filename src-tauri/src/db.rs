@@ -7,6 +7,7 @@ const LEDGER_CREATION_MIGRATION: &str = include_str!("../migrations/002_ledger_c
 const PRINT_JOBS_MIGRATION: &str = include_str!("../migrations/003_print_jobs.sql");
 const REPEAT_JOBS_MIGRATION: &str = include_str!("../migrations/004_repeat_jobs.sql");
 const CATALOG_INDEX_MIGRATION: &str = include_str!("../migrations/005_catalog.sql");
+const PRINT_HISTORY_MIGRATION: &str = include_str!("../migrations/006_print_history.sql");
 const CATALOG_COLUMN_MIGRATIONS: [(&str, &str); 5] = [
     (
         "catalog_id",
@@ -59,6 +60,7 @@ impl AppDatabase {
             connection.execute_batch(REPEAT_JOBS_MIGRATION)?;
         }
         ensure_catalog_schema(&mut connection)?;
+        ensure_print_history_schema(&mut connection)?;
         Ok(Self { connection })
     }
 
@@ -103,6 +105,87 @@ fn ensure_catalog_schema(connection: &mut Connection) -> Result<()> {
     Ok(())
 }
 
+fn ensure_print_history_schema(connection: &mut Connection) -> Result<()> {
+    if table_exists(connection, "print_projects")? {
+        return Ok(());
+    }
+
+    let transaction = connection.unchecked_transaction()?;
+    transaction.execute_batch(PRINT_HISTORY_MIGRATION)?;
+    let legacy_groups = {
+        let mut statement = transaction.prepare(
+            "SELECT
+                jobs.source_hash,
+                cache.source_file_name,
+                cache.parsed_json,
+                MIN(jobs.created_at)
+             FROM print_jobs AS jobs
+             JOIN parse_cache AS cache ON cache.source_hash = jobs.source_hash
+             GROUP BY jobs.source_hash, cache.source_file_name, cache.parsed_json
+             ORDER BY jobs.source_hash",
+        )?;
+        let groups = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        groups
+    };
+
+    for (source_hash, source_file_name, parsed_json, imported_at) in legacy_groups {
+        let project_id = uuid::Uuid::new_v4().to_string();
+        let plate_id = uuid::Uuid::new_v4().to_string();
+        transaction.execute(
+            "INSERT INTO print_projects (
+                project_id,
+                source_hash,
+                source_file_name,
+                imported_at,
+                plate_count
+             ) VALUES (?1, ?2, ?3, ?4, 1)",
+            params![project_id, source_hash, source_file_name, imported_at],
+        )?;
+        transaction.execute(
+            "INSERT INTO print_plates (
+                plate_id,
+                project_id,
+                plate_index,
+                max_layer,
+                parsed_json
+             ) VALUES (?1, ?2, 1, ?3, ?4)",
+            params![
+                plate_id,
+                project_id,
+                parsed_max_layer(&parsed_json),
+                parsed_json
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE print_jobs SET plate_id = ?1 WHERE source_hash = ?2",
+            params![plate_id, source_hash],
+        )?;
+    }
+
+    transaction.commit()?;
+    Ok(())
+}
+
+fn parsed_max_layer(parsed_json: &str) -> u64 {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(parsed_json) else {
+        return 0;
+    };
+    value
+        .pointer("/gcode/max_layer")
+        .or_else(|| value.pointer("/plates/0/gcode/max_layer"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+}
+
 fn ledger_supports_creation(connection: &Connection) -> Result<bool> {
     let definition: String = connection.query_row(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ledger_events'",
@@ -114,7 +197,10 @@ fn ledger_supports_creation(connection: &Connection) -> Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::{column_exists, AppDatabase, INITIAL_MIGRATION, PRINT_JOBS_MIGRATION};
+    use super::{
+        column_exists, table_exists, AppDatabase, INITIAL_MIGRATION, PRINT_JOBS_MIGRATION,
+        REPEAT_JOBS_MIGRATION,
+    };
     use crate::{domain::SpoolStatus, inventory::InventoryService};
     use rusqlite::{Connection, OptionalExtension};
 
@@ -470,6 +556,372 @@ mod tests {
                 .unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn print_history_migration_backfills_legacy_jobs_without_touching_ledger() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INITIAL_MIGRATION).unwrap();
+        connection.execute_batch(PRINT_JOBS_MIGRATION).unwrap();
+        connection.execute_batch(REPEAT_JOBS_MIGRATION).unwrap();
+        connection
+            .execute(
+                "INSERT INTO spools (
+                spool_id,
+                display_name,
+                preset_id,
+                brand,
+                material,
+                series,
+                color_hex,
+                remaining_grams,
+                status
+            ) VALUES (
+                '11111111-1111-4111-8111-111111111111',
+                'Legacy PLA',
+                'Bambu PLA Basic @BBL A1',
+                'Bambu Lab',
+                'PLA',
+                'Basic',
+                '#ffffff',
+                990.0,
+                'assigned'
+            )",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE ams_slots
+                 SET spool_id = '11111111-1111-4111-8111-111111111111',
+                     assigned_at = CURRENT_TIMESTAMP
+                 WHERE slot_number = 1",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO parse_cache (
+                source_hash,
+                source_file_name,
+                parsed_json,
+                parse_count
+            ) VALUES (
+                'legacy-source-hash',
+                'legacy.gcode.3mf',
+                '{\"filaments\":[],\"gcode\":{\"layers\":[],\"totals_mm\":{},\"max_layer\":0}}',
+                1
+            )",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO print_jobs (
+                job_id,
+                source_hash,
+                source_file_name,
+                outcome,
+                settlement_version
+            ) VALUES (
+                '22222222-2222-4222-8222-222222222222',
+                'legacy-source-hash',
+                'legacy.gcode.3mf',
+                '{\"kind\":\"success\"}',
+                1
+            )",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO job_mappings (job_id, tool, spool_id, slot_number)
+             VALUES (
+                 '22222222-2222-4222-8222-222222222222',
+                 0,
+                 '11111111-1111-4111-8111-111111111111',
+                 1
+             )",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO job_consumption (
+                job_id,
+                spool_id,
+                settlement_version,
+                consumed_grams,
+                confidence,
+                slot_number
+            ) VALUES (
+                '22222222-2222-4222-8222-222222222222',
+                '11111111-1111-4111-8111-111111111111',
+                1,
+                10.0,
+                'exact',
+                1
+            )",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO ledger_events (
+                event_id,
+                idempotency_key,
+                spool_id,
+                event_type,
+                delta_grams,
+                confidence
+            ) VALUES (
+                '33333333-3333-4333-8333-333333333333',
+                'legacy-creation',
+                '11111111-1111-4111-8111-111111111111',
+                'creation',
+                1000.0,
+                'exact'
+            )",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO ledger_events (
+                event_id,
+                idempotency_key,
+                spool_id,
+                job_id,
+                settlement_version,
+                event_type,
+                delta_grams,
+                confidence
+            ) VALUES (
+                '44444444-4444-4444-8444-444444444444',
+                'legacy-settlement',
+                '11111111-1111-4111-8111-111111111111',
+                '22222222-2222-4222-8222-222222222222',
+                1,
+                'settlement',
+                -10.0,
+                'exact'
+            )",
+                [],
+            )
+            .unwrap();
+
+        let database = AppDatabase::from_connection(connection).unwrap();
+
+        let plate_id: String = database
+            .connection
+            .query_row(
+                "SELECT plate_id FROM print_jobs
+                 WHERE job_id = '22222222-2222-4222-8222-222222222222'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!plate_id.is_empty());
+        let migrated_plate = database
+            .connection
+            .query_row(
+                "SELECT projects.source_hash, plates.plate_index, plates.max_layer, plates.parsed_json
+                 FROM print_plates AS plates
+                 JOIN print_projects AS projects USING (project_id)
+                 WHERE plates.plate_id = ?1",
+                [&plate_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, u32>(1)?,
+                        row.get::<_, u32>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            migrated_plate,
+            (
+                "legacy-source-hash".to_owned(),
+                1,
+                0,
+                "{\"filaments\":[],\"gcode\":{\"layers\":[],\"totals_mm\":{},\"max_layer\":0}}"
+                    .to_owned(),
+            )
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row(
+                    "SELECT remaining_grams FROM spools
+                     WHERE spool_id = '11111111-1111-4111-8111-111111111111'",
+                    [],
+                    |row| row.get::<_, f64>(0),
+                )
+                .unwrap(),
+            990.0
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row(
+                    "SELECT spool_id FROM ams_slots WHERE slot_number = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "11111111-1111-4111-8111-111111111111"
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM job_mappings
+                     WHERE job_id = '22222222-2222-4222-8222-222222222222'
+                       AND spool_id = '11111111-1111-4111-8111-111111111111'
+                       AND slot_number = 1",
+                    [],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row(
+                    "SELECT consumed_grams FROM job_consumption
+                     WHERE job_id = '22222222-2222-4222-8222-222222222222'
+                       AND spool_id = '11111111-1111-4111-8111-111111111111'
+                       AND settlement_version = 1",
+                    [],
+                    |row| row.get::<_, f64>(0),
+                )
+                .unwrap(),
+            10.0
+        );
+        assert_eq!(ledger_count(&database.connection), 2);
+    }
+
+    fn ledger_count(connection: &Connection) -> u32 {
+        connection
+            .query_row("SELECT COUNT(*) FROM ledger_events", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn print_history_migration_rolls_back_schema_when_backfill_fails() {
+        let path = std::env::temp_dir().join(format!(
+            "bambu-pools-print-history-rollback-{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        {
+            let connection = Connection::open(&path).unwrap();
+            create_minimal_legacy_print_history_database(&connection);
+            connection
+                .execute_batch(
+                    "CREATE TRIGGER reject_print_history_backfill
+                     BEFORE UPDATE OF plate_id ON print_jobs
+                     BEGIN
+                         SELECT RAISE(ABORT, 'forced print history backfill failure');
+                     END;",
+                )
+                .unwrap();
+        }
+
+        assert!(AppDatabase::open(&path).is_err());
+
+        let connection = Connection::open(&path).unwrap();
+        for table in ["media_assets", "print_projects", "print_plates"] {
+            assert!(
+                !table_exists(&connection, table).unwrap(),
+                "history migration left {table} behind after rollback"
+            );
+        }
+        assert!(
+            !column_exists(&connection, "print_jobs", "plate_id").unwrap(),
+            "history migration left print_jobs.plate_id behind after rollback"
+        );
+        drop(connection);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn print_history_migration_can_be_reopened_twice_without_duplicate_backfill() {
+        let path = std::env::temp_dir().join(format!(
+            "bambu-pools-print-history-reopen-{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        {
+            let connection = Connection::open(&path).unwrap();
+            create_minimal_legacy_print_history_database(&connection);
+        }
+
+        drop(AppDatabase::open(&path).unwrap());
+        for _ in 0..2 {
+            let reopened = AppDatabase::open(&path).unwrap();
+            let counts = reopened
+                .connection
+                .query_row(
+                    "SELECT
+                        (SELECT COUNT(*) FROM print_projects),
+                        (SELECT COUNT(*) FROM print_plates),
+                        (SELECT COUNT(*) FROM print_jobs WHERE plate_id IS NOT NULL)",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, u32>(0)?,
+                            row.get::<_, u32>(1)?,
+                            row.get::<_, u32>(2)?,
+                        ))
+                    },
+                )
+                .unwrap();
+            assert_eq!(counts, (1, 1, 1));
+        }
+
+        std::fs::remove_file(path).unwrap();
+    }
+
+    fn create_minimal_legacy_print_history_database(connection: &Connection) {
+        connection.execute_batch(INITIAL_MIGRATION).unwrap();
+        connection.execute_batch(PRINT_JOBS_MIGRATION).unwrap();
+        connection.execute_batch(REPEAT_JOBS_MIGRATION).unwrap();
+        connection
+            .execute(
+                "INSERT INTO parse_cache (
+                source_hash,
+                source_file_name,
+                parsed_json,
+                parse_count
+             ) VALUES (
+                'legacy-source-hash',
+                'legacy.gcode.3mf',
+                '{\"filaments\":[],\"gcode\":{\"layers\":[],\"totals_mm\":{},\"max_layer\":4}}',
+                1
+             )",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO print_jobs (
+                job_id,
+                source_hash,
+                source_file_name,
+                outcome,
+                settlement_version
+             ) VALUES (
+                '22222222-2222-4222-8222-222222222222',
+                'legacy-source-hash',
+                'legacy.gcode.3mf',
+                '{\"kind\":\"success\"}',
+                1
+             )",
+                [],
+            )
+            .unwrap();
     }
 
     #[test]
