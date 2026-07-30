@@ -439,7 +439,10 @@ function demoApi(): TauriApi {
       );
       return filter === "pending" ? (isPending ? [projectSummary()] : []) : (isPending ? [] : [projectSummary()]);
     },
-    async getPrintProject() { return projectDetail(); },
+    async getPrintProject(projectId) {
+      if (projectDiscarded || projectId !== demoProjectId) throw { code: "invalid_job" };
+      return projectDetail();
+    },
     async importPrintProject(path) { return projectPreview(path); },
     async discardProject() { projectDiscarded = true; },
     async skipPlate(plateId) {

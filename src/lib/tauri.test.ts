@@ -98,6 +98,38 @@ it("demo history keeps a two-plate project tied to existing spool identities", a
     .candidate_spool_ids).toContain("white-01");
 });
 
+it("demo getPrintProject returns only its active project and keeps confirmation available", async () => {
+  const api = createTauriApi(undefined, {});
+  const [project] = await api.listPrintProjects("pending");
+
+  await expect(api.getPrintProject(project.project_id)).resolves.toMatchObject({
+    project_id: project.project_id,
+  });
+  await expect(api.confirmNewProject("hash-1", "/prints/mask.3mf")).resolves.toMatchObject({
+    project_id: project.project_id,
+  });
+});
+
+it("demo getPrintProject rejects an unknown project ID", async () => {
+  const api = createTauriApi(undefined, {});
+
+  await expect(api.getPrintProject("unknown-project")).rejects.toEqual({
+    code: "invalid_job",
+  });
+});
+
+it("demo getPrintProject rejects a discarded project and removes it from pending", async () => {
+  const api = createTauriApi(undefined, {});
+  const [project] = await api.listPrintProjects("pending");
+
+  await api.discardProject(project.project_id);
+
+  await expect(api.getPrintProject(project.project_id)).rejects.toEqual({
+    code: "invalid_job",
+  });
+  await expect(api.listPrintProjects("pending")).resolves.toEqual([]);
+});
+
 it("provides deterministic browser data without activating demo mode in Tauri", async () => {
   const browserApi = createTauriApi(undefined, {});
   const tauriInvoke = vi.fn(async () => []);
