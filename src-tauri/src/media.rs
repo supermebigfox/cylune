@@ -4,7 +4,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use image::{ImageFormat, ImageReader};
+use image::{ImageFormat, ImageReader, Limits};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zip::ZipArchive;
@@ -12,6 +12,10 @@ use zip::ZipArchive;
 use crate::error::{AppError, Result};
 
 const MAX_COMPRESSED_ENTRY_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_EXTRACTED_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_IMAGE_WIDTH: u32 = 8_192;
+const MAX_IMAGE_HEIGHT: u32 = 8_192;
+const MAX_DECODED_IMAGE_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MediaAsset {
@@ -61,19 +65,15 @@ impl MediaStore {
             return Err(AppError::InvalidFile);
         }
 
-        if archive_entry.size() > MAX_COMPRESSED_ENTRY_BYTES {
+        let declared_size = archive_entry.size();
+        if declared_size > MAX_COMPRESSED_ENTRY_BYTES {
             return Err(AppError::InvalidFile);
         }
-        let mut bytes = Vec::with_capacity(
-            usize::try_from(archive_entry.size()).map_err(|_| AppError::InvalidFile)?,
-        );
-        archive_entry
-            .read_to_end(&mut bytes)
-            .map_err(|_| AppError::InvalidFile)?;
+        let bytes = read_entry_bytes(&mut archive_entry, declared_size)?;
         let (format, extension, mime_type) = image_type(&bytes).ok_or(AppError::InvalidFile)?;
-        let image = ImageReader::with_format(Cursor::new(&bytes), format)
-            .decode()
-            .map_err(|_| AppError::InvalidFile)?;
+        let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
+        reader.limits(image_limits());
+        let image = reader.decode().map_err(|_| AppError::InvalidFile)?;
         let (width, height) = (image.width(), image.height());
         if width == 0 || height == 0 {
             return Err(AppError::InvalidFile);
@@ -126,6 +126,27 @@ impl MediaStore {
         }
         write_result
     }
+}
+
+fn read_entry_bytes(reader: &mut impl Read, declared_size: u64) -> Result<Vec<u8>> {
+    let capacity = usize::try_from(declared_size).map_err(|_| AppError::InvalidFile)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    reader
+        .take(MAX_EXTRACTED_IMAGE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| AppError::InvalidFile)?;
+    if bytes.len() > MAX_EXTRACTED_IMAGE_BYTES as usize {
+        return Err(AppError::InvalidFile);
+    }
+    Ok(bytes)
+}
+
+fn image_limits() -> Limits {
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_WIDTH);
+    limits.max_image_height = Some(MAX_IMAGE_HEIGHT);
+    limits.max_alloc = Some(MAX_DECODED_IMAGE_BYTES);
+    limits
 }
 
 fn validate_entry_name(entry: &str) -> Result<()> {
@@ -182,7 +203,7 @@ fn ensure_real_directory(path: &Path) -> Result<()> {
 mod tests {
     use std::{
         fs::{self, File},
-        io::Write,
+        io::{Cursor, Write},
         path::{Path, PathBuf},
     };
 
@@ -277,6 +298,31 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn rejects_reader_output_past_the_image_byte_limit_despite_a_small_declared_size() {
+        let mut reader = Cursor::new(vec![0; 16 * 1024 * 1024 + 1]);
+
+        let error = super::read_entry_bytes(&mut reader, 1).unwrap_err();
+
+        assert!(matches!(error, AppError::InvalidFile));
+    }
+
+    #[test]
+    fn rejects_images_wider_than_the_thumbnail_dimension_limit_without_writing() {
+        let root = temporary_root();
+        let oversized_png = png(8_193, 1);
+        let archive_path = write_archive(&root, "too-wide.png", &oversized_png);
+        let store = MediaStore::new(root.clone()).unwrap();
+
+        let error = store
+            .extract_image(&archive_path, "too-wide.png")
+            .unwrap_err();
+
+        assert!(matches!(error, AppError::InvalidFile));
+        assert_eq!(media_file_count(&root), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     fn temporary_root() -> PathBuf {
         let root = std::env::temp_dir().join(format!("bambu-pools-media-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&root).unwrap();
@@ -284,9 +330,14 @@ mod tests {
     }
 
     fn valid_png() -> Vec<u8> {
+        png(1, 1)
+    }
+
+    fn png(width: u32, height: u32) -> Vec<u8> {
         let mut bytes = Vec::new();
+        let pixels = vec![0; width as usize * height as usize * 4];
         PngEncoder::new(&mut bytes)
-            .write_image(&[0, 0, 0, 0], 1, 1, ColorType::Rgba8.into())
+            .write_image(&pixels, width, height, ColorType::Rgba8.into())
             .unwrap();
         bytes
     }
