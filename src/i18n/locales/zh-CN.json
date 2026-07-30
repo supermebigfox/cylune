@@ -136,6 +136,7 @@
   "history": {
     "title": "打印历史",
     "hint": "按项目查看待处理与已完成的打印盘。",
+    "backToHistory": "返回打印记录",
     "pending": "待处理项目",
     "history": "已处理项目",
     "statusPending": "等待映射",
@@ -167,10 +168,14 @@
     "jobWorkspace": "耗材映射与结算工作区",
     "estimatedResult": "估算结果",
     "settledResult": "结算结果",
+    "reversedResult": "扣减已撤销",
     "deducted": "已扣减 {{grams}} 克",
+    "restored": "已返还 {{grams}} 克",
     "resultRecorded": "本盘的耗材用量已记录",
     "skippedTitle": "本盘已跳过",
     "skippedNoDeduction": "已跳过，没有扣减耗材",
+    "skipPlate": "跳过这盘",
+    "skipConfirm": "跳过这盘不会扣减耗材，确认继续吗？",
     "status": {
       "pending_mapping": "等待映射",
       "ready": "等待结算",

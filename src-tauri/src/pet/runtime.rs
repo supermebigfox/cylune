@@ -1082,7 +1082,6 @@ fn open_from_pet(app: &AppHandle) {
             crate::tray::show_main(app);
             if let Some(navigation) = navigation {
                 let _ = app.emit_to("main", "open-project", navigation.clone());
-                let _ = app.emit_to("main", "open-job", navigation.job_id.to_string());
             } else if let Some(job_id) = summary.newest_job_id {
                 let _ = app.emit_to("main", "open-job", job_id.to_string());
             } else {
@@ -1119,7 +1118,6 @@ fn import_from_pet(
         Ok(PetSignal::ProjectImportSucceeded { navigation, .. }) => {
             crate::tray::show_main(app);
             let _ = app.emit_to("main", "open-project", navigation.clone());
-            let _ = app.emit_to("main", "open-job", navigation.job_id.to_string());
         }
         Ok(PetSignal::NewProjectConfirmationRequired {
             project_id,

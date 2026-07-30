@@ -196,6 +196,7 @@ export interface SettlementResult {
   job_id: string;
   outcome: JobOutcome;
   settlement_version: number;
+  reversed: boolean;
   selected_layer: number | null;
   confidence: Confidence;
   consumption: Consumption[];
@@ -225,6 +226,7 @@ export interface TauriApi {
   confirmNewPrint(sourceHash: string): Promise<ImportPreview>;
   discardPendingJob(jobId: string): Promise<void>;
   getJobPreview?(jobId: string): Promise<ImportPreview>;
+  getProjectPreview?(projectId: string): Promise<ImportProjectPreview>;
   listPrintProjects(filter: HistoryFilter): Promise<PrintProjectSummary[]>;
   getPrintProject(projectId: string): Promise<PrintProjectDetail>;
   importPrintProject(path: string): Promise<ImportProjectPreview>;
@@ -233,6 +235,7 @@ export interface TauriApi {
   confirmNewProject(sourceHash: string, sourcePath: string): Promise<ImportProjectPreview>;
   takePendingNavigation(): Promise<PendingNavigationTarget | null>;
   settleJob(jobId: string, outcome: JobOutcome): Promise<SettlementResult>;
+  getSettlementResult?(jobId: string): Promise<SettlementResult | null>;
   reverseSettlement(jobId: string): Promise<ReversalResult>;
   exportBackup?(path: string): Promise<string>;
   importBackup?(path: string): Promise<string>;
@@ -342,6 +345,7 @@ function demoApi(): TauriApi {
   let slots = demoSlots.map((slot) => ({ ...slot }));
   let projectPlates = demoProjectPlates.map((plate) => ({ ...plate }));
   let projectDiscarded = false;
+  const settlementResults = new Map<string, SettlementResult>();
   let pet: PetSettings = {
     mode: "lite", visual_style: "gargantua", size: 220, fps: "auto", visible: false, x: null, y: null,
     display_id: null, effective_mode: "lite", permission: "unavailable",
@@ -476,9 +480,33 @@ function demoApi(): TauriApi {
       } : null;
     },
     async settleJob(jobId, outcome) {
-      return { job_id: jobId, outcome, settlement_version: 1, selected_layer: null, confidence: outcome.kind === "estimated" ? "estimated" : "exact", consumption: [] };
+      const plateIndex = Number(jobId.replace("demo-mask-job-", "")) - 1;
+      const plate = projectPlates[plateIndex];
+      const result = { job_id: jobId, outcome, settlement_version: 1, reversed: false, selected_layer: null, confidence: outcome.kind === "estimated" ? "estimated" : "exact", consumption: [] } as SettlementResult;
+      if (plate) {
+        projectPlates = projectPlates.map((item, index) => index === plateIndex
+          ? { ...item, status: outcome.kind === "success" ? "success" : outcome.kind }
+          : item);
+        settlementResults.set(jobId, result);
+      }
+      return result;
     },
-    async reverseSettlement(jobId) { return { job_id: jobId, settlement_version: 1, already_reversed: false, restored: [] }; },
+    async getProjectPreview(projectId) {
+      if (projectDiscarded || projectId !== demoProjectId) throw { code: "invalid_job" };
+      return projectPreview();
+    },
+    async getSettlementResult(jobId) { return settlementResults.get(jobId) ?? null; },
+    async reverseSettlement(jobId) {
+      const settled = settlementResults.get(jobId);
+      const alreadyReversed = settled?.reversed ?? false;
+      if (settled) settlementResults.set(jobId, { ...settled, reversed: true });
+      return {
+        job_id: jobId,
+        settlement_version: settled?.settlement_version ?? 1,
+        already_reversed: alreadyReversed,
+        restored: settled?.consumption ?? [],
+      };
+    },
     async getPetSettings() { return { ...pet }; },
     async setPetSettings(patch) {
       const { reset_position, ...settings } = patch;
@@ -505,6 +533,7 @@ function commandApi(invoke: Invoke): TauriApi {
     confirmNewPrint: (sourceHash) => call<ImportPreview>("confirm_new_print", { sourceHash }),
     discardPendingJob: (jobId) => call<void>("discard_pending_job", { jobId }),
     getJobPreview: (jobId) => call<ImportPreview>("get_job_preview", { jobId }),
+    getProjectPreview: (projectId) => call<ImportProjectPreview>("get_project_preview", { projectId }),
     listPrintProjects: (filter) => call<PrintProjectSummary[]>("list_print_projects", { filter }),
     getPrintProject: (projectId) => call<PrintProjectDetail>("get_print_project", { projectId }),
     importPrintProject: (path) => call<ImportProjectPreview>("import_print_project", { path }),
@@ -515,6 +544,7 @@ function commandApi(invoke: Invoke): TauriApi {
     takePendingNavigation: () =>
       invoke("take_pending_navigation") as Promise<PendingNavigationTarget | null>,
     settleJob: (jobId, outcome) => call<SettlementResult>("settle_job", { jobId, outcome }),
+    getSettlementResult: (jobId) => call<SettlementResult | null>("get_settlement_result", { jobId }),
     reverseSettlement: (jobId) => call<ReversalResult>("reverse_settlement", { jobId }),
     exportBackup: (path) => call<string>("export_backup", { path }),
     importBackup: (path) => call<string>("import_backup", { path }),

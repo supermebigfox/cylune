@@ -538,6 +538,7 @@ select { appearance: auto; }
 .plate-result-layout { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .plate-result { flex: 1; display: flex; align-items: flex-start; gap: 10px; min-height: 72px; padding: 14px; border-radius: 16px; background: var(--mint-soft); color: var(--success-text); }
 .plate-result.estimated { background: var(--yellow-soft); color: var(--warning-text); }
+.plate-result.reversed { background: var(--surface-muted); color: var(--text-muted); }
 .plate-result.skipped { background: var(--surface-muted); color: var(--text-muted); }
 .plate-result strong { font-size: 12px; }
 .plate-result p { margin: 4px 0 0; color: var(--text-muted); font-size: 10px; }

@@ -46,11 +46,13 @@ it("forwards typed project history commands with their exact camelCase payloads"
 
   await api.listPrintProjects("pending");
   await api.getPrintProject("project-1");
+  await api.getProjectPreview?.("project-1");
   await api.importPrintProject("/prints/mask.3mf");
   await api.discardProject("project-1");
   await api.skipPlate("plate-2");
   await api.confirmNewProject("hash-1", "/prints/mask.3mf");
   await api.takePendingNavigation();
+  await api.getSettlementResult?.("job-1");
 
   expect(invoke).toHaveBeenNthCalledWith(1, "list_print_projects", {
     filter: "pending",
@@ -58,20 +60,26 @@ it("forwards typed project history commands with their exact camelCase payloads"
   expect(invoke).toHaveBeenNthCalledWith(2, "get_print_project", {
     projectId: "project-1",
   });
-  expect(invoke).toHaveBeenNthCalledWith(3, "import_print_project", {
-    path: "/prints/mask.3mf",
-  });
-  expect(invoke).toHaveBeenNthCalledWith(4, "discard_project", {
+  expect(invoke).toHaveBeenNthCalledWith(3, "get_project_preview", {
     projectId: "project-1",
   });
-  expect(invoke).toHaveBeenNthCalledWith(5, "skip_plate", {
+  expect(invoke).toHaveBeenNthCalledWith(4, "import_print_project", {
+    path: "/prints/mask.3mf",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(5, "discard_project", {
+    projectId: "project-1",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(6, "skip_plate", {
     plateId: "plate-2",
   });
-  expect(invoke).toHaveBeenNthCalledWith(6, "confirm_new_project", {
+  expect(invoke).toHaveBeenNthCalledWith(7, "confirm_new_project", {
     sourceHash: "hash-1",
     sourcePath: "/prints/mask.3mf",
   });
-  expect(invoke).toHaveBeenNthCalledWith(7, "take_pending_navigation");
+  expect(invoke).toHaveBeenNthCalledWith(8, "take_pending_navigation");
+  expect(invoke).toHaveBeenNthCalledWith(9, "get_settlement_result", {
+    jobId: "job-1",
+  });
 });
 
 it("demo history keeps a two-plate project tied to existing spool identities", async () => {

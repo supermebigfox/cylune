@@ -133,6 +133,7 @@ pub fn run() {
             history::list_print_projects,
             history::get_print_project,
             settlement::settle_job,
+            settlement::get_settlement_result,
             settlement::reverse_settlement,
             backup::export_backup,
             backup::import_backup,

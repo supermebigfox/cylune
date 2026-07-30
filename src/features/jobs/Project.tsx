@@ -1,5 +1,6 @@
 import {
   ArrowCounterClockwise,
+  ArrowLeft,
   CheckCircle,
   Clock,
   Hourglass,
@@ -120,12 +121,16 @@ export function Project({
   spools,
   initialMappings,
   result = null,
+  repeatSourceHash = null,
   busy = false,
+  canDiscardProject = true,
   onSelectPlate,
   onConfirmMapping,
   onSettle,
   onConfirmNewPrint,
   onDiscard,
+  onSkipPlate,
+  onBackToHistory,
   onReverse,
 }: {
   project: PrintProjectDetail;
@@ -134,12 +139,16 @@ export function Project({
   spools: Spool[];
   initialMappings?: Record<number, string>;
   result?: { plateId: string; value: SettlementResult } | null;
+  repeatSourceHash?: string | null;
   busy?: boolean;
+  canDiscardProject?: boolean;
   onSelectPlate(plateId: string): void;
   onConfirmMapping(jobId: string, mappings: ToolMapping[]): boolean | void | Promise<boolean | void>;
   onSettle(jobId: string, outcome: JobOutcome): boolean | void | Promise<boolean | void>;
   onConfirmNewPrint(sourceHash: string): boolean | void | Promise<boolean | void>;
   onDiscard?(jobId: string): boolean | void | Promise<boolean | void>;
+  onSkipPlate?(plateId: string): boolean | void | Promise<boolean | void>;
+  onBackToHistory?(): void;
   onReverse(jobId: string): boolean | void | Promise<boolean | void>;
 }) {
   const locale = useLocale();
@@ -162,6 +171,7 @@ export function Project({
     <section className="page project-page" aria-labelledby="project-title">
       <header className="project-header">
         <div>
+          {onBackToHistory ? <button className="ghost project-back" disabled={busy} onClick={onBackToHistory} type="button"><ArrowLeft aria-hidden="true" size={16} />{copy("history.backToHistory")}</button> : null}
           <h1 id="project-title">{project.source_file_name}</h1>
           <p>
             {copy("history.importedAt", {
@@ -183,6 +193,24 @@ export function Project({
         </div>
       </header>
 
+      {repeatSourceHash ? (
+        <div className="callout warning project-repeat" role="status">
+          <WarningCircle aria-hidden="true" size={21} weight="fill" />
+          <div>
+            <strong>{copy("import.duplicate")}</strong>
+            <p>{copy("jobs.repeatHint")}</p>
+          </div>
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() => onConfirmNewPrint(repeatSourceHash)}
+            type="button"
+          >
+            {busy ? copy("common.saving") : copy("jobs.confirmNew")}
+          </button>
+        </div>
+      ) : null}
+
       <section className="project-plates" aria-labelledby="project-plates-title">
         <div className="section-heading">
           <div>
@@ -196,6 +224,7 @@ export function Project({
               <button
                 aria-pressed={selected}
                 className={`plate-card ${selected ? "selected" : ""}`}
+                disabled={busy}
                 key={plate.plate_id}
                 onClick={() => onSelectPlate(plate.plate_id)}
                 type="button"
@@ -305,12 +334,27 @@ export function Project({
                   initialMappings={initialMappings}
                   onConfirmMapping={onConfirmMapping}
                   onConfirmNewPrint={onConfirmNewPrint}
-                  onDiscard={onDiscard}
+                  onDiscard={canDiscardProject ? onDiscard : undefined}
                   onReverse={onReverse}
                   onSettle={onSettle}
                   preview={selectedPreview}
                   spools={spools}
                 />
+                {!canDiscardProject && onSkipPlate ? (
+                  <button
+                    className="ghost full"
+                    disabled={busy}
+                    onClick={() => {
+                      if (window.confirm(copy("project.skipConfirm"))) {
+                        void onSkipPlate(selectedPlate.plate_id);
+                      }
+                    }}
+                    type="button"
+                  >
+                    <Prohibit aria-hidden="true" size={17} />
+                    {copy("project.skipPlate")}
+                  </button>
+                ) : null}
               </>
             ) : (
               <div className="plate-detail-empty" role="status">
@@ -333,20 +377,24 @@ export function Project({
             </div>
           ) : (
             <div className="plate-result-layout">
-              <div className={`plate-result ${selectedPlate.status === "estimated" ? "estimated" : ""}`}>
-                {selectedPlate.status === "estimated" ? (
+              <div className={`plate-result ${selectedResult.reversed ? "reversed" : selectedPlate.status === "estimated" ? "estimated" : ""}`}>
+                {selectedResult.reversed ? (
+                  <ArrowCounterClockwise aria-hidden="true" size={22} weight="fill" />
+                ) : selectedPlate.status === "estimated" ? (
                   <WarningCircle aria-hidden="true" size={22} weight="fill" />
                 ) : (
                   <CheckCircle aria-hidden="true" size={22} weight="fill" />
                 )}
                 <div>
                   <strong>
-                    {copy(selectedPlate.status === "estimated"
+                    {copy(selectedResult.reversed
+                      ? "project.reversedResult"
+                      : selectedPlate.status === "estimated"
                       ? "project.estimatedResult"
                       : "project.settledResult")}
                   </strong>
                   <p>
-                    {copy("project.deducted", {
+                    {copy(selectedResult.reversed ? "project.restored" : "project.deducted", {
                       grams: selectedResult.consumption
                         .reduce((sum, item) => sum + item.grams, 0)
                         .toFixed(1),
@@ -354,7 +402,7 @@ export function Project({
                   </p>
                 </div>
               </div>
-              <button
+              {!selectedResult.reversed ? <button
                 className="ghost"
                 disabled={busy}
                 onClick={() => onReverse(selectedResult.job_id)}
@@ -362,7 +410,7 @@ export function Project({
               >
                 <ArrowCounterClockwise aria-hidden="true" size={17} />
                 {copy("jobs.reverse")}
-              </button>
+              </button> : null}
             </div>
           )}
         </section>

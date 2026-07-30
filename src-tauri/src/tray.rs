@@ -570,8 +570,6 @@ pub fn open_job_in_main(
     if let Some(navigation) = navigation {
         app.emit_to("main", "open-project", navigation.clone())
             .map_err(|error| AppError::Io(error.to_string()))?;
-        app.emit_to("main", "open-job", navigation.job_id.to_string())
-            .map_err(|error| AppError::Io(error.to_string()))?;
     } else {
         app.emit_to("main", "open-job", job_id)
             .map_err(|error| AppError::Io(error.to_string()))?;

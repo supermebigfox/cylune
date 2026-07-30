@@ -125,6 +125,7 @@ const estimatedResult: SettlementResult = {
   job_id: "job-body",
   outcome: { kind: "estimated", progress_percent: 63 },
   settlement_version: 1,
+  reversed: false,
   selected_layer: null,
   confidence: "estimated",
   consumption: [
@@ -256,6 +257,28 @@ describe("Project", () => {
       within(detail).getByRole("button", { name: "撤销本次扣减" }),
     );
     expect(onReverse).toHaveBeenCalledWith("job-body");
+  });
+
+  it("shows a reversed settlement as restored and removes the reversal action", () => {
+    render(
+      <Project
+        {...baseActions}
+        project={project}
+        result={{
+          plateId: "plate-body",
+          value: { ...estimatedResult, reversed: true },
+        }}
+        selectedPlateId="plate-body"
+        onSelectPlate={() => undefined}
+      />,
+    );
+
+    const detail = screen.getByRole("region", { name: "第 2 盘详情" });
+    expect(within(detail).getByText("扣减已撤销")).toBeVisible();
+    expect(within(detail).getByText("已返还 18.4 克")).toBeVisible();
+    expect(
+      within(detail).queryByRole("button", { name: "撤销本次扣减" }),
+    ).not.toBeInTheDocument();
   });
 
   it("states that a skipped plate has no deduction and exposes no deduction control", () => {

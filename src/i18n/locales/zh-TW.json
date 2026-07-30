@@ -136,6 +136,7 @@
   "history": {
     "title": "列印歷史",
     "hint": "按專案查看待處理與已完成的列印盤。",
+    "backToHistory": "返回列印記錄",
     "pending": "待處理專案",
     "history": "已處理專案",
     "statusPending": "等待對應",
@@ -167,10 +168,14 @@
     "jobWorkspace": "耗材對應與結算工作區",
     "estimatedResult": "估算結果",
     "settledResult": "結算結果",
+    "reversedResult": "扣減已撤銷",
     "deducted": "已扣減 {{grams}} 克",
+    "restored": "已返還 {{grams}} 克",
     "resultRecorded": "本盤的耗材用量已記錄",
     "skippedTitle": "本盤已跳過",
     "skippedNoDeduction": "已跳過，沒有扣減耗材",
+    "skipPlate": "跳過此盤",
+    "skipConfirm": "跳過此盤不會扣減耗材，確定繼續嗎？",
     "status": {
       "pending_mapping": "等待對應",
       "ready": "等待結算",

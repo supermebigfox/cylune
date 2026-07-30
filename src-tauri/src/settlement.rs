@@ -22,6 +22,7 @@ pub struct SettlementResult {
     pub job_id: Uuid,
     pub outcome: JobOutcome,
     pub settlement_version: u32,
+    pub reversed: bool,
     pub selected_layer: Option<u32>,
     pub confidence: Confidence,
     pub consumption: Vec<Consumption>,
@@ -158,6 +159,7 @@ impl PrintService {
             job_id,
             outcome,
             settlement_version,
+            reversed: false,
             selected_layer,
             confidence,
             consumption,
@@ -284,15 +286,37 @@ impl PrintService {
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
+        let reversed: bool = self.database.connection.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM ledger_events
+                WHERE job_id = ?1
+                  AND settlement_version = ?2
+                  AND event_type = 'reversal'
+             )",
+            params![job_id.to_string(), settlement_version],
+            |row| row.get(0),
+        )?;
         Ok(Some(SettlementResult {
             job_id,
             outcome,
             settlement_version,
+            reversed,
             selected_layer,
             confidence,
             consumption,
         }))
     }
+}
+
+#[tauri::command]
+pub fn get_settlement_result(
+    job_id: Uuid,
+    state: tauri::State<'_, PrintState>,
+) -> Result<Option<SettlementResult>> {
+    state
+        .lock()
+        .map_err(|_| AppError::Database("print lock poisoned".into()))?
+        .saved_settlement(job_id)
 }
 
 fn usage_for_outcome(
@@ -722,6 +746,7 @@ mod tests {
         assert!(!reversed.already_reversed);
         assert!(repeated.already_reversed);
         assert_eq!(reversed.restored, settled.consumption);
+        assert!(service.saved_settlement(job_id).unwrap().unwrap().reversed);
         assert_eq!(
             spools.map(|spool| service.spool_balance(spool).unwrap()),
             [1000.0, 1000.0]
@@ -880,6 +905,21 @@ mod tests {
             .expect("set BAMBU_SMOKE_3MF");
         let metadata_before = std::fs::metadata(&path).unwrap();
         let source_hash_before = crate::imports::sha256(&path).unwrap();
+        let project_probe = crate::parser::parse_3mf_project(&path).unwrap();
+        assert_eq!(project_probe.plates.len(), 1);
+        let plate_probe = &project_probe.plates[0];
+        assert_eq!(plate_probe.plate_index, 1);
+        assert_eq!(plate_probe.filaments.len(), 4);
+        assert_eq!(plate_probe.gcode.max_layer, 14);
+        assert_eq!(plate_probe.estimated_seconds, Some(18_307));
+        assert_eq!(
+            plate_probe.thumbnail_entries,
+            [
+                "Metadata/plate_1.png",
+                "Metadata/plate_1_small.png",
+                "Metadata/plate_no_light_1.png",
+            ]
+        );
         let probe = crate::parser::parse_3mf(&path).unwrap();
         assert_eq!(probe.filaments.len(), 4);
 
@@ -938,10 +978,6 @@ mod tests {
             assert_eq!(filament.candidate_spool_ids, vec![expected_spool_id]);
             assert_eq!(filament.suggested_spool_id, Some(expected_spool_id));
         }
-        let metadata_after = std::fs::metadata(&path).unwrap();
-        assert_eq!(metadata_before.len(), metadata_after.len());
-        assert_eq!(source_hash_before, crate::imports::sha256(&path).unwrap());
-
         assert_eq!(preview.filaments.len(), probe.filaments.len());
         let middle_layer = probe.gcode.max_layer.saturating_sub(1) / 2;
         println!("real_file_layers={}", probe.gcode.max_layer);
@@ -1010,6 +1046,14 @@ mod tests {
                 );
             }
         }
+
+        let metadata_after = std::fs::metadata(&path).unwrap();
+        assert_eq!(metadata_before.len(), metadata_after.len());
+        assert_eq!(
+            metadata_before.modified().unwrap(),
+            metadata_after.modified().unwrap()
+        );
+        assert_eq!(source_hash_before, crate::imports::sha256(&path).unwrap());
     }
 
     fn balance_rows(service: &PrintService) -> Vec<(String, f64)> {

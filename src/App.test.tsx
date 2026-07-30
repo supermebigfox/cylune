@@ -4,7 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App, DesktopApp } from "./App";
 import { setLocale } from "./i18n";
-import { demoPreview, type Spool, type TauriApi } from "./lib/tauri";
+import {
+  demoPreview,
+  type ImportProjectPreview,
+  type PrintProjectDetail,
+  type PrintProjectSummary,
+  type Spool,
+  type TauriApi,
+} from "./lib/tauri";
 
 const persistedSpool: Spool = {
   spool_id: "spool-persisted",
@@ -54,6 +61,45 @@ function fakeTauriApi(overrides: Partial<TauriApi> = {}): TauriApi {
     reverseSettlement: async () => ({ job_id: "job", settlement_version: 1, already_reversed: false, restored: [] }),
     ...overrides,
   };
+}
+
+function projectFixture(name = "two-plates.gcode.3mf", projectId = "project-1") {
+  const plates = [
+    {
+      plate_id: "plate-1", project_id: projectId, plate_index: 1, display_name: "前盘",
+      thumbnail_asset_id: null, thumbnail_url: null, estimated_seconds: 1800, max_layer: 14,
+      status: "pending_mapping" as const,
+      filaments: [{ profile: { ...demoPreview.filaments[0].profile }, total_grams: 12.4 }],
+    },
+    {
+      plate_id: "plate-2", project_id: projectId, plate_index: 2, display_name: "后盘",
+      thumbnail_asset_id: null, thumbnail_url: null, estimated_seconds: 2400, max_layer: 20,
+      status: "pending_mapping" as const,
+      filaments: [{ profile: { ...demoPreview.filaments[1].profile }, total_grams: 8.6 }],
+    },
+  ];
+  const detail: PrintProjectDetail = {
+    project_id: projectId, source_hash: "two-plate-hash", source_file_name: name,
+    source_path: `/tmp/${name}`, imported_at: "2026-07-30T04:00:00Z", plate_count: 2,
+    total_estimated_seconds: 4200, cover_asset_id: null, cover_url: null, plates,
+  };
+  const preview: ImportProjectPreview = {
+    project_id: projectId, source_hash: detail.source_hash, source_file_name: name,
+    imported_at: detail.imported_at, state: "new",
+    plates: plates.map((plate, index) => ({
+      plate_id: plate.plate_id, job_id: `job-${index + 1}`, plate_index: plate.plate_index,
+      thumbnail_url: null, estimated_seconds: plate.estimated_seconds, max_layer: plate.max_layer,
+      filaments: [{ ...demoPreview.filaments[index], profile: { ...demoPreview.filaments[index].profile }, candidate_spool_ids: [persistedSpool.spool_id], suggested_spool_id: persistedSpool.spool_id }],
+      status: plate.status,
+    })),
+  };
+  const summary = (): PrintProjectSummary => ({
+    project_id: detail.project_id, source_file_name: detail.source_file_name,
+    imported_at: detail.imported_at, plate_count: detail.plate_count,
+    total_estimated_seconds: detail.total_estimated_seconds, cover_asset_id: null, cover_url: null,
+    plates: detail.plates.map((plate) => ({ ...plate, filaments: plate.filaments.map((filament) => ({ ...filament, profile: { ...filament.profile } })) })),
+  });
+  return { detail, preview, summary };
 }
 
 describe("App localization", () => {
@@ -316,47 +362,101 @@ describe("App localization", () => {
     ).toBeDisabled();
   });
 
-  it("selects and imports a sliced 3MF from the main window", async () => {
-    const pickFile = vi.fn(async () => "/Users/robin/Desktop/model.gcode.3mf");
-    const importPrintFile = vi.fn(async () => ({ ...demoPreview, source_file_name: "model.gcode.3mf" }));
-    render(<DesktopApp apiClient={fakeTauriApi({ importPrintFile })} pickFile={pickFile} />);
+  it("imports one project, settles only its selected second plate, and returns to grouped history", async () => {
+    const user = userEvent.setup();
+    const fixture = projectFixture();
+    const listPrintProjects = vi.fn(async (filter: "pending" | "history") => {
+      const pending = fixture.detail.plates.some((plate) => plate.status === "pending_mapping" || plate.status === "ready");
+      const settled = fixture.detail.plates.some((plate) => !["pending_mapping", "ready"].includes(plate.status));
+      return filter === "pending" ? (pending ? [fixture.summary()] : []) : (settled ? [fixture.summary()] : []);
+    });
+    const confirmJobMapping = vi.fn(async (jobId: string) => {
+      const index = fixture.preview.plates.findIndex((plate) => plate.job_id === jobId);
+      fixture.detail.plates[index].status = "ready";
+      fixture.preview.plates[index].status = "ready";
+    });
+    const settleJob = vi.fn(async (jobId: string) => {
+      const index = fixture.preview.plates.findIndex((plate) => plate.job_id === jobId);
+      fixture.detail.plates[index].status = "success";
+      fixture.preview.plates[index].status = "success";
+      return { job_id: jobId, outcome: { kind: "success" } as const, settlement_version: 1, reversed: false, selected_layer: null, confidence: "exact" as const, consumption: [] };
+    });
+    const pickFile = vi.fn(async () => "/tmp/two-plates.gcode.3mf");
+    const importPrintProject = vi.fn(async () => fixture.preview);
+    render(<DesktopApp apiClient={fakeTauriApi({ listPrintProjects, getPrintProject: async () => fixture.detail, getProjectPreview: async () => fixture.preview, importPrintProject, confirmJobMapping, settleJob })} pickFile={pickFile} />);
     await screen.findByText("持久化蓝色 PLA");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "导入切片文件" })[1]);
+    await user.click(screen.getAllByRole("button", { name: "导入切片文件" })[0]);
+    expect(await screen.findByRole("heading", { name: "two-plates.gcode.3mf" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /后盘/ }));
+    await user.click(screen.getByRole("button", { name: "确认耗材映射" }));
+    await waitFor(() => expect(confirmJobMapping).toHaveBeenCalledWith("job-2", expect.any(Array)));
+    await user.click(screen.getByRole("button", { name: "确认扣减耗材" }));
+    await waitFor(() => expect(settleJob).toHaveBeenCalledWith("job-2", { kind: "success" }));
+    expect(await screen.findByText("结算结果")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /前盘/ }));
+    expect(screen.queryByRole("button", { name: "取消此次导入" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "跳过这盘" })).toBeVisible();
 
-    expect(await screen.findByText("model.gcode.3mf")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "返回打印记录" }));
+    expect(await screen.findByRole("heading", { name: "打印历史" })).toBeVisible();
+    await user.click(screen.getAllByRole("button", { name: /打开two-plates\.gcode\.3mf/ })[0]);
+    expect(await screen.findByText("打印成功")).toBeVisible();
+    expect(screen.getAllByText("等待映射").length).toBeGreaterThan(0);
     expect(pickFile).toHaveBeenCalledTimes(1);
-    expect(importPrintFile).toHaveBeenCalledWith("/Users/robin/Desktop/model.gcode.3mf");
+    expect(importPrintProject).toHaveBeenCalledWith("/tmp/two-plates.gcode.3mf");
   });
 
-  it("discards an imported draft without deducting filament", async () => {
+  it("confirms a repeated print with the newly selected source path", async () => {
+    const user = userEvent.setup();
+    const previous = projectFixture("old-copy.gcode.3mf", "settled-project");
+    previous.detail.source_path = "/tmp/stale-or-moved.gcode.3mf";
+    previous.detail.plates.forEach((plate) => { plate.status = "success"; });
+    previous.preview.plates.forEach((plate) => { plate.status = "success"; });
+    previous.preview.state = "new_print_confirmation_required";
+    const next = projectFixture("new-copy.gcode.3mf", "new-project");
+    const selectedPath = "/Users/robin/Desktop/new-copy.gcode.3mf";
+    const confirmNewProject = vi.fn(async () => next.preview);
+
+    render(<DesktopApp
+      apiClient={fakeTauriApi({
+        getPrintProject: async (projectId) => projectId === next.detail.project_id
+          ? next.detail
+          : previous.detail,
+        getProjectPreview: async () => previous.preview,
+        importPrintProject: async () => previous.preview,
+        confirmNewProject,
+      })}
+      pickFile={async () => selectedPath}
+    />);
+    await screen.findByText("持久化蓝色 PLA");
+
+    await user.click(screen.getAllByRole("button", { name: "导入切片文件" })[0]);
+    expect(await screen.findByText("这个打印任务已经导入过了")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "确认这是一次新打印" }));
+
+    await waitFor(() => expect(confirmNewProject).toHaveBeenCalledWith(
+      previous.preview.source_hash,
+      selectedPath,
+    ));
+    expect(await screen.findByRole("heading", { name: "new-copy.gcode.3mf" })).toBeVisible();
+  });
+
+  it("discards an entire unsettled project without changing inventory", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    const discardPendingJob = vi.fn(async () => undefined);
-    const importPrintFile = vi.fn(async () => ({ ...demoPreview, source_file_name: "wrong.gcode.3mf" }));
-    render(<DesktopApp apiClient={fakeTauriApi({ importPrintFile, discardPendingJob })} pickFile={async () => "/tmp/wrong.gcode.3mf"} />);
+    const fixture = projectFixture("discard-me.gcode.3mf");
+    let discarded = false;
+    const discardProject = vi.fn(async () => { discarded = true; });
+    const listPrintProjects = async () => discarded ? [] : [fixture.summary()];
+    render(<DesktopApp apiClient={fakeTauriApi({ listPrintProjects, getPrintProject: async () => fixture.detail, getProjectPreview: async () => fixture.preview, importPrintProject: async () => fixture.preview, discardProject })} pickFile={async () => "/tmp/discard-me.gcode.3mf"} />);
     await screen.findByText("持久化蓝色 PLA");
 
     fireEvent.click(screen.getAllByRole("button", { name: "导入切片文件" })[0]);
-    expect(await screen.findByText("wrong.gcode.3mf")).toBeVisible();
+    expect(await screen.findByText("discard-me.gcode.3mf")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "取消此次导入" }));
 
-    await waitFor(() => expect(discardPendingJob).toHaveBeenCalledWith(demoPreview.job_id));
-    expect(await screen.findByText("还没有导入打印任务")).toBeVisible();
-  });
-
-  it("keeps the imported draft visible when discarding fails", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    const importPrintFile = vi.fn(async () => ({ ...demoPreview, source_file_name: "keep.gcode.3mf" }));
-    const discardPendingJob = vi.fn(async () => { throw { code: "database" }; });
-    render(<DesktopApp apiClient={fakeTauriApi({ importPrintFile, discardPendingJob })} pickFile={async () => "/tmp/keep.gcode.3mf"} />);
-    await screen.findByText("持久化蓝色 PLA");
-
-    fireEvent.click(screen.getAllByRole("button", { name: "导入切片文件" })[0]);
-    expect(await screen.findByText("keep.gcode.3mf")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "取消此次导入" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("本地数据暂时无法读取");
-    expect(screen.getByText("keep.gcode.3mf")).toBeVisible();
+    await waitFor(() => expect(discardProject).toHaveBeenCalledWith("project-1"));
+    expect(await screen.findByText("没有待处理的打印项目")).toBeVisible();
   });
 
   it("supplies the native picker label from the current locale", async () => {
@@ -372,14 +472,14 @@ describe("App localization", () => {
 
   it("prevents duplicate imports while busy and translates a stable rejected error", async () => {
     let rejectImport: (reason: unknown) => void = () => undefined;
-    const importPrintFile = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectImport = reject; }));
-    render(<DesktopApp apiClient={fakeTauriApi({ importPrintFile })} pickFile={async () => "/tmp/bad.3mf"} />);
+    const importPrintProject = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectImport = reject; }));
+    render(<DesktopApp apiClient={fakeTauriApi({ importPrintProject })} pickFile={async () => "/tmp/bad.3mf"} />);
     await screen.findByText("持久化蓝色 PLA");
     const importButton = screen.getAllByRole("button", { name: "导入切片文件" })[0];
 
     fireEvent.click(importButton);
     fireEvent.click(importButton);
-    await waitFor(() => expect(importPrintFile).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(importPrintProject).toHaveBeenCalledTimes(1));
     expect(screen.getAllByRole("button", { name: "正在读取颜色与预计用量…" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
 
     await act(() => rejectImport({ code: "invalid_file" }));
@@ -390,32 +490,31 @@ describe("App localization", () => {
   it("queues a watched print instead of replacing an unsettled preview", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const subscribeEvent = vi.fn(async (
-      name: "open-job" | "watch-import" | "open-overview" | "pet-import-error",
+      name: "open-job" | "open-project" | "confirm-new-project" | "watch-import" | "open-overview" | "pet-import-error",
       handler: (payload: unknown) => void,
     ) => {
       handlers.set(name, handler);
       return () => handlers.delete(name);
     });
-    const getJobPreview = vi.fn(async (jobId: string) => ({
-      ...demoPreview,
-      job_id: jobId,
-      source_file_name: `${jobId}.gcode.3mf`,
-    }));
+    const first = projectFixture("first.gcode.3mf", "first-project");
+    const second = projectFixture("second.gcode.3mf", "second-project");
     render(<DesktopApp
-      apiClient={fakeTauriApi({ getJobPreview })}
+      apiClient={fakeTauriApi({
+        getPrintProject: async (projectId) => projectId === first.detail.project_id ? first.detail : second.detail,
+        getProjectPreview: async (projectId) => projectId === first.preview.project_id ? first.preview : second.preview,
+      })}
       pickFile={async () => null}
       subscribeEvent={subscribeEvent}
     />);
     await waitFor(() => expect(handlers.has("watch-import")).toBe(true));
 
     await act(async () => {
-      handlers.get("watch-import")?.({ ok: true, job_id: "first", code: null });
+      handlers.get("watch-import")?.({ ok: true, project_id: first.detail.project_id, plate_id: "plate-1", code: null });
     });
-    fireEvent.click(screen.getByRole("button", { name: "打印任务" }));
     expect(await screen.findByText("first.gcode.3mf")).toBeVisible();
 
     await act(async () => {
-      handlers.get("watch-import")?.({ ok: true, job_id: "second", code: null });
+      handlers.get("watch-import")?.({ ok: true, project_id: second.detail.project_id, plate_id: "plate-1", code: null });
     });
     expect(await screen.findByText("监测文件夹发现了一个待结算任务")).toBeVisible();
     expect(screen.getByText("first.gcode.3mf")).toBeVisible();
@@ -427,7 +526,7 @@ describe("App localization", () => {
   it("handles pet overview navigation and stable import errors", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const subscribeEvent = vi.fn(async (
-      name: "open-job" | "watch-import" | "open-overview" | "pet-import-error",
+      name: "open-job" | "open-project" | "confirm-new-project" | "watch-import" | "open-overview" | "pet-import-error",
       handler: (payload: unknown) => void,
     ) => {
       handlers.set(name, handler);
@@ -451,25 +550,21 @@ describe("App localization", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("这个项目尚未切片");
   });
 
-  it("does not consume persisted pet navigation during StrictMode cleanup", async () => {
-    const takePendingJob = vi.fn()
-      .mockResolvedValueOnce("persisted-job")
+  it("does not consume persisted project navigation during StrictMode cleanup", async () => {
+    const fixture = projectFixture("persisted.gcode.3mf", "persisted-project");
+    const takePendingNavigation = vi.fn()
+      .mockResolvedValueOnce({ project_id: fixture.detail.project_id, plate_id: "plate-1", job_id: "persisted-job" })
       .mockResolvedValue(null);
-    const getJobPreview = vi.fn(async () => ({
-      ...demoPreview,
-      job_id: "persisted-job",
-      source_file_name: "persisted.gcode.3mf",
-    }));
     render(
       <React.StrictMode>
         <DesktopApp
-          apiClient={fakeTauriApi({ getJobPreview, takePendingJob })}
+          apiClient={fakeTauriApi({ getPrintProject: async () => fixture.detail, getProjectPreview: async () => fixture.preview, takePendingNavigation })}
           pickFile={async () => null}
         />
       </React.StrictMode>,
     );
 
     expect(await screen.findByText("persisted.gcode.3mf")).toBeVisible();
-    expect(getJobPreview).toHaveBeenCalledWith("persisted-job");
+    expect(takePendingNavigation).toHaveBeenCalled();
   });
 });

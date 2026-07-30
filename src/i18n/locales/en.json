@@ -136,6 +136,7 @@
   "history": {
     "title": "Print history",
     "hint": "Review pending and completed plates by project.",
+    "backToHistory": "Back to print history",
     "pending": "Pending projects",
     "history": "Processed projects",
     "statusPending": "Awaiting mapping",
@@ -167,10 +168,14 @@
     "jobWorkspace": "Filament mapping and settlement workspace",
     "estimatedResult": "Estimated result",
     "settledResult": "Settlement result",
+    "reversedResult": "Deduction reversed",
     "deducted": "{{grams}} grams deducted",
+    "restored": "{{grams}} grams restored",
     "resultRecorded": "Filament usage has been recorded for this plate",
     "skippedTitle": "Plate skipped",
     "skippedNoDeduction": "Skipped with no filament deduction",
+    "skipPlate": "Skip this plate",
+    "skipConfirm": "Skipping this plate will not deduct filament. Continue?",
     "status": {
       "pending_mapping": "Awaiting mapping",
       "ready": "Awaiting settlement",

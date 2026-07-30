@@ -169,24 +169,43 @@ fn parse_display_name(contents: &str) -> Result<Option<String>> {
 
 fn slice_predictions(contents: &str) -> BTreeMap<u32, u32> {
     contents
-        .split('<')
+        .split("<plate")
+        .skip(1)
         .filter_map(|element| {
-            let element = element.strip_prefix("plate")?;
-            if !element.starts_with(char::is_whitespace) {
+            if !element.starts_with(char::is_whitespace) && !element.starts_with('>') {
                 return None;
             }
             let tag = element.split('>').next()?;
-            let index = xml_attribute(tag, "index")?.parse().ok()?;
-            let prediction = xml_attribute(tag, "prediction")?.parse().ok()?;
+            let contents = element.split("</plate>").next().unwrap_or(element);
+            let index = xml_attribute(tag, "index")
+                .or_else(|| plate_metadata_value(contents, "index"))?
+                .parse()
+                .ok()?;
+            let prediction = xml_attribute(tag, "prediction")
+                .or_else(|| plate_metadata_value(contents, "prediction"))?
+                .parse()
+                .ok()?;
             Some((index, prediction))
         })
         .collect()
 }
 
+fn plate_metadata_value<'a>(contents: &'a str, key: &str) -> Option<&'a str> {
+    contents.split("<metadata").skip(1).find_map(|element| {
+        let tag = element.split('>').next()?;
+        (xml_attribute(tag, "key") == Some(key))
+            .then(|| xml_attribute(tag, "value"))
+            .flatten()
+    })
+}
+
 fn xml_attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
     tag.split_ascii_whitespace().find_map(|attribute| {
         let value = attribute.strip_prefix(name)?.strip_prefix('=')?;
-        value.strip_prefix('\"')?.strip_suffix('\"')
+        value
+            .trim_end_matches('/')
+            .strip_prefix('\"')?
+            .strip_suffix('\"')
     })
 }
 
@@ -306,6 +325,7 @@ fn normalize_preset(preset_id: &str, material: &str) -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::super::{parse_3mf, parse_3mf_project, FilamentProfile};
+    use super::slice_predictions;
     use std::collections::BTreeMap;
     use std::fs::{self, File};
     use std::io::Write;
@@ -425,6 +445,15 @@ mod tests {
                 "Metadata/plate_no_light_2.png",
             ]
         );
+    }
+
+    #[test]
+    fn reads_bambu_nested_plate_prediction_metadata() {
+        let predictions = slice_predictions(
+            r#"<config><plate><metadata key="index" value="1"/><metadata key="prediction" value="18307"/></plate></config>"#,
+        );
+
+        assert_eq!(predictions.get(&1), Some(&18_307));
     }
 
     #[test]
