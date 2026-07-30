@@ -40,6 +40,64 @@ it("passes Rust command names and snake-case payloads through the typed adapter"
   });
 });
 
+it("forwards typed project history commands with their exact camelCase payloads", async () => {
+  const invoke = vi.fn(async () => ({}));
+  const api = createTauriApi(invoke);
+
+  await api.listPrintProjects("pending");
+  await api.getPrintProject("project-1");
+  await api.importPrintProject("/prints/mask.3mf");
+  await api.discardProject("project-1");
+  await api.skipPlate("plate-2");
+  await api.confirmNewProject("hash-1", "/prints/mask.3mf");
+  await api.takePendingNavigation();
+
+  expect(invoke).toHaveBeenNthCalledWith(1, "list_print_projects", {
+    filter: "pending",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(2, "get_print_project", {
+    projectId: "project-1",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(3, "import_print_project", {
+    path: "/prints/mask.3mf",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(4, "discard_project", {
+    projectId: "project-1",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(5, "skip_plate", {
+    plateId: "plate-2",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(6, "confirm_new_project", {
+    sourceHash: "hash-1",
+    sourcePath: "/prints/mask.3mf",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(7, "take_pending_navigation");
+});
+
+it("demo history keeps a two-plate project tied to existing spool identities", async () => {
+  const api = createTauriApi(undefined, {});
+
+  const [project] = await api.listPrintProjects("pending");
+  const detail = await api.getPrintProject(project.project_id);
+
+  expect(project.plate_count).toBe(2);
+  expect(project.plates).toEqual([
+    expect.objectContaining({
+      plate_id: "demo-mask-plate-1",
+      thumbnail_url: "/demo/plates/mask-1.png",
+      status: "pending_mapping",
+    }),
+    expect.objectContaining({
+      plate_id: "demo-mask-plate-2",
+      thumbnail_url: "/demo/plates/mask-2.png",
+      status: "ready",
+    }),
+  ]);
+  expect(detail.plates).toEqual(project.plates);
+  expect((await api.importPrintProject("/prints/mask.3mf")).plates[0].filaments[0]
+    .candidate_spool_ids).toContain("white-01");
+});
+
 it("provides deterministic browser data without activating demo mode in Tauri", async () => {
   const browserApi = createTauriApi(undefined, {});
   const tauriInvoke = vi.fn(async () => []);

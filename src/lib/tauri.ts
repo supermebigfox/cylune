@@ -96,6 +96,78 @@ export interface ImportPreview {
   state: ImportState;
 }
 
+export type HistoryFilter = "pending" | "history";
+export type PlateStatus =
+  | "pending_mapping"
+  | "ready"
+  | "success"
+  | "failed"
+  | "cancelled"
+  | "estimated"
+  | "skipped";
+
+export interface PrintPlateSummary {
+  plate_id: string;
+  project_id: string;
+  plate_index: number;
+  display_name: string | null;
+  thumbnail_asset_id: string | null;
+  thumbnail_url: string | null;
+  estimated_seconds: number | null;
+  max_layer: number;
+  status: PlateStatus;
+}
+
+export interface PrintProjectSummary {
+  project_id: string;
+  source_file_name: string;
+  imported_at: string;
+  plate_count: number;
+  total_estimated_seconds: number | null;
+  cover_asset_id: string | null;
+  cover_url: string | null;
+  plates: PrintPlateSummary[];
+}
+
+export interface PrintProjectDetail {
+  project_id: string;
+  source_hash: string;
+  source_file_name: string;
+  source_path: string | null;
+  imported_at: string;
+  plate_count: number;
+  total_estimated_seconds: number | null;
+  cover_asset_id: string | null;
+  cover_url: string | null;
+  plates: PrintPlateSummary[];
+}
+
+export interface ImportPlatePreview {
+  plate_id: string;
+  job_id: string;
+  plate_index: number;
+  thumbnail_url: string | null;
+  estimated_seconds: number | null;
+  max_layer: number;
+  filaments: FilamentPreview[];
+  status: PlateStatus;
+}
+
+export interface ImportProjectPreview {
+  project_id: string;
+  source_hash: string;
+  source_file_name: string;
+  imported_at: string;
+  plates: ImportPlatePreview[];
+  state: ImportState;
+}
+
+export interface PendingNavigationTarget {
+  project_id: string | null;
+  plate_id: string | null;
+  job_id: string;
+}
+
 export interface ToolMapping {
   tool: number;
   spool_id: string;
@@ -147,6 +219,13 @@ export interface TauriApi {
   confirmNewPrint(sourceHash: string): Promise<ImportPreview>;
   discardPendingJob(jobId: string): Promise<void>;
   getJobPreview?(jobId: string): Promise<ImportPreview>;
+  listPrintProjects(filter: HistoryFilter): Promise<PrintProjectSummary[]>;
+  getPrintProject(projectId: string): Promise<PrintProjectDetail>;
+  importPrintProject(path: string): Promise<ImportProjectPreview>;
+  discardProject(projectId: string): Promise<void>;
+  skipPlate(plateId: string): Promise<void>;
+  confirmNewProject(sourceHash: string, sourcePath: string): Promise<ImportProjectPreview>;
+  takePendingNavigation(): Promise<PendingNavigationTarget | null>;
   settleJob(jobId: string, outcome: JobOutcome): Promise<SettlementResult>;
   reverseSettlement(jobId: string): Promise<ReversalResult>;
   exportBackup?(path: string): Promise<string>;
@@ -216,9 +295,39 @@ export const demoPreview: ImportPreview = {
   })),
 };
 
+const demoProjectId = "demo-mask-project";
+const demoProjectSourceHash = "demo-mask-project-hash";
+const demoProjectImportedAt = "2026-07-30T04:00:00Z";
+const demoProjectPlates: PrintPlateSummary[] = [
+  {
+    plate_id: "demo-mask-plate-1",
+    project_id: demoProjectId,
+    plate_index: 1,
+    display_name: "面具前片",
+    thumbnail_asset_id: "demo-mask-plate-1-thumbnail",
+    thumbnail_url: "/demo/plates/mask-1.png",
+    estimated_seconds: 5400,
+    max_layer: 186,
+    status: "pending_mapping",
+  },
+  {
+    plate_id: "demo-mask-plate-2",
+    project_id: demoProjectId,
+    plate_index: 2,
+    display_name: "面具后片",
+    thumbnail_asset_id: "demo-mask-plate-2-thumbnail",
+    thumbnail_url: "/demo/plates/mask-2.png",
+    estimated_seconds: 4200,
+    max_layer: 154,
+    status: "ready",
+  },
+];
+
 function demoApi(): TauriApi {
   let spools = demoSpools.map((spool) => ({ ...spool }));
   let slots = demoSlots.map((slot) => ({ ...slot }));
+  let projectPlates = demoProjectPlates.map((plate) => ({ ...plate }));
+  let projectDiscarded = false;
   let pet: PetSettings = {
     mode: "lite", visual_style: "gargantua", size: 220, fps: "auto", visible: false, x: null, y: null,
     display_id: null, effective_mode: "lite", permission: "unavailable",
@@ -231,6 +340,47 @@ function demoApi(): TauriApi {
       status: spool.remaining_grams <= 0 ? "empty" : mounted.has(spool.spool_id) ? "assigned" : "available",
     }));
   };
+  const projectSummary = (): PrintProjectSummary => ({
+    project_id: demoProjectId,
+    source_file_name: demoPreview.source_file_name,
+    imported_at: demoProjectImportedAt,
+    plate_count: projectPlates.length,
+    total_estimated_seconds: projectPlates.reduce(
+      (total, plate) => total + (plate.estimated_seconds ?? 0),
+      0,
+    ),
+    cover_asset_id: "demo-mask-cover",
+    cover_url: "/demo/plates/mask-cover.png",
+    plates: projectPlates.map((plate) => ({ ...plate })),
+  });
+  const projectDetail = (): PrintProjectDetail => ({
+    ...projectSummary(),
+    source_hash: demoProjectSourceHash,
+    source_path: "/demo/萨莫面具-布莱克.gcode.3mf",
+  });
+  const projectPreview = (path?: string): ImportProjectPreview => ({
+    project_id: demoProjectId,
+    source_hash: demoProjectSourceHash,
+    source_file_name: path?.split(/[\\/]/).pop() || demoPreview.source_file_name,
+    imported_at: demoProjectImportedAt,
+    plates: projectPlates.map((plate, index) => ({
+      plate_id: plate.plate_id,
+      job_id: "demo-mask-job-" + String(index + 1),
+      plate_index: plate.plate_index,
+      thumbnail_url: plate.thumbnail_url,
+      estimated_seconds: plate.estimated_seconds,
+      max_layer: plate.max_layer,
+      filaments: demoPreview.filaments
+        .slice(index * 2, index * 2 + 2)
+        .map((filament) => ({
+          ...filament,
+          profile: { ...filament.profile },
+          candidate_spool_ids: [...filament.candidate_spool_ids],
+        })),
+      status: plate.status,
+    })),
+    state: "new",
+  });
   return {
     mode: "demo",
     async createSpool(input) {
@@ -282,6 +432,32 @@ function demoApi(): TauriApi {
     async confirmJobMapping() {},
     async confirmNewPrint() { return { ...demoPreview, job_id: "demo-mask-job-2" }; },
     async discardPendingJob() {},
+    async listPrintProjects(filter) {
+      if (projectDiscarded) return [];
+      const isPending = projectPlates.some((plate) =>
+        plate.status === "pending_mapping" || plate.status === "ready",
+      );
+      return filter === "pending" ? (isPending ? [projectSummary()] : []) : (isPending ? [] : [projectSummary()]);
+    },
+    async getPrintProject() { return projectDetail(); },
+    async importPrintProject(path) { return projectPreview(path); },
+    async discardProject() { projectDiscarded = true; },
+    async skipPlate(plateId) {
+      projectPlates = projectPlates.map((plate) =>
+        plate.plate_id === plateId ? { ...plate, status: "skipped" } : plate,
+      );
+    },
+    async confirmNewProject(_sourceHash, sourcePath) { return projectPreview(sourcePath); },
+    async takePendingNavigation() {
+      const plate = projectPlates.find((item) =>
+        item.status === "pending_mapping" || item.status === "ready",
+      );
+      return plate ? {
+        project_id: demoProjectId,
+        plate_id: plate.plate_id,
+        job_id: "demo-mask-job-" + String(plate.plate_index),
+      } : null;
+    },
     async settleJob(jobId, outcome) {
       return { job_id: jobId, outcome, settlement_version: 1, selected_layer: null, confidence: outcome.kind === "estimated" ? "estimated" : "exact", consumption: [] };
     },
@@ -312,6 +488,15 @@ function commandApi(invoke: Invoke): TauriApi {
     confirmNewPrint: (sourceHash) => call<ImportPreview>("confirm_new_print", { sourceHash }),
     discardPendingJob: (jobId) => call<void>("discard_pending_job", { jobId }),
     getJobPreview: (jobId) => call<ImportPreview>("get_job_preview", { jobId }),
+    listPrintProjects: (filter) => call<PrintProjectSummary[]>("list_print_projects", { filter }),
+    getPrintProject: (projectId) => call<PrintProjectDetail>("get_print_project", { projectId }),
+    importPrintProject: (path) => call<ImportProjectPreview>("import_print_project", { path }),
+    discardProject: (projectId) => call<void>("discard_project", { projectId }),
+    skipPlate: (plateId) => call<void>("skip_plate", { plateId }),
+    confirmNewProject: (sourceHash, sourcePath) =>
+      call<ImportProjectPreview>("confirm_new_project", { sourceHash, sourcePath }),
+    takePendingNavigation: () =>
+      invoke("take_pending_navigation") as Promise<PendingNavigationTarget | null>,
     settleJob: (jobId, outcome) => call<SettlementResult>("settle_job", { jobId, outcome }),
     reverseSettlement: (jobId) => call<ReversalResult>("reverse_settlement", { jobId }),
     exportBackup: (path) => call<string>("export_backup", { path }),
