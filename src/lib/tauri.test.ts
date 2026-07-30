@@ -22,6 +22,7 @@ it("passes Rust command names and snake-case payloads through the typed adapter"
   await api.mountSpool(3, "spool-blue");
   await api.settleJob("job-1", { kind: "failed", stop_layer: 18 });
   await api.confirmNewPrint("hash-1");
+  await api.discardPendingJob("job-mask");
 
   expect(invoke).toHaveBeenNthCalledWith(1, "mount_spool", {
     slotNumber: 3,
@@ -33,6 +34,9 @@ it("passes Rust command names and snake-case payloads through the typed adapter"
   });
   expect(invoke).toHaveBeenNthCalledWith(3, "confirm_new_print", {
     sourceHash: "hash-1",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(4, "discard_pending_job", {
+    jobId: "job-mask",
   });
 });
 

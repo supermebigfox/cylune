@@ -77,6 +77,66 @@ const multicolorSpool: Spool = {
 describe("Job", () => {
   beforeEach(async () => setLocale("zh-CN"));
 
+  it("discards an unsettled import only after confirmation", () => {
+    const onDiscard = vi.fn();
+    const confirmation = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(
+      <Job
+        preview={preview}
+        spools={spools}
+        onConfirmMapping={async () => undefined}
+        onSettle={async () => undefined}
+        onConfirmNewPrint={async () => undefined}
+        onReverse={async () => undefined}
+        onDiscard={onDiscard}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "取消此次导入" }));
+
+    expect(confirmation).toHaveBeenCalledWith("确定取消此次导入吗？不会扣减任何耗材。");
+    expect(onDiscard).toHaveBeenCalledWith("job-mask");
+    confirmation.mockRestore();
+  });
+
+  it("keeps the imported task when discard confirmation is declined", () => {
+    const onDiscard = vi.fn();
+    const confirmation = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(
+      <Job
+        preview={preview}
+        spools={spools}
+        onConfirmMapping={async () => undefined}
+        onSettle={async () => undefined}
+        onConfirmNewPrint={async () => undefined}
+        onReverse={async () => undefined}
+        onDiscard={onDiscard}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "取消此次导入" }));
+
+    expect(onDiscard).not.toHaveBeenCalled();
+    confirmation.mockRestore();
+  });
+
+  it("hides discard after the task has been settled", () => {
+    render(
+      <Job
+        preview={preview}
+        spools={spools}
+        settled
+        onConfirmMapping={async () => undefined}
+        onSettle={async () => undefined}
+        onConfirmNewPrint={async () => undefined}
+        onReverse={async () => undefined}
+        onDiscard={async () => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "取消此次导入" })).not.toBeInTheDocument();
+  });
+
   it("requires one exact spool id when identical candidates exist", async () => {
     const onConfirmMapping = vi.fn();
     render(

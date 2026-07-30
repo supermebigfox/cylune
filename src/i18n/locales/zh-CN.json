@@ -111,8 +111,10 @@
     "cancelled": "已取消",
     "pending": "等待确认",
     "consumption": "本次耗材用量",
-    "reverse": "撤销本次扣减"
-    ,"emptyHint": "从首页导入一个已切片的 .gcode.3mf 文件开始。",
+    "reverse": "撤销本次扣减",
+    "discardImport": "取消此次导入",
+    "discardConfirm": "确定取消此次导入吗？不会扣减任何耗材。",
+    "emptyHint": "从首页导入一个已切片的 .gcode.3mf 文件开始。",
     "jobHint": "核对每种颜色对应的实体卷，再根据实际打印结果结算。",
     "layerCount": "共 {{count}} 层",
     "plannedTotal": "预计总用量",

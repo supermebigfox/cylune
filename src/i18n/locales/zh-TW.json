@@ -112,6 +112,8 @@
     "pending": "等待確認",
     "consumption": "本次耗材用量",
     "reverse": "撤銷本次扣減",
+    "discardImport": "取消此次匯入",
+    "discardConfirm": "確定取消此次匯入嗎？不會扣減任何耗材。",
     "emptyHint": "從總覽匯入一個已切片的 .gcode.3mf 檔案開始。",
     "jobHint": "核對每種顏色對應的實體卷，再根據實際列印結果結算。",
     "layerCount": "共 {{count}} 層",

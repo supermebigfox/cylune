@@ -112,6 +112,8 @@
     "pending": "Needs confirmation",
     "consumption": "Filament used by this print",
     "reverse": "Reverse this deduction",
+    "discardImport": "Discard this import",
+    "discardConfirm": "Discard this import? No filament will be deducted.",
     "emptyHint": "Import a sliced .gcode.3mf file from Overview to begin.",
     "jobHint": "Match every color to its physical spool, then settle the actual print outcome.",
     "layerCount": "{{count}} layers",

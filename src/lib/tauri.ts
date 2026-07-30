@@ -145,6 +145,7 @@ export interface TauriApi {
   importPrintFile(path: string): Promise<ImportPreview>;
   confirmJobMapping(jobId: string, mappings: ToolMapping[]): Promise<void>;
   confirmNewPrint(sourceHash: string): Promise<ImportPreview>;
+  discardPendingJob(jobId: string): Promise<void>;
   getJobPreview?(jobId: string): Promise<ImportPreview>;
   settleJob(jobId: string, outcome: JobOutcome): Promise<SettlementResult>;
   reverseSettlement(jobId: string): Promise<ReversalResult>;
@@ -280,6 +281,7 @@ function demoApi(): TauriApi {
     async importPrintFile(path) { return { ...demoPreview, source_file_name: path.split(/[\\/]/).pop() || demoPreview.source_file_name }; },
     async confirmJobMapping() {},
     async confirmNewPrint() { return { ...demoPreview, job_id: "demo-mask-job-2" }; },
+    async discardPendingJob() {},
     async settleJob(jobId, outcome) {
       return { job_id: jobId, outcome, settlement_version: 1, selected_layer: null, confidence: outcome.kind === "estimated" ? "estimated" : "exact", consumption: [] };
     },
@@ -308,6 +310,7 @@ function commandApi(invoke: Invoke): TauriApi {
     importPrintFile: (path) => call<ImportPreview>("import_print_file", { path }),
     confirmJobMapping: (jobId, mappings) => call<void>("confirm_job_mapping", { jobId, mappings }),
     confirmNewPrint: (sourceHash) => call<ImportPreview>("confirm_new_print", { sourceHash }),
+    discardPendingJob: (jobId) => call<void>("discard_pending_job", { jobId }),
     getJobPreview: (jobId) => call<ImportPreview>("get_job_preview", { jobId }),
     settleJob: (jobId, outcome) => call<SettlementResult>("settle_job", { jobId, outcome }),
     reverseSettlement: (jobId) => call<ReversalResult>("reverse_settlement", { jobId }),

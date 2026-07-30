@@ -1,4 +1,4 @@
-import { ArrowCounterClockwise, CheckCircle, FileText, Warning } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, CheckCircle, FileText, Trash, Warning } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Swatch } from "../../components/Swatch";
 import { t, useLocale } from "../../i18n";
@@ -6,7 +6,7 @@ import type { ImportPreview, JobOutcome, SettlementResult, Spool, ToolMapping } 
 
 type OutcomeChoice = "success" | "failed" | "cancelled" | "estimated";
 
-export function Job({ preview, spools, initialMappings = {}, settled = false, result, busy = false, onConfirmMapping, onSettle, onConfirmNewPrint, onReverse }: {
+export function Job({ preview, spools, initialMappings = {}, settled = false, result, busy = false, onConfirmMapping, onSettle, onConfirmNewPrint, onDiscard, onReverse }: {
   preview: ImportPreview | null;
   spools: Spool[];
   initialMappings?: Record<number, string>;
@@ -16,6 +16,7 @@ export function Job({ preview, spools, initialMappings = {}, settled = false, re
   onConfirmMapping(jobId: string, mappings: ToolMapping[]): boolean | void | Promise<boolean | void>;
   onSettle(jobId: string, outcome: JobOutcome): boolean | void | Promise<boolean | void>;
   onConfirmNewPrint(sourceHash: string): boolean | void | Promise<boolean | void>;
+  onDiscard?(jobId: string): boolean | void | Promise<boolean | void>;
   onReverse(jobId: string): boolean | void | Promise<boolean | void>;
 }) {
   const locale = useLocale();
@@ -90,6 +91,9 @@ export function Job({ preview, spools, initialMappings = {}, settled = false, re
         {!mapped ? <p className="helper">{copy("jobs.mapBeforeSettle")}</p> : null}
         {settled || result ? <div className="settled-result"><CheckCircle size={22} weight="fill" /><div><strong>{copy("jobs.settledTitle")}</strong><p>{result ? copy("jobs.settledAmount", { grams: result.consumption.reduce((sum, item) => sum + item.grams, 0).toFixed(1) }) : copy("jobs.settledHint")}</p></div></div> : null}
         {settled || result ? <button className="ghost full" disabled={busy} onClick={() => onReverse(preview.job_id)}><ArrowCounterClockwise size={17} />{busy ? copy("common.saving") : copy("jobs.reverse")}</button> : null}
+        {!settled && !result && onDiscard ? <button className="ghost full" disabled={busy} onClick={() => {
+          if (window.confirm(copy("jobs.discardConfirm"))) void onDiscard(preview.job_id);
+        }}><Trash size={17} />{busy ? copy("common.saving") : copy("jobs.discardImport")}</button> : null}
       </div>
     </div> : null}
   </section>;

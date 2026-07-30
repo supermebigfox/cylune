@@ -42,6 +42,7 @@ function fakeTauriApi(overrides: Partial<TauriApi> = {}): TauriApi {
     importPrintFile: async () => { throw new Error("unused"); },
     confirmJobMapping: async () => undefined,
     confirmNewPrint: async () => { throw new Error("unused"); },
+    discardPendingJob: async () => undefined,
     settleJob: async () => { throw new Error("unused"); },
     reverseSettlement: async () => ({ job_id: "job", settlement_version: 1, already_reversed: false, restored: [] }),
     ...overrides,
@@ -319,6 +320,36 @@ describe("App localization", () => {
     expect(await screen.findByText("model.gcode.3mf")).toBeVisible();
     expect(pickFile).toHaveBeenCalledTimes(1);
     expect(importPrintFile).toHaveBeenCalledWith("/Users/robin/Desktop/model.gcode.3mf");
+  });
+
+  it("discards an imported draft without deducting filament", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const discardPendingJob = vi.fn(async () => undefined);
+    const importPrintFile = vi.fn(async () => ({ ...demoPreview, source_file_name: "wrong.gcode.3mf" }));
+    render(<DesktopApp apiClient={fakeTauriApi({ importPrintFile, discardPendingJob })} pickFile={async () => "/tmp/wrong.gcode.3mf"} />);
+    await screen.findByText("持久化蓝色 PLA");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "导入切片文件" })[0]);
+    expect(await screen.findByText("wrong.gcode.3mf")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "取消此次导入" }));
+
+    await waitFor(() => expect(discardPendingJob).toHaveBeenCalledWith(demoPreview.job_id));
+    expect(await screen.findByText("还没有导入打印任务")).toBeVisible();
+  });
+
+  it("keeps the imported draft visible when discarding fails", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const importPrintFile = vi.fn(async () => ({ ...demoPreview, source_file_name: "keep.gcode.3mf" }));
+    const discardPendingJob = vi.fn(async () => { throw { code: "database" }; });
+    render(<DesktopApp apiClient={fakeTauriApi({ importPrintFile, discardPendingJob })} pickFile={async () => "/tmp/keep.gcode.3mf"} />);
+    await screen.findByText("持久化蓝色 PLA");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "导入切片文件" })[0]);
+    expect(await screen.findByText("keep.gcode.3mf")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "取消此次导入" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("本地数据暂时无法读取");
+    expect(screen.getByText("keep.gcode.3mf")).toBeVisible();
   });
 
   it("supplies the native picker label from the current locale", async () => {

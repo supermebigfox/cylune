@@ -198,6 +198,13 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscrib
     map: (jobId: string, mappings: ToolMapping[]) => runAction("map", () => apiClient.confirmJobMapping(jobId, mappings)),
     settle: (jobId: string, outcome: JobOutcome) => runAction("settle", async () => { const next = await apiClient.settleJob(jobId, outcome); setResult(next); setSettled(true); await loadInventory(); }),
     repeat: (sourceHash: string) => runAction("repeat", async () => { setPreview(await apiClient.confirmNewPrint(sourceHash)); setSettled(false); setResult(null); }),
+    discard: (jobId: string) => runAction("discard", async () => {
+      await apiClient.discardPendingJob(jobId);
+      setPreview(null);
+      setSettled(false);
+      setResult(null);
+      await loadInventory();
+    }),
     reverse: (jobId: string) => runAction("reverse", async () => { await apiClient.reverseSettlement(jobId); setSettled(false); setResult(null); await loadInventory(); }),
   };
   const openImport = () => runAction("import", async () => {
@@ -241,7 +248,7 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscrib
       {loading ? <div className="skeleton-page" aria-label={copy("common.loading")}><i /><i /><i /></div> : null}
       {page === "home" ? <Home slots={slots} spools={spools} pendingJobs={(preview && !settled ? 1 : 0) + (queuedPreview ? 1 : 0)} busy={busy} importing={busyAction === "import"} onImport={openImport} /> : null}
       {page === "spools" ? <Spools spools={spools} slotBySpool={slotBySpool} busy={busy} onCreate={actions.create} onCalibrate={actions.calibrate} onArchive={actions.archive} onMount={actions.mount} onUnmount={actions.unmount} onMove={actions.move} /> : null}
-      {page === "jobs" ? <Job preview={preview} spools={spools} settled={settled} result={result} busy={busy} onConfirmMapping={actions.map} onSettle={actions.settle} onConfirmNewPrint={actions.repeat} onReverse={actions.reverse} /> : null}
+      {page === "jobs" ? <Job preview={preview} spools={spools} settled={settled} result={result} busy={busy} onConfirmMapping={actions.map} onSettle={actions.settle} onConfirmNewPrint={actions.repeat} onDiscard={actions.discard} onReverse={actions.reverse} /> : null}
       {page === "settings" ? <Settings apiClient={apiClient} onRestored={refresh} /> : null}
     </main>
   </div>;

@@ -428,6 +428,194 @@ mod tests {
     }
 
     #[test]
+    fn discard_pending_job_removes_only_the_draft_and_keeps_inventory_truth() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+        let basic = inventory
+            .create_spool(new_spool("Bambu PLA Basic @BBL A1", "#FF0000"))
+            .unwrap();
+        let matte = inventory
+            .create_spool(new_spool("Bambu PLA Matte @BBL A1", "#00FF00"))
+            .unwrap();
+        inventory.mount_spool(1, basic).unwrap();
+        inventory.mount_spool(2, matte).unwrap();
+        let database = inventory.into_database();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let preview = service
+            .import_print_file(&fixture("bambu_multicolor.3mf"))
+            .unwrap();
+        service
+            .confirm_job_mapping(
+                preview.job_id,
+                vec![
+                    ToolMapping {
+                        tool: 0,
+                        spool_id: basic,
+                    },
+                    ToolMapping {
+                        tool: 1,
+                        spool_id: matte,
+                    },
+                ],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "INSERT INTO app_settings(setting_key, setting_value) VALUES('pending_job_id', ?1)",
+                [preview.job_id.to_string()],
+            )
+            .unwrap();
+        let balances_before = [
+            service.spool_balance(basic).unwrap(),
+            service.spool_balance(matte).unwrap(),
+        ];
+        let ledger_before: u32 = service
+            .database
+            .connection
+            .query_row("SELECT COUNT(*) FROM ledger_events", [], |row| row.get(0))
+            .unwrap();
+
+        service.discard_pending_job(preview.job_id).unwrap();
+
+        assert_eq!(service.pending_summary().unwrap().count, 0);
+        assert_eq!(service.job_count(&preview.source_hash).unwrap(), 0);
+        assert_eq!(service.parse_result_count(&preview.source_hash).unwrap(), 1);
+        assert_eq!(
+            service
+                .database
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM job_mappings WHERE job_id = ?1",
+                    [preview.job_id.to_string()],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            service
+                .database
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM app_settings WHERE setting_key = 'pending_job_id'",
+                    [],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            [
+                service.spool_balance(basic).unwrap(),
+                service.spool_balance(matte).unwrap(),
+            ],
+            balances_before
+        );
+        assert_eq!(
+            service
+                .database
+                .connection
+                .query_row("SELECT COUNT(*) FROM ledger_events", [], |row| row
+                    .get::<_, u32>(0),)
+                .unwrap(),
+            ledger_before
+        );
+        assert_eq!(
+            service
+                .database
+                .connection
+                .query_row(
+                    "SELECT spool_id FROM ams_slots WHERE slot_number = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            basic.to_string()
+        );
+        assert_eq!(
+            service
+                .database
+                .connection
+                .query_row(
+                    "SELECT spool_id FROM ams_slots WHERE slot_number = 2",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            matte.to_string()
+        );
+    }
+
+    #[test]
+    fn discard_pending_job_rejects_a_settled_job_without_mutation() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+        let basic = inventory
+            .create_spool(new_spool("Bambu PLA Basic @BBL A1", "#FF0000"))
+            .unwrap();
+        let matte = inventory
+            .create_spool(new_spool("Bambu PLA Matte @BBL A1", "#00FF00"))
+            .unwrap();
+        let database = inventory.into_database();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let preview = service
+            .import_print_file(&fixture("bambu_multicolor.3mf"))
+            .unwrap();
+        service
+            .confirm_job_mapping(
+                preview.job_id,
+                vec![
+                    ToolMapping {
+                        tool: 0,
+                        spool_id: basic,
+                    },
+                    ToolMapping {
+                        tool: 1,
+                        spool_id: matte,
+                    },
+                ],
+            )
+            .unwrap();
+        service
+            .settle_job(preview.job_id, crate::domain::JobOutcome::Success)
+            .unwrap();
+        let balances_before = [
+            service.spool_balance(basic).unwrap(),
+            service.spool_balance(matte).unwrap(),
+        ];
+
+        let error = service.discard_pending_job(preview.job_id).unwrap_err();
+
+        assert_eq!(error.code(), "invalid_job");
+        assert_eq!(service.job_count(&preview.source_hash).unwrap(), 1);
+        assert_eq!(
+            [
+                service.spool_balance(basic).unwrap(),
+                service.spool_balance(matte).unwrap(),
+            ],
+            balances_before
+        );
+    }
+
+    #[test]
+    fn discarded_file_can_be_imported_again_from_its_cached_parse() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = fixture("bambu_multicolor.3mf");
+        let first = service.import_print_file(&path).unwrap();
+        service.discard_pending_job(first.job_id).unwrap();
+
+        let second = service.import_print_file(&path).unwrap();
+
+        assert_ne!(second.job_id, first.job_id);
+        assert_eq!(second.state, ImportState::New);
+        assert_eq!(service.parse_result_count(&second.source_hash).unwrap(), 1);
+        assert_eq!(service.job_count(&second.source_hash).unwrap(), 1);
+    }
+
+    #[test]
     fn repeated_unsettled_import_reuses_the_pending_job() {
         let database = AppDatabase::open_in_memory().unwrap();
         let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
@@ -783,6 +971,16 @@ impl PrintService {
                 self.ensure_unchanged(path, stability)?;
                 return Ok(preview);
             }
+
+            let job_id = Uuid::new_v4();
+            #[cfg(test)]
+            self.run_before_final_stability_check(path);
+            self.ensure_unchanged(path, stability)?;
+            self.database.connection.execute(
+                "INSERT INTO print_jobs (job_id, source_hash, source_file_name) VALUES (?1, ?2, ?3)",
+                params![job_id.to_string(), source_hash, file_name],
+            )?;
+            return self.preview(job_id, source_hash, file_name, &parsed, ImportState::New);
         }
 
         let parsed = parse_3mf(path)?;
@@ -844,6 +1042,34 @@ impl PrintService {
                 })
                 .transpose()?,
         })
+    }
+
+    pub fn discard_pending_job(&mut self, job_id: Uuid) -> Result<()> {
+        let transaction = self.database.connection.transaction()?;
+        let outcome = transaction
+            .query_row(
+                "SELECT outcome FROM print_jobs WHERE job_id = ?1",
+                [job_id.to_string()],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?;
+        if outcome != Some(None) {
+            return Err(AppError::InvalidJob);
+        }
+        transaction.execute(
+            "DELETE FROM job_mappings WHERE job_id = ?1",
+            [job_id.to_string()],
+        )?;
+        transaction.execute(
+            "DELETE FROM app_settings WHERE setting_key = 'pending_job_id' AND setting_value = ?1",
+            [job_id.to_string()],
+        )?;
+        transaction.execute(
+            "DELETE FROM print_jobs WHERE job_id = ?1",
+            [job_id.to_string()],
+        )?;
+        transaction.commit()?;
+        Ok(())
     }
 
     pub fn parse_result_count(&self, source_hash: &str) -> Result<u32> {
@@ -1366,6 +1592,22 @@ pub fn confirm_job_mapping(
     with_print(state, |service| {
         service.confirm_job_mapping(job_id, mappings)
     })
+}
+
+#[tauri::command]
+pub fn discard_pending_job(
+    job_id: Uuid,
+    state: tauri::State<'_, PrintState>,
+    runtime: tauri::State<'_, crate::pet::runtime::PetRuntime>,
+) -> Result<()> {
+    let mut service = state
+        .lock()
+        .map_err(|_| AppError::Database("print service lock poisoned".to_owned()))?;
+    service.discard_pending_job(job_id)?;
+    let summary = service.pending_summary()?;
+    drop(service);
+    runtime.refresh_pending(summary, None);
+    Ok(())
 }
 
 #[tauri::command]

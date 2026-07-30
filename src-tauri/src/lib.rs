@@ -115,6 +115,7 @@ pub fn run() {
             inventory::list_slots,
             imports::import_print_file,
             imports::confirm_job_mapping,
+            imports::discard_pending_job,
             imports::confirm_new_print,
             imports::get_job_preview,
             settlement::settle_job,
