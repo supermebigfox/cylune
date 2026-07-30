@@ -3,6 +3,7 @@ use crate::{
     db::AppDatabase,
     domain::{Confidence, JobOutcome},
     error::{AppError, Result},
+    media::{validate_image_bytes, MediaStore},
     parser::{
         gcode::{GcodeReport, LayerUsage},
         FilamentProfile, ParsedPlate, ParsedPrintFile, ParsedProjectV2,
@@ -13,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    fs::{self, File, OpenOptions},
-    io::{Cursor, Read, Write},
+    fs::{self, File},
+    io::{BufReader, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
 };
 use uuid::Uuid;
@@ -23,6 +24,10 @@ use zip::{write::FileOptions, ZipArchive, ZipWriter};
 pub const BACKUP_SCHEMA_VERSION: u32 = 3;
 const SAFE_SETTINGS: &[&str] = &["theme", "locale", "notifications_enabled"];
 const BACKUP_MANIFEST: &str = "backup.json";
+const MAX_BACKUP_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_BACKUP_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_BACKUP_ARCHIVE_ENTRIES: usize = 4_096;
+const MAX_BACKUP_MEDIA_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_BACKUP_MEDIA_BYTES: u64 = 16 * 1024 * 1024;
 
 #[tauri::command]
@@ -418,11 +423,7 @@ pub fn export_to_path(database: &AppDatabase, path: &Path) -> Result<PathBuf> {
             archive.write_all(&json)?;
             for media in &backup.media {
                 let bytes = fs::read(root.join(&media.relative_path))?;
-                if bytes.len() as u64 != media.byte_size
-                    || format!("{:x}", Sha256::digest(&bytes)) != media.asset_id
-                {
-                    return Err(AppError::InvalidFile);
-                }
+                validate_media_bytes(media, &bytes)?;
                 archive
                     .start_file(media_archive_name(media)?, options)
                     .map_err(|_| AppError::InvalidFile)?;
@@ -443,16 +444,43 @@ pub fn export_to_path(database: &AppDatabase, path: &Path) -> Result<PathBuf> {
 }
 
 pub fn import_from_path(database: &mut AppDatabase, path: &Path) -> Result<PathBuf> {
-    let bytes = fs::read(path)?;
-    let (backup, media_files) = if bytes.starts_with(b"PK\x03\x04") {
-        read_backup_archive(&bytes)?
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return Err(AppError::InvalidFile);
+    }
+    validate_archive_size(metadata.len())?;
+    let mut reader = BufReader::new(File::open(path)?);
+    let mut signature = [0_u8; 4];
+    let signature_len = reader.read(&mut signature)?;
+    reader.seek(SeekFrom::Start(0))?;
+    let (mut backup, media_files) = if signature_len == 4 && signature == *b"PK\x03\x04" {
+        read_backup_archive(reader)?
     } else {
+        if metadata.len() > MAX_BACKUP_MANIFEST_BYTES {
+            return Err(AppError::InvalidFile);
+        }
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        reader
+            .take(MAX_BACKUP_MANIFEST_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_BACKUP_MANIFEST_BYTES {
+            return Err(AppError::InvalidFile);
+        }
         let backup: Backup = serde_json::from_slice(&bytes).map_err(|_| AppError::InvalidFile)?;
         if backup.media_files_included {
             return Err(AppError::InvalidFile);
         }
         (backup, Vec::new())
     };
+    if backup.schema_version == 3 && !backup.media_files_included {
+        backup.media.clear();
+        for project in &mut backup.projects {
+            project.cover_asset_id = None;
+        }
+        for plate in &mut backup.plates {
+            plate.thumbnail_asset_id = None;
+        }
+    }
     validate(&backup)?;
     let automatic = path.with_file_name(format!("cylune-auto-{}.backup", Uuid::new_v4()));
     export_to_path(database, &automatic)?;
@@ -519,36 +547,98 @@ fn media_extension(media: &MediaRow) -> Result<&str> {
         .ok_or(AppError::InvalidFile)
 }
 
-fn read_backup_archive(bytes: &[u8]) -> Result<(Backup, Vec<ArchivedMedia>)> {
-    let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|_| AppError::InvalidFile)?;
+fn read_backup_archive<R: Read + Seek>(reader: R) -> Result<(Backup, Vec<ArchivedMedia>)> {
+    let mut archive = ZipArchive::new(reader).map_err(|_| AppError::InvalidFile)?;
+    if archive.len() > MAX_BACKUP_ARCHIVE_ENTRIES {
+        return Err(AppError::InvalidFile);
+    }
     let mut manifest = Vec::new();
-    archive
+    let mut manifest_file = archive
         .by_name(BACKUP_MANIFEST)
-        .map_err(|_| AppError::InvalidFile)?
+        .map_err(|_| AppError::InvalidFile)?;
+    if manifest_file.is_dir()
+        || manifest_file
+            .unix_mode()
+            .is_some_and(|mode| mode & 0o170000 == 0o120000)
+        || manifest_file.size() > MAX_BACKUP_MANIFEST_BYTES
+    {
+        return Err(AppError::InvalidFile);
+    }
+    (&mut manifest_file)
+        .take(MAX_BACKUP_MANIFEST_BYTES + 1)
         .read_to_end(&mut manifest)?;
+    if manifest.len() as u64 > MAX_BACKUP_MANIFEST_BYTES {
+        return Err(AppError::InvalidFile);
+    }
+    drop(manifest_file);
     let backup: Backup = serde_json::from_slice(&manifest).map_err(|_| AppError::InvalidFile)?;
     if !backup.media_files_included {
         return Err(AppError::InvalidFile);
     }
+    validate_media_total(backup.media.iter().map(|media| media.byte_size))?;
     let mut media_files = Vec::with_capacity(backup.media.len());
     for media in &backup.media {
         let mut file = archive
             .by_name(&media_archive_name(media)?)
             .map_err(|_| AppError::InvalidFile)?;
-        if file.is_dir() || file.size() != media.byte_size || file.size() > MAX_BACKUP_MEDIA_BYTES {
+        if file.is_dir()
+            || file
+                .unix_mode()
+                .is_some_and(|mode| mode & 0o170000 == 0o120000)
+            || file.size() != media.byte_size
+            || file.size() > MAX_BACKUP_MEDIA_BYTES
+            || file.compressed_size() > MAX_BACKUP_MEDIA_BYTES
+        {
             return Err(AppError::InvalidFile);
         }
         let mut media_bytes = Vec::new();
-        file.read_to_end(&mut media_bytes)?;
-        if format!("{:x}", Sha256::digest(&media_bytes)) != media.asset_id {
+        (&mut file)
+            .take(MAX_BACKUP_MEDIA_BYTES + 1)
+            .read_to_end(&mut media_bytes)?;
+        if media_bytes.len() as u64 > MAX_BACKUP_MEDIA_BYTES {
             return Err(AppError::InvalidFile);
         }
+        validate_media_bytes(media, &media_bytes)?;
         media_files.push(ArchivedMedia {
             relative_path: media.relative_path.clone(),
             bytes: media_bytes,
         });
     }
     Ok((backup, media_files))
+}
+
+fn validate_media_total(sizes: impl IntoIterator<Item = u64>) -> Result<()> {
+    let total = sizes.into_iter().try_fold(0_u64, |total, size| {
+        total.checked_add(size).ok_or(AppError::InvalidFile)
+    })?;
+    if total > MAX_BACKUP_MEDIA_TOTAL_BYTES {
+        return Err(AppError::InvalidFile);
+    }
+    Ok(())
+}
+
+fn validate_archive_size(size: u64) -> Result<()> {
+    if size > MAX_BACKUP_ARCHIVE_BYTES {
+        return Err(AppError::InvalidFile);
+    }
+    Ok(())
+}
+
+fn validate_media_bytes(media: &MediaRow, bytes: &[u8]) -> Result<()> {
+    if bytes.len() as u64 != media.byte_size
+        || format!("{:x}", Sha256::digest(bytes)) != media.asset_id
+    {
+        return Err(AppError::InvalidFile);
+    }
+    let image = validate_image_bytes(bytes)?;
+    if media_extension(media)? != image.extension
+        || media.mime_type != image.mime_type
+        || media.width != Some(image.width)
+        || media.height != Some(image.height)
+    {
+        return Err(AppError::InvalidFile);
+    }
+    Ok(())
 }
 
 fn persist_restored_media(
@@ -559,35 +649,12 @@ fn persist_restored_media(
         return Ok(Vec::new());
     }
     let root = database_root(database)?;
+    let store = MediaStore::new(root.clone())?;
     let mut created = Vec::new();
     for media in media_files {
-        let result = (|| -> Result<Option<PathBuf>> {
-            let destination = root.join(&media.relative_path);
-            let parent = destination.parent().ok_or(AppError::InvalidFile)?;
-            fs::create_dir_all(parent)?;
-            if destination.exists() {
-                if fs::read(&destination)? != media.bytes {
-                    return Err(AppError::InvalidFile);
-                }
-                return Ok(None);
-            }
-            let temporary = parent.join(format!(".{}.tmp", Uuid::new_v4()));
-            let mut file = OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&temporary)?;
-            let persist_result = (|| -> Result<()> {
-                file.write_all(&media.bytes)?;
-                file.sync_all()?;
-                fs::rename(&temporary, &destination)?;
-                Ok(())
-            })();
-            if persist_result.is_err() {
-                let _ = fs::remove_file(&temporary);
-            }
-            persist_result?;
-            Ok(Some(destination))
-        })();
+        let result = store
+            .persist_verified(&media.relative_path, &media.bytes)
+            .map(|was_created| was_created.then(|| root.join(&media.relative_path)));
         match result {
             Ok(Some(destination)) => created.push(destination),
             Ok(None) => {}
@@ -1350,6 +1417,7 @@ mod tests {
     use super::{export_json_for_test, export_to_path, import_from_path};
     use crate::{
         db::AppDatabase,
+        error::AppError,
         imports::{PrintService, ToolMapping},
         inventory::{InventoryService, NewSpool},
         parser::{
@@ -1357,15 +1425,24 @@ mod tests {
             FilamentProfile, ParsedPrintFile,
         },
     };
+    use image::{codecs::png::PngEncoder, ColorType, ImageEncoder};
     use rusqlite::params;
     use sha2::{Digest, Sha256};
     use std::collections::BTreeMap;
     use std::fs;
     use std::io::{Read, Write};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::time::Duration;
     use uuid::Uuid;
     use zip::{write::FileOptions, ZipArchive, ZipWriter};
+
+    fn valid_png() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        PngEncoder::new(&mut bytes)
+            .write_image(&[0, 0, 0, 0], 1, 1, ColorType::Rgba8.into())
+            .unwrap();
+        bytes
+    }
 
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1421,12 +1498,12 @@ mod tests {
         let root = std::env::temp_dir().join(format!("cylune-media-source-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).unwrap();
         let source = AppDatabase::open(root.join("inventory.sqlite")).unwrap();
-        let bytes = b"content-addressed-thumbnail";
-        let asset_id = format!("{:x}", Sha256::digest(bytes));
+        let bytes = valid_png();
+        let asset_id = format!("{:x}", Sha256::digest(&bytes));
         let relative_path = format!("media/{}/{}.png", &asset_id[..2], asset_id);
         let source_media = root.join(&relative_path);
         fs::create_dir_all(source_media.parent().unwrap()).unwrap();
-        fs::write(&source_media, bytes).unwrap();
+        fs::write(&source_media, &bytes).unwrap();
         source
             .connection
             .execute(
@@ -1491,12 +1568,12 @@ mod tests {
         let root = std::env::temp_dir().join(format!("cylune-hash-source-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).unwrap();
         let source = AppDatabase::open(root.join("inventory.sqlite")).unwrap();
-        let bytes = b"content-addressed-thumbnail";
-        let asset_id = format!("{:x}", Sha256::digest(bytes));
+        let bytes = valid_png();
+        let asset_id = format!("{:x}", Sha256::digest(&bytes));
         let relative_path = format!("media/{}/{}.png", &asset_id[..2], asset_id);
         let source_media = root.join(&relative_path);
         fs::create_dir_all(source_media.parent().unwrap()).unwrap();
-        fs::write(&source_media, bytes).unwrap();
+        fs::write(&source_media, &bytes).unwrap();
         source
             .connection
             .execute(
@@ -1525,7 +1602,7 @@ mod tests {
         archive
             .start_file(format!("media/{asset_id}.png"), options)
             .unwrap();
-        let mut tampered = bytes.to_vec();
+        let mut tampered = bytes.clone();
         tampered[0] ^= 0xff;
         archive.write_all(&tampered).unwrap();
         archive.finish().unwrap();
@@ -1554,6 +1631,318 @@ mod tests {
 
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(target_root).unwrap();
+    }
+
+    #[test]
+    fn legacy_v3_json_drops_unavailable_media_but_preserves_history_truth() {
+        let database = populated();
+        let spool_id: Uuid = database
+            .connection
+            .query_row("SELECT spool_id FROM spools", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap()
+            .parse()
+            .unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let project = service
+            .import_print_project(&fixture("bambu_multicolor.3mf"))
+            .unwrap();
+        let plate = &project.plates[0];
+        service
+            .confirm_job_mapping(
+                plate.job_id,
+                vec![
+                    ToolMapping { tool: 0, spool_id },
+                    ToolMapping { tool: 1, spool_id },
+                ],
+            )
+            .unwrap();
+        service
+            .settle_job(plate.job_id, crate::domain::JobOutcome::Success)
+            .unwrap();
+        service.reverse_settlement(plate.job_id).unwrap();
+        let asset_id = "a".repeat(64);
+        service
+            .database
+            .connection
+            .execute(
+                "INSERT INTO media_assets(asset_id,relative_path,mime_type,byte_size,width,height)
+             VALUES(?1,?2,'image/png',68,1,1)",
+                params![asset_id, format!("media/aa/{asset_id}.png")],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_projects SET cover_asset_id=?1 WHERE project_id=?2",
+                params![asset_id, project.project_id.to_string()],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_plates SET thumbnail_asset_id=?1 WHERE plate_id=?2",
+                params![asset_id, plate.plate_id.to_string()],
+            )
+            .unwrap();
+        let legacy_json = export_json_for_test(&mut service.database).unwrap();
+        let path = std::env::temp_dir().join(format!("legacy-v3-no-media-{}.json", Uuid::new_v4()));
+        fs::write(&path, legacy_json).unwrap();
+        let mut target = AppDatabase::open_in_memory().unwrap();
+
+        let automatic = import_from_path(&mut target, &path).unwrap();
+
+        let counts = target
+            .connection
+            .query_row(
+                "SELECT
+                (SELECT COUNT(*) FROM media_assets),
+                (SELECT COUNT(*) FROM print_projects WHERE cover_asset_id IS NOT NULL),
+                (SELECT COUNT(*) FROM print_plates WHERE thumbnail_asset_id IS NOT NULL),
+                (SELECT COUNT(*) FROM job_mappings),
+                (SELECT COUNT(*) FROM job_consumption),
+                (SELECT COUNT(*) FROM ledger_events),
+                (SELECT COUNT(*) FROM ledger_events WHERE event_type='reversal')",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, u32>(0)?,
+                        row.get::<_, u32>(1)?,
+                        row.get::<_, u32>(2)?,
+                        row.get::<_, u32>(3)?,
+                        row.get::<_, u32>(4)?,
+                        row.get::<_, u32>(5)?,
+                        row.get::<_, u32>(6)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(counts, (0, 0, 0, 2, 1, 3, 1));
+        assert_eq!(
+            target
+                .connection
+                .query_row("SELECT remaining_grams FROM spools", [], |row| row
+                    .get::<_, f64>(0))
+                .unwrap(),
+            812.5
+        );
+        let reexport =
+            std::env::temp_dir().join(format!("legacy-v3-reexport-{}.json", Uuid::new_v4()));
+        export_to_path(&target, &reexport).unwrap();
+
+        fs::remove_file(path).unwrap();
+        fs::remove_file(automatic).unwrap();
+        fs::remove_file(reexport).unwrap();
+    }
+
+    #[test]
+    fn restore_rejects_manifest_over_sixteen_mib_before_mutation() {
+        let mut source = AppDatabase::open_in_memory().unwrap();
+        let mut manifest = export_json_for_test(&mut source).unwrap();
+        let marker = r#""media_files_included":false"#;
+        manifest = manifest.replace(marker, r#""media_files_included":true"#);
+        manifest.push_str(&" ".repeat(16 * 1024 * 1024 + 1));
+        let path = std::env::temp_dir().join(format!("oversized-manifest-{}.zip", Uuid::new_v4()));
+        let mut archive = ZipWriter::new(fs::File::create(&path).unwrap());
+        archive
+            .start_file("backup.json", FileOptions::default())
+            .unwrap();
+        archive.write_all(manifest.as_bytes()).unwrap();
+        archive.finish().unwrap();
+        let mut target = AppDatabase::open_in_memory().unwrap();
+
+        let result = import_from_path(&mut target, &path);
+
+        if let Ok(automatic) = &result {
+            fs::remove_file(automatic).unwrap();
+        }
+        assert!(result.is_err());
+        assert_eq!(
+            target
+                .connection
+                .query_row("SELECT COUNT(*) FROM spools", [], |row| row
+                    .get::<_, u32>(0))
+                .unwrap(),
+            0
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn restore_rejects_zip_with_more_than_4096_entries() {
+        let mut source = AppDatabase::open_in_memory().unwrap();
+        let manifest = export_json_for_test(&mut source).unwrap().replace(
+            r#""media_files_included":false"#,
+            r#""media_files_included":true"#,
+        );
+        let path = std::env::temp_dir().join(format!("too-many-entries-{}.zip", Uuid::new_v4()));
+        let mut archive = ZipWriter::new(fs::File::create(&path).unwrap());
+        archive
+            .start_file("backup.json", FileOptions::default())
+            .unwrap();
+        archive.write_all(manifest.as_bytes()).unwrap();
+        for index in 0..4096 {
+            archive
+                .start_file(format!("extra/{index}"), FileOptions::default())
+                .unwrap();
+        }
+        archive.finish().unwrap();
+        let mut target = AppDatabase::open_in_memory().unwrap();
+
+        let result = import_from_path(&mut target, &path);
+
+        if let Ok(automatic) = &result {
+            fs::remove_file(automatic).unwrap();
+        }
+        assert!(result.is_err());
+        assert_eq!(
+            target
+                .connection
+                .query_row("SELECT COUNT(*) FROM spools", [], |row| row
+                    .get::<_, u32>(0))
+                .unwrap(),
+            0
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn restore_rejects_media_totals_over_256_mib() {
+        let result = super::validate_media_total([128 * 1024 * 1024, 128 * 1024 * 1024, 1]);
+
+        assert!(matches!(result, Err(AppError::InvalidFile)));
+    }
+
+    #[test]
+    fn restore_rejects_archive_files_over_512_mib() {
+        let result = super::validate_archive_size(512 * 1024 * 1024 + 1);
+
+        assert!(matches!(result, Err(AppError::InvalidFile)));
+    }
+
+    #[test]
+    fn restore_rejects_fake_png_even_when_hash_matches_metadata() {
+        let root = std::env::temp_dir().join(format!("fake-png-backup-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let fake_png = b"\x89PNG\r\n\x1a\ncorrupt image data";
+        let (path, relative_path) = write_media_backup(&root, "png", "image/png", fake_png);
+        let target_root = root.join("target");
+        fs::create_dir_all(&target_root).unwrap();
+        let mut target = AppDatabase::open(target_root.join("inventory.sqlite")).unwrap();
+
+        let result = import_from_path(&mut target, &path);
+
+        assert!(matches!(result, Err(AppError::InvalidFile)));
+        assert!(!target_root.join(relative_path).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn restore_rejects_non_image_media_extensions() {
+        let root = std::env::temp_dir().join(format!("non-image-backup-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let png = valid_png();
+        let (path, relative_path) = write_media_backup(&root, "3mf", "image/png", &png);
+        let target_root = root.join("target");
+        fs::create_dir_all(&target_root).unwrap();
+        let mut target = AppDatabase::open(target_root.join("inventory.sqlite")).unwrap();
+
+        let result = import_from_path(&mut target, &path);
+
+        assert!(matches!(result, Err(AppError::InvalidFile)));
+        assert!(!target_root.join(relative_path).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restore_rejects_a_symlinked_media_prefix_directory() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!("prefix-link-backup-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let png = valid_png();
+        let (path, relative_path) = write_media_backup(&root, "png", "image/png", &png);
+        let target_root = root.join("target");
+        let outside = root.join("outside");
+        fs::create_dir_all(target_root.join("media")).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let prefix = Path::new(&relative_path).parent().unwrap();
+        symlink(&outside, target_root.join(prefix)).unwrap();
+        let mut target = AppDatabase::open(target_root.join("inventory.sqlite")).unwrap();
+
+        let result = import_from_path(&mut target, &path);
+
+        assert!(matches!(result, Err(AppError::InvalidFile)));
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restore_rejects_a_symlinked_final_media_file() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!("file-link-backup-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let png = valid_png();
+        let (path, relative_path) = write_media_backup(&root, "png", "image/png", &png);
+        let target_root = root.join("target");
+        let destination = target_root.join(&relative_path);
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        let outside = root.join("outside.png");
+        fs::write(&outside, &png).unwrap();
+        symlink(&outside, &destination).unwrap();
+        let mut target = AppDatabase::open(target_root.join("inventory.sqlite")).unwrap();
+
+        let result = import_from_path(&mut target, &path);
+
+        assert!(matches!(result, Err(AppError::InvalidFile)));
+        assert_eq!(fs::read(&outside).unwrap(), png);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn write_media_backup(
+        root: &Path,
+        extension: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> (PathBuf, String) {
+        let mut source = AppDatabase::open_in_memory().unwrap();
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&export_json_for_test(&mut source).unwrap()).unwrap();
+        let asset_id = format!("{:x}", Sha256::digest(bytes));
+        let relative_path = format!("media/{}/{}.{}", &asset_id[..2], asset_id, extension);
+        manifest["media_files_included"] = serde_json::json!(true);
+        manifest["media"] = serde_json::json!([{
+            "asset_id": asset_id,
+            "relative_path": relative_path,
+            "mime_type": mime_type,
+            "byte_size": bytes.len(),
+            "width": 1,
+            "height": 1,
+            "created_at": "2026-07-30T00:00:00Z"
+        }]);
+        let path = root.join(format!("backup-{}.zip", Uuid::new_v4()));
+        let mut archive = ZipWriter::new(fs::File::create(&path).unwrap());
+        archive
+            .start_file("backup.json", FileOptions::default())
+            .unwrap();
+        archive
+            .write_all(&serde_json::to_vec(&manifest).unwrap())
+            .unwrap();
+        archive
+            .start_file(
+                format!("media/{}.{}", asset_id, extension),
+                FileOptions::default(),
+            )
+            .unwrap();
+        archive.write_all(bytes).unwrap();
+        archive.finish().unwrap();
+        (path, relative_path)
     }
 
     #[test]
@@ -1751,12 +2140,12 @@ mod tests {
             .import_print_project(&fixture("bambu_multicolor.3mf"))
             .unwrap();
         let plate = &imported.plates[0];
-        let media_bytes = b"project-thumbnail";
-        let asset_id = format!("{:x}", Sha256::digest(media_bytes));
+        let media_bytes = valid_png();
+        let asset_id = format!("{:x}", Sha256::digest(&media_bytes));
         let relative_path = format!("media/{}/{}.png", &asset_id[..2], asset_id);
         let media_path = source_root.join(&relative_path);
         fs::create_dir_all(media_path.parent().unwrap()).unwrap();
-        fs::write(&media_path, media_bytes).unwrap();
+        fs::write(&media_path, &media_bytes).unwrap();
         service
             .database
             .connection

@@ -10,6 +10,12 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/media/**"]
+      }
+    },
     "windows": [
       {
         "label": "main",

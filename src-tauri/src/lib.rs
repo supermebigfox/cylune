@@ -156,3 +156,16 @@ pub fn run() {
             }
         });
 }
+
+#[cfg(test)]
+mod config_tests {
+    #[test]
+    fn asset_protocol_is_limited_to_app_data_media() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            .expect("tauri.conf.json must remain valid JSON");
+        let asset = &config["app"]["security"]["assetProtocol"];
+
+        assert_eq!(asset["enable"], true);
+        assert_eq!(asset["scope"], serde_json::json!(["$APPDATA/media/**"]));
+    }
+}

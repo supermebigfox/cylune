@@ -6,7 +6,10 @@ use crate::{
 };
 use rusqlite::{params, params_from_iter};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +61,7 @@ pub(crate) fn status_for_job(
         "success" => Ok(PlateStatus::Success),
         "failed" => Ok(PlateStatus::Failed),
         "cancelled" => Ok(PlateStatus::Cancelled),
+        "estimated" => Ok(PlateStatus::Estimated),
         "skipped" => Ok(PlateStatus::Skipped),
         _ => Err(AppError::Database("invalid job outcome".to_owned())),
     }
@@ -76,8 +80,46 @@ struct ProjectAggregate {
     cover_relative_path: Option<String>,
 }
 
-fn asset_url(relative_path: Option<String>) -> Option<String> {
-    relative_path.map(|path| format!("asset://localhost/{}", path.trim_start_matches('/')))
+fn asset_url(app_data_root: &Path, relative_path: Option<String>) -> Option<String> {
+    relative_path.and_then(|relative_path| {
+        let absolute = app_data_root.join(relative_path);
+        let absolute = absolute.to_str()?;
+        let mut encoded = String::with_capacity(absolute.len());
+        for byte in absolute.bytes() {
+            if byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+                )
+            {
+                encoded.push(char::from(byte));
+            } else {
+                use std::fmt::Write as _;
+                let _ = write!(encoded, "%{byte:02X}");
+            }
+        }
+        #[cfg(any(target_os = "windows", target_os = "android"))]
+        return Some(format!("http://asset.localhost/{encoded}"));
+        #[cfg(not(any(target_os = "windows", target_os = "android")))]
+        Some(format!("asset://localhost/{encoded}"))
+    })
+}
+
+fn app_data_root(service: &PrintService) -> Result<PathBuf> {
+    let database_path: String =
+        service
+            .database
+            .connection
+            .query_row("PRAGMA database_list", [], |row| row.get(2))?;
+    if database_path.is_empty() {
+        return Err(AppError::Database(
+            "history media requires a file-backed database".to_owned(),
+        ));
+    }
+    PathBuf::from(database_path)
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| AppError::Database("invalid history database path".to_owned()))
 }
 
 fn parse_uuid(value: &str) -> Result<Uuid> {
@@ -157,6 +199,7 @@ fn project_aggregates(
 fn plate_summaries(
     service: &PrintService,
     project_ids: &[String],
+    app_data_root: &Path,
 ) -> Result<HashMap<String, Vec<PrintPlateSummary>>> {
     if project_ids.is_empty() {
         return Ok(HashMap::new());
@@ -253,7 +296,7 @@ fn plate_summaries(
                 plate_index,
                 display_name,
                 thumbnail_asset_id,
-                thumbnail_url: asset_url(thumbnail_relative_path),
+                thumbnail_url: asset_url(app_data_root, thumbnail_relative_path),
                 estimated_seconds,
                 max_layer,
                 status,
@@ -264,12 +307,13 @@ fn plate_summaries(
 
 impl PrintService {
     pub fn list_print_projects(&self, filter: HistoryFilter) -> Result<Vec<PrintProjectSummary>> {
+        let app_data_root = app_data_root(self)?;
         let aggregates = project_aggregates(self, Some(filter), None)?;
         let project_ids = aggregates
             .iter()
             .map(|project| project.project_id.clone())
             .collect::<Vec<_>>();
-        let mut plates_by_project = plate_summaries(self, &project_ids)?;
+        let mut plates_by_project = plate_summaries(self, &project_ids, &app_data_root)?;
         aggregates
             .into_iter()
             .map(|project| {
@@ -281,7 +325,7 @@ impl PrintService {
                     plate_count: project.plate_count,
                     total_estimated_seconds: project.total_estimated_seconds,
                     cover_asset_id: project.cover_asset_id,
-                    cover_url: asset_url(project.cover_relative_path),
+                    cover_url: asset_url(&app_data_root, project.cover_relative_path),
                     plates: plates_by_project
                         .remove(&project.project_id)
                         .unwrap_or_default(),
@@ -291,10 +335,14 @@ impl PrintService {
     }
 
     pub fn get_print_project(&self, project_id: Uuid) -> Result<PrintProjectDetail> {
+        let app_data_root = app_data_root(self)?;
         let mut aggregates = project_aggregates(self, None, Some(project_id))?;
         let project = aggregates.pop().ok_or(AppError::InvalidJob)?;
-        let mut plates_by_project =
-            plate_summaries(self, std::slice::from_ref(&project.project_id))?;
+        let mut plates_by_project = plate_summaries(
+            self,
+            std::slice::from_ref(&project.project_id),
+            &app_data_root,
+        )?;
         Ok(PrintProjectDetail {
             project_id,
             source_hash: project.source_hash,
@@ -304,7 +352,7 @@ impl PrintService {
             plate_count: project.plate_count,
             total_estimated_seconds: project.total_estimated_seconds,
             cover_asset_id: project.cover_asset_id,
-            cover_url: asset_url(project.cover_relative_path),
+            cover_url: asset_url(&app_data_root, project.cover_relative_path),
             plates: plates_by_project
                 .remove(&project.project_id)
                 .unwrap_or_default(),
@@ -344,7 +392,7 @@ mod tests {
         parser::{gcode::GcodeReport, ParsedPrintFile},
     };
     use rusqlite::params;
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, fs, path::Path};
     use uuid::Uuid;
 
     fn insert_project(
@@ -466,8 +514,35 @@ mod tests {
     }
 
     #[test]
+    fn estimated_settlement_remains_visible_in_history() {
+        assert_eq!(
+            status_for_job(
+                Some(r#"{"kind":"estimated","progress_percent":42.5}"#),
+                0,
+                1
+            )
+            .unwrap(),
+            PlateStatus::Estimated
+        );
+    }
+
+    #[test]
+    fn asset_url_encodes_the_absolute_app_data_media_path() {
+        assert_eq!(
+            super::asset_url(
+                Path::new("/tmp/CYLUNE media"),
+                Some("media/aa/hash #1.png".to_owned())
+            )
+            .as_deref(),
+            Some("asset://localhost/%2Ftmp%2FCYLUNE%20media%2Fmedia%2Faa%2Fhash%20%231.png")
+        );
+    }
+
+    #[test]
     fn history_lists_projects_once_and_summarizes_plates() {
-        let database = AppDatabase::open_in_memory().unwrap();
+        let root = std::env::temp_dir().join(format!("cylune-history-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let database = AppDatabase::open(root.join("inventory.sqlite")).unwrap();
         let pending_id = Uuid::new_v4();
         let partial_id = Uuid::new_v4();
         let media_hash = "a".repeat(64);
@@ -510,11 +585,11 @@ mod tests {
         assert_eq!(pending_project.plate_count, 2);
         assert_eq!(pending_project.total_estimated_seconds, Some(300));
         assert_eq!(pending_project.plates.len(), 2);
-        let expected_url = format!(
-            "asset://localhost/media/{}/{}.png",
-            &media_hash[..2],
-            media_hash
-        );
+        let expected_url = super::asset_url(
+            &fs::canonicalize(&root).unwrap(),
+            Some(format!("media/{}/{}.png", &media_hash[..2], media_hash)),
+        )
+        .unwrap();
         assert_eq!(
             pending_project.cover_url.as_deref(),
             Some(expected_url.as_str())
@@ -555,5 +630,7 @@ mod tests {
         assert_eq!(detail.plate_count, 2);
         assert_eq!(detail.total_estimated_seconds, Some(720));
         assert_eq!(detail.plates, partial_project.plates);
+        drop(service);
+        fs::remove_dir_all(root).unwrap();
     }
 }

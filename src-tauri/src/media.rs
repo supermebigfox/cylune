@@ -27,6 +27,14 @@ pub struct MediaAsset {
     pub byte_size: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ValidatedImage {
+    pub extension: &'static str,
+    pub mime_type: &'static str,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct MediaStore {
     app_data_root: PathBuf,
@@ -70,37 +78,53 @@ impl MediaStore {
             return Err(AppError::InvalidFile);
         }
         let bytes = read_entry_bytes(&mut archive_entry, declared_size)?;
-        let (format, extension, mime_type) = image_type(&bytes).ok_or(AppError::InvalidFile)?;
-        let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
-        reader.limits(image_limits());
-        let image = reader.decode().map_err(|_| AppError::InvalidFile)?;
-        let (width, height) = (image.width(), image.height());
-        if width == 0 || height == 0 {
-            return Err(AppError::InvalidFile);
-        }
+        let validated = validate_image_bytes(&bytes)?;
 
         let asset_id = format!("{:x}", Sha256::digest(&bytes));
-        let relative_path = format!("media/{}/{}.{}", &asset_id[..2], asset_id, extension);
+        let relative_path = format!(
+            "media/{}/{}.{}",
+            &asset_id[..2],
+            asset_id,
+            validated.extension
+        );
         let destination = self.app_data_root.join(&relative_path);
         self.persist(&destination, &bytes)?;
 
         Ok(Some(MediaAsset {
             asset_id,
             relative_path,
-            mime_type: mime_type.to_owned(),
-            width,
-            height,
+            mime_type: validated.mime_type.to_owned(),
+            width: validated.width,
+            height: validated.height,
             byte_size: bytes.len() as u64,
         }))
     }
 
-    fn persist(&self, destination: &Path, bytes: &[u8]) -> Result<()> {
+    pub(crate) fn persist_verified(&self, relative_path: &str, bytes: &[u8]) -> Result<bool> {
+        validate_entry_name(relative_path)?;
+        let relative = Path::new(relative_path);
+        let mut components = relative.components();
+        if components.next() != Some(Component::Normal("media".as_ref()))
+            || components.clone().count() != 2
+        {
+            return Err(AppError::InvalidFile);
+        }
+        let destination = self.app_data_root.join(relative);
+        self.persist(&destination, bytes)
+    }
+
+    fn persist(&self, destination: &Path, bytes: &[u8]) -> Result<bool> {
         let media_root = self.app_data_root.join("media");
         ensure_real_directory(&media_root)?;
         let parent = destination.parent().ok_or(AppError::InvalidFile)?;
         ensure_real_directory(parent)?;
-        if destination.exists() {
-            return validate_existing(destination, bytes.len() as u64);
+        match fs::symlink_metadata(destination) {
+            Ok(_) => {
+                validate_existing(destination, bytes)?;
+                return Ok(false);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
 
         let temporary = parent.join(format!(
@@ -111,21 +135,50 @@ impl MediaStore {
                 .ok_or(AppError::InvalidFile)?,
             uuid::Uuid::new_v4()
         ));
-        let write_result = (|| -> Result<()> {
+        let write_result = (|| -> Result<bool> {
             let mut file = OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&temporary)?;
             file.write_all(bytes)?;
             file.sync_all()?;
-            fs::rename(&temporary, destination)?;
-            Ok(())
+            match fs::hard_link(&temporary, destination) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    validate_existing(destination, bytes)?;
+                    fs::remove_file(&temporary)?;
+                    return Ok(false);
+                }
+                Err(error) => return Err(error.into()),
+            }
+            fs::remove_file(&temporary)?;
+            Ok(true)
         })();
         if write_result.is_err() {
             let _ = fs::remove_file(&temporary);
         }
         write_result
     }
+}
+
+pub(crate) fn validate_image_bytes(bytes: &[u8]) -> Result<ValidatedImage> {
+    if bytes.len() as u64 > MAX_EXTRACTED_IMAGE_BYTES {
+        return Err(AppError::InvalidFile);
+    }
+    let (format, extension, mime_type) = image_type(bytes).ok_or(AppError::InvalidFile)?;
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    reader.limits(image_limits());
+    let image = reader.decode().map_err(|_| AppError::InvalidFile)?;
+    let (width, height) = (image.width(), image.height());
+    if width == 0 || height == 0 {
+        return Err(AppError::InvalidFile);
+    }
+    Ok(ValidatedImage {
+        extension,
+        mime_type,
+        width,
+        height,
+    })
 }
 
 fn read_entry_bytes(reader: &mut impl Read, declared_size: u64) -> Result<Vec<u8>> {
@@ -174,11 +227,12 @@ fn image_type(bytes: &[u8]) -> Option<(ImageFormat, &'static str, &'static str)>
     None
 }
 
-fn validate_existing(path: &Path, expected_length: u64) -> Result<()> {
+fn validate_existing(path: &Path, expected: &[u8]) -> Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
-        || metadata.len() != expected_length
+        || metadata.len() != expected.len() as u64
+        || fs::read(path)? != expected
     {
         return Err(AppError::InvalidFile);
     }

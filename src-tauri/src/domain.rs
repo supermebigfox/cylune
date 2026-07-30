@@ -91,6 +91,7 @@ pub enum PlateStatus {
     Success,
     Failed,
     Cancelled,
+    Estimated,
     Skipped,
 }
 
@@ -261,6 +262,7 @@ mod tests {
             PlateStatus::Success,
             PlateStatus::Failed,
             PlateStatus::Cancelled,
+            PlateStatus::Estimated,
             PlateStatus::Skipped,
         ]
         .into_iter()
@@ -275,6 +277,7 @@ mod tests {
                 "success",
                 "failed",
                 "cancelled",
+                "estimated",
                 "skipped",
             ]
         );
