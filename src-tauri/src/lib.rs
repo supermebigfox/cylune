@@ -8,6 +8,7 @@ pub mod inventory;
 pub mod media;
 pub mod parser;
 pub mod pet;
+pub mod printers;
 pub mod settlement;
 pub mod slicer;
 pub mod tray;
@@ -17,6 +18,7 @@ use crate::{
     imports::{PrintService, PrintState},
     inventory::{InventoryService, InventoryState},
     media::MediaStore,
+    printers::{PrinterService, PrinterState},
 };
 use rusqlite::OptionalExtension;
 use tauri::Manager;
@@ -59,6 +61,7 @@ pub fn run() {
             let database_path = data_dir.join("inventory.sqlite");
             let inventory_database = AppDatabase::open(&database_path)?;
             let print_database = AppDatabase::open(&database_path)?;
+            let printer_database = AppDatabase::open(&database_path)?;
             let initial_pet_settings = pet::PetStore::load(&print_database)?;
             let media_store = MediaStore::new(data_dir.clone())?;
             let print_service =
@@ -82,6 +85,7 @@ pub fn run() {
                 inventory_database,
             )));
             app.manage(PrintState::new(print_service));
+            app.manage(PrinterState::new(PrinterService::new(printer_database)));
             app.manage(media_store);
             app.manage(tray::WatchState(std::sync::Mutex::new(None)));
             tray::setup(app, &initial_locale, pet_enabled, pet_visible)?;
@@ -138,6 +142,11 @@ pub fn run() {
             settlement::reverse_settlement,
             backup::export_backup,
             backup::import_backup,
+            printers::list_available_printers,
+            printers::list_saved_printers,
+            printers::save_printer,
+            printers::delete_printer,
+            printers::set_default_printer,
             pet::get_pet_settings,
             pet::set_pet_settings,
             tray::set_watch_folder,

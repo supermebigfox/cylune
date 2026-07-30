@@ -8,6 +8,7 @@ const PRINT_JOBS_MIGRATION: &str = include_str!("../migrations/003_print_jobs.sq
 const REPEAT_JOBS_MIGRATION: &str = include_str!("../migrations/004_repeat_jobs.sql");
 const CATALOG_INDEX_MIGRATION: &str = include_str!("../migrations/005_catalog.sql");
 const PRINT_HISTORY_MIGRATION: &str = include_str!("../migrations/006_print_history.sql");
+const PRINTERS_MIGRATION: &str = include_str!("../migrations/007_printers.sql");
 const CATALOG_COLUMN_MIGRATIONS: [(&str, &str); 5] = [
     (
         "catalog_id",
@@ -61,6 +62,7 @@ impl AppDatabase {
         }
         ensure_catalog_schema(&mut connection)?;
         ensure_print_history_schema(&mut connection)?;
+        ensure_printer_schema(&mut connection)?;
         Ok(Self { connection })
     }
 
@@ -73,6 +75,13 @@ impl AppDatabase {
 
         Ok(exists != 0)
     }
+}
+
+fn ensure_printer_schema(connection: &mut Connection) -> Result<()> {
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(PRINTERS_MIGRATION)?;
+    transaction.commit()?;
+    Ok(())
 }
 
 fn table_exists(connection: &Connection, table: &str) -> Result<bool> {
@@ -242,6 +251,35 @@ mod tests {
         ] {
             assert!(database.table_exists(table).unwrap(), "missing {table}");
         }
+    }
+
+    #[test]
+    fn printer_migration_creates_library_and_allows_only_one_default() {
+        let database = AppDatabase::open_in_memory().unwrap();
+
+        assert!(database.table_exists("printers").unwrap());
+        database
+            .connection
+            .execute(
+                "INSERT INTO printers (
+                printer_id, display_name, model_key, nozzle_diameter,
+                default_plate, ams_kind, is_default
+             ) VALUES (?1, 'Main P2S', 'Bambu Lab P2S', 0.4,
+                'Supertack Plate', 'ams', 1)",
+                ["00000000-0000-4000-8000-000000000001"],
+            )
+            .unwrap();
+
+        let duplicate_default = database.connection.execute(
+            "INSERT INTO printers (
+                printer_id, display_name, model_key, nozzle_diameter,
+                default_plate, ams_kind, is_default
+             ) VALUES (?1, 'Second P2S', 'Bambu Lab P2S', 0.4,
+                'Textured PEI Plate', 'none', 1)",
+            ["00000000-0000-4000-8000-000000000002"],
+        );
+
+        assert!(duplicate_default.is_err());
     }
 
     #[test]

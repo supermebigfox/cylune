@@ -70,6 +70,8 @@ struct Backup {
     consumption: Vec<ConsumptionRow>,
     ledger: Vec<LedgerRow>,
     settings: Vec<SettingRow>,
+    #[serde(default)]
+    printers: Vec<PrinterRow>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -398,6 +400,20 @@ struct LedgerRow {
 struct SettingRow {
     key: String,
     value: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrinterRow {
+    printer_id: String,
+    display_name: String,
+    model_key: String,
+    nozzle_diameter: f64,
+    default_plate: String,
+    ams_kind: String,
+    is_default: bool,
+    created_at: String,
+    updated_at: String,
 }
 
 pub fn export_to_path(database: &AppDatabase, path: &Path) -> Result<PathBuf> {
@@ -884,6 +900,7 @@ fn read_backup(db: &AppDatabase) -> Result<Backup> {
         consumption: rows(db, "SELECT job_id,spool_id,settlement_version,consumed_grams,confidence,slot_number FROM job_consumption ORDER BY job_id,spool_id,settlement_version", |r| Ok(ConsumptionRow{job_id:r.get(0)?,spool_id:r.get(1)?,settlement_version:r.get(2)?,consumed_grams:r.get(3)?,confidence:r.get(4)?,slot_number:r.get(5)?}))?,
         ledger: rows(db, "SELECT event_id,idempotency_key,spool_id,job_id,settlement_version,event_type,delta_grams,confidence,reverses_event_id,created_at FROM ledger_events ORDER BY CASE event_type WHEN 'reversal' THEN 1 ELSE 0 END,created_at,event_id", |r| Ok(LedgerRow{event_id:r.get(0)?,idempotency_key:r.get(1)?,spool_id:r.get(2)?,job_id:r.get(3)?,settlement_version:r.get(4)?,event_type:r.get(5)?,delta_grams:r.get(6)?,confidence:r.get(7)?,reverses_event_id:r.get(8)?,created_at:r.get(9)?}))?,
         settings: rows(db, "SELECT setting_key,setting_value FROM app_settings ORDER BY setting_key", |r| Ok(SettingRow{key:r.get(0)?,value:r.get(1)?}))?.into_iter().filter(|row| SAFE_SETTINGS.contains(&row.key.as_str())).collect(),
+        printers: rows(db, "SELECT printer_id,display_name,model_key,nozzle_diameter,default_plate,ams_kind,is_default,created_at,updated_at FROM printers ORDER BY printer_id", |r| Ok(PrinterRow{printer_id:r.get(0)?,display_name:r.get(1)?,model_key:r.get(2)?,nozzle_diameter:r.get(3)?,default_plate:r.get(4)?,ams_kind:r.get(5)?,is_default:r.get::<_,i64>(6)? != 0,created_at:r.get(7)?,updated_at:r.get(8)?}))?,
     })
 }
 
@@ -985,6 +1002,12 @@ fn validate(b: &Backup) -> Result<()> {
                 .collect(),
         )
         || !unique(b.settings.iter().map(|s| s.key.as_str()).collect())
+        || !unique(
+            b.printers
+                .iter()
+                .map(|printer| printer.printer_id.as_str())
+                .collect(),
+        )
     {
         return Err(AppError::InvalidFile);
     }
@@ -995,7 +1018,8 @@ fn validate(b: &Backup) -> Result<()> {
             || b.jobs.iter().any(|job| job.plate_id.is_some())
             || b.parse_cache
                 .iter()
-                .any(|cached| !matches!(cached.parsed, BackupCachedParse::Legacy(_))))
+                .any(|cached| !matches!(cached.parsed, BackupCachedParse::Legacy(_)))
+            || !b.printers.is_empty())
     {
         return Err(AppError::InvalidFile);
     }
@@ -1328,6 +1352,29 @@ fn validate(b: &Backup) -> Result<()> {
             return Err(AppError::InvalidFile);
         }
     }
+    if b.printers
+        .iter()
+        .filter(|printer| printer.is_default)
+        .count()
+        > 1
+    {
+        return Err(AppError::InvalidFile);
+    }
+    for printer in &b.printers {
+        if !valid_uuid(&printer.printer_id)
+            || !safe_text(&printer.display_name, 80)
+            || !safe_text(&printer.model_key, 160)
+            || !safe_text(&printer.default_plate, 120)
+            || !safe_text(&printer.ams_kind, 80)
+            || !printer.nozzle_diameter.is_finite()
+            || printer.nozzle_diameter <= 0.0
+            || printer.nozzle_diameter > 2.0
+            || unsafe_stamp(&printer.created_at)
+            || unsafe_stamp(&printer.updated_at)
+        {
+            return Err(AppError::InvalidFile);
+        }
+    }
     Ok(())
 }
 
@@ -1339,6 +1386,12 @@ fn contains_sensitive(value: &str) -> bool {
 
 fn finite_nonnegative(v: f64) -> bool {
     v.is_finite() && v >= 0.0
+}
+fn safe_text(value: &str, maximum: usize) -> bool {
+    let trimmed = value.trim();
+    !trimmed.is_empty()
+        && trimmed.chars().count() <= maximum
+        && !trimmed.chars().any(char::is_control)
 }
 fn valid_hash(value: &str) -> bool {
     value.len() == 64
@@ -1431,7 +1484,7 @@ const CREATE_LEDGER_TRIGGERS: &str = r#"CREATE TRIGGER prevent_ledger_event_dele
 
 fn restore(tx: &Transaction<'_>, b: &Backup) -> Result<()> {
     tx.execute_batch(DROP_LEDGER_TRIGGERS)?;
-    tx.execute_batch("DELETE FROM ledger_events;DELETE FROM job_consumption;DELETE FROM job_mappings;DELETE FROM print_jobs;DELETE FROM print_plates;DELETE FROM print_projects;DELETE FROM parse_cache;DELETE FROM media_assets;DELETE FROM ams_slots;DELETE FROM spools;")?;
+    tx.execute_batch("DELETE FROM ledger_events;DELETE FROM job_consumption;DELETE FROM job_mappings;DELETE FROM print_jobs;DELETE FROM print_plates;DELETE FROM print_projects;DELETE FROM parse_cache;DELETE FROM media_assets;DELETE FROM ams_slots;DELETE FROM spools;DELETE FROM printers;")?;
     for key in SAFE_SETTINGS {
         tx.execute("DELETE FROM app_settings WHERE setting_key=?1", [key])?;
     }
@@ -1549,6 +1602,25 @@ fn restore(tx: &Transaction<'_>, b: &Backup) -> Result<()> {
             params![s.key, s.value],
         )?;
     }
+    for printer in &b.printers {
+        tx.execute(
+            "INSERT INTO printers (
+                printer_id, display_name, model_key, nozzle_diameter,
+                default_plate, ams_kind, is_default, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                printer.printer_id,
+                printer.display_name,
+                printer.model_key,
+                printer.nozzle_diameter,
+                printer.default_plate,
+                printer.ams_kind,
+                printer.is_default,
+                printer.created_at,
+                printer.updated_at,
+            ],
+        )?;
+    }
     for slot in &b.slots {
         tx.execute(
             "INSERT INTO ams_slots(slot_number,spool_id,assigned_at) VALUES(?3,?1,?2)",
@@ -1587,7 +1659,7 @@ mod tests {
         },
     };
     use image::{codecs::png::PngEncoder, ColorType, ImageEncoder};
-    use rusqlite::params;
+    use rusqlite::{params, OptionalExtension};
     use sha2::{Digest, Sha256};
     use std::collections::BTreeMap;
     use std::fs;
@@ -1652,6 +1724,85 @@ mod tests {
 
     fn populated() -> AppDatabase {
         populate(AppDatabase::open_in_memory().unwrap())
+    }
+
+    #[test]
+    fn version_three_backup_round_trips_saved_printers_without_profile_files() {
+        let root = std::env::temp_dir().join(format!("cylune-printer-backup-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let source = AppDatabase::open(root.join("source.sqlite")).unwrap();
+        source
+            .connection
+            .execute(
+                "INSERT INTO printers (
+                printer_id, display_name, model_key, nozzle_diameter,
+                default_plate, ams_kind, is_default
+             ) VALUES (?1, 'My P2S', 'Bambu Lab P2S', 0.4,
+                'Supertack Plate', 'ams', 1)",
+                ["00000000-0000-4000-8000-000000000021"],
+            )
+            .unwrap();
+        let backup_path = root.join("printers.backup");
+
+        export_to_path(&source, &backup_path).unwrap();
+        let mut target = AppDatabase::open(root.join("target.sqlite")).unwrap();
+        let automatic = import_from_path(&mut target, &backup_path).unwrap();
+        let restored = target
+            .connection
+            .query_row(
+                "SELECT display_name, model_key, nozzle_diameter,
+                    default_plate, ams_kind, is_default
+             FROM printers WHERE printer_id = ?1",
+                ["00000000-0000-4000-8000-000000000021"],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, f64>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, i64>(5)?,
+                    ))
+                },
+            )
+            .optional()
+            .unwrap();
+
+        assert_eq!(
+            restored,
+            Some((
+                "My P2S".to_owned(),
+                "Bambu Lab P2S".to_owned(),
+                0.4,
+                "Supertack Plate".to_owned(),
+                "ams".to_owned(),
+                1,
+            ))
+        );
+        fs::remove_file(automatic).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn printer_field_defaults_when_restoring_an_older_version_three_manifest() {
+        let mut source = AppDatabase::open_in_memory().unwrap();
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&export_json_for_test(&mut source).unwrap()).unwrap();
+        manifest.as_object_mut().unwrap().remove("printers");
+        let path =
+            std::env::temp_dir().join(format!("cylune-pre-printer-v3-{}.backup", Uuid::new_v4()));
+        fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let mut target = AppDatabase::open_in_memory().unwrap();
+
+        let automatic = import_from_path(&mut target, &path).unwrap();
+
+        let count: u32 = target
+            .connection
+            .query_row("SELECT COUNT(*) FROM printers", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+        fs::remove_file(path).unwrap();
+        fs::remove_file(automatic).unwrap();
     }
 
     #[test]
