@@ -288,6 +288,7 @@
   },
   "errors": {
     "archived_spool": "This spool has been archived",
+    "bambu_studio_missing": "Bambu Studio is not installed",
     "database": "Local data is temporarily unavailable",
     "duplicate_job": "This print job already exists",
     "file_not_stable": "The file is still being written. Try again shortly.",
@@ -297,6 +298,11 @@
     "invalid_mapping": "The filament-to-spool mapping is invalid",
     "invalid_slot": "The AMS Lite slot number is invalid",
     "io": "The file is temporarily unavailable",
+    "output_exists": "A file already exists at the selected output path",
+    "slicer_cancelled": "Slicing was cancelled",
+    "slicer_failed": "Bambu Studio could not slice this project",
+    "slicer_incompatible": "This Bambu Studio installation is incompatible with slicing",
+    "slicer_profiles_missing": "Bambu Studio's official profiles could not be found",
     "slot_conflict": "That slot or spool is already in use",
     "unsliced_project": "This project has not been sliced",
     "unknown_gcode": "No measurable extrusion data was found"

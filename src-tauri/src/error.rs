@@ -19,6 +19,12 @@ pub enum AppError {
     InvalidMapping,
     InvalidPetSettings,
     InsufficientFilament,
+    BambuStudioMissing,
+    SlicerProfilesMissing,
+    SlicerIncompatible,
+    SlicerFailed,
+    SlicerCancelled,
+    OutputExists,
     Database(String),
     Io(String),
 }
@@ -39,6 +45,12 @@ impl AppError {
             Self::InvalidMapping => "invalid_mapping",
             Self::InvalidPetSettings => "invalid_pet_settings",
             Self::InsufficientFilament => "insufficient_filament",
+            Self::BambuStudioMissing => "bambu_studio_missing",
+            Self::SlicerProfilesMissing => "slicer_profiles_missing",
+            Self::SlicerIncompatible => "slicer_incompatible",
+            Self::SlicerFailed => "slicer_failed",
+            Self::SlicerCancelled => "slicer_cancelled",
+            Self::OutputExists => "output_exists",
             Self::Database(_) => "database",
             Self::Io(_) => "io",
         }
@@ -79,6 +91,22 @@ impl From<std::io::Error> for AppError {
 #[cfg(test)]
 mod tests {
     use super::AppError;
+
+    #[test]
+    fn slicing_errors_expose_their_stable_codes() {
+        let errors = [
+            (AppError::BambuStudioMissing, "bambu_studio_missing"),
+            (AppError::SlicerProfilesMissing, "slicer_profiles_missing"),
+            (AppError::SlicerIncompatible, "slicer_incompatible"),
+            (AppError::SlicerFailed, "slicer_failed"),
+            (AppError::SlicerCancelled, "slicer_cancelled"),
+            (AppError::OutputExists, "output_exists"),
+        ];
+
+        for (error, code) in errors {
+            assert_eq!(error.code(), code);
+        }
+    }
 
     #[test]
     fn serialized_database_error_exposes_only_its_stable_code() {

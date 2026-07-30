@@ -9,6 +9,7 @@ pub mod media;
 pub mod parser;
 pub mod pet;
 pub mod settlement;
+pub mod slicer;
 pub mod tray;
 
 use crate::{

@@ -14,6 +14,7 @@ import {
 
 const stableErrorCodes = [
   "archived_spool",
+  "bambu_studio_missing",
   "database",
   "duplicate_job",
   "file_not_stable",
@@ -23,6 +24,11 @@ const stableErrorCodes = [
   "invalid_mapping",
   "invalid_slot",
   "io",
+  "output_exists",
+  "slicer_cancelled",
+  "slicer_failed",
+  "slicer_incompatible",
+  "slicer_profiles_missing",
   "slot_conflict",
   "standalone_gcode_profiles_required",
   "unknown_gcode",

@@ -288,6 +288,7 @@
   },
   "errors": {
     "archived_spool": "这卷耗材已经归档",
+    "bambu_studio_missing": "未安装 Bambu Studio",
     "database": "本地数据暂时无法读取",
     "duplicate_job": "这个打印任务已经存在",
     "file_not_stable": "文件仍在写入，请稍后重试",
@@ -297,6 +298,11 @@
     "invalid_mapping": "耗材颜色与实际卷的映射无效",
     "invalid_slot": "AMS Lite 槽位编号无效",
     "io": "文件暂时无法访问",
+    "output_exists": "所选输出路径已存在同名文件",
+    "slicer_cancelled": "切片已取消",
+    "slicer_failed": "Bambu Studio 无法切片此项目",
+    "slicer_incompatible": "此 Bambu Studio 安装版本不兼容切片功能",
+    "slicer_profiles_missing": "找不到 Bambu Studio 官方预设",
     "slot_conflict": "这个槽位或耗材卷已被占用",
     "unsliced_project": "这个项目尚未切片",
     "unknown_gcode": "没有找到可计算的挤出数据"
