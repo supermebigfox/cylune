@@ -130,6 +130,8 @@ pub fn run() {
             imports::confirm_new_project,
             imports::get_job_preview,
             imports::get_project_preview,
+            history::list_print_projects,
+            history::get_print_project,
             settlement::settle_job,
             settlement::reverse_settlement,
             backup::export_backup,

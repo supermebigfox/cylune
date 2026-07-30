@@ -10,15 +10,20 @@ use crate::{
 };
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    fs,
+    fs::{self, File, OpenOptions},
+    io::{Cursor, Read, Write},
     path::{Component, Path, PathBuf},
 };
 use uuid::Uuid;
+use zip::{write::FileOptions, ZipArchive, ZipWriter};
 
 pub const BACKUP_SCHEMA_VERSION: u32 = 3;
 const SAFE_SETTINGS: &[&str] = &["theme", "locale", "notifications_enabled"];
+const BACKUP_MANIFEST: &str = "backup.json";
+const MAX_BACKUP_MEDIA_BYTES: u64 = 16 * 1024 * 1024;
 
 #[tauri::command]
 pub fn export_backup(path: String, state: tauri::State<'_, PrintState>) -> Result<String> {
@@ -391,7 +396,8 @@ struct SettingRow {
 }
 
 pub fn export_to_path(database: &AppDatabase, path: &Path) -> Result<PathBuf> {
-    let backup = read_backup(database)?;
+    let mut backup = read_backup(database)?;
+    backup.media_files_included = !backup.media.is_empty();
     let json = serde_json::to_vec_pretty(&backup)
         .map_err(|error| AppError::Database(error.to_string()))?;
     let parent = path.parent().ok_or(AppError::InvalidFile)?;
@@ -399,28 +405,205 @@ pub fn export_to_path(database: &AppDatabase, path: &Path) -> Result<PathBuf> {
         return Err(AppError::InvalidFile);
     }
     let temporary = parent.join(format!(".{}.tmp", Uuid::new_v4()));
-    fs::write(&temporary, json)?;
+    let write_result = (|| -> Result<()> {
+        if backup.media_files_included {
+            let root = database_root(database)?;
+            let file = File::create(&temporary)?;
+            let mut archive = ZipWriter::new(file);
+            let options =
+                FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            archive
+                .start_file(BACKUP_MANIFEST, options)
+                .map_err(|_| AppError::InvalidFile)?;
+            archive.write_all(&json)?;
+            for media in &backup.media {
+                let bytes = fs::read(root.join(&media.relative_path))?;
+                if bytes.len() as u64 != media.byte_size
+                    || format!("{:x}", Sha256::digest(&bytes)) != media.asset_id
+                {
+                    return Err(AppError::InvalidFile);
+                }
+                archive
+                    .start_file(media_archive_name(media)?, options)
+                    .map_err(|_| AppError::InvalidFile)?;
+                archive.write_all(&bytes)?;
+            }
+            archive.finish().map_err(|_| AppError::InvalidFile)?;
+        } else {
+            fs::write(&temporary, json)?;
+        }
+        Ok(())
+    })();
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    write_result?;
     fs::rename(&temporary, path)?;
     Ok(path.to_path_buf())
 }
 
 pub fn import_from_path(database: &mut AppDatabase, path: &Path) -> Result<PathBuf> {
     let bytes = fs::read(path)?;
-    let backup: Backup = serde_json::from_slice(&bytes).map_err(|_| AppError::InvalidFile)?;
+    let (backup, media_files) = if bytes.starts_with(b"PK\x03\x04") {
+        read_backup_archive(&bytes)?
+    } else {
+        let backup: Backup = serde_json::from_slice(&bytes).map_err(|_| AppError::InvalidFile)?;
+        if backup.media_files_included {
+            return Err(AppError::InvalidFile);
+        }
+        (backup, Vec::new())
+    };
     validate(&backup)?;
-    let automatic = path.with_file_name(format!("cylune-auto-{}.json", Uuid::new_v4()));
+    let automatic = path.with_file_name(format!("cylune-auto-{}.backup", Uuid::new_v4()));
     export_to_path(database, &automatic)?;
-    let transaction = database.connection.transaction()?;
-    restore(&transaction, &backup)?;
-    let violations: Option<String> = transaction
-        .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))
-        .optional()?;
-    if violations.is_some() {
+    let created_media = persist_restored_media(database, &media_files)?;
+    let transaction = match database.connection.transaction() {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            remove_created_media(created_media);
+            return Err(error.into());
+        }
+    };
+    let restore_result = (|| -> Result<()> {
+        restore(&transaction, &backup)?;
+        let violations: Option<String> = transaction
+            .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))
+            .optional()?;
+        if violations.is_some() {
+            return Err(AppError::InvalidFile);
+        }
+        validate_balances(&transaction)?;
+        transaction.commit()?;
+        Ok(())
+    })();
+    if restore_result.is_err() {
+        remove_created_media(created_media);
+    }
+    restore_result?;
+    Ok(automatic)
+}
+
+struct ArchivedMedia {
+    relative_path: String,
+    bytes: Vec<u8>,
+}
+
+fn database_root(database: &AppDatabase) -> Result<PathBuf> {
+    let file: String = database
+        .connection
+        .query_row("PRAGMA database_list", [], |row| row.get(2))?;
+    if file.is_empty() {
         return Err(AppError::InvalidFile);
     }
-    validate_balances(&transaction)?;
-    transaction.commit()?;
-    Ok(automatic)
+    PathBuf::from(file)
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or(AppError::InvalidFile)
+}
+
+fn media_archive_name(media: &MediaRow) -> Result<String> {
+    Ok(format!(
+        "media/{}.{}",
+        media.asset_id,
+        media_extension(media)?
+    ))
+}
+
+fn media_extension(media: &MediaRow) -> Result<&str> {
+    Path::new(&media.relative_path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .filter(|extension| {
+            !extension.is_empty() && extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
+        })
+        .ok_or(AppError::InvalidFile)
+}
+
+fn read_backup_archive(bytes: &[u8]) -> Result<(Backup, Vec<ArchivedMedia>)> {
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|_| AppError::InvalidFile)?;
+    let mut manifest = Vec::new();
+    archive
+        .by_name(BACKUP_MANIFEST)
+        .map_err(|_| AppError::InvalidFile)?
+        .read_to_end(&mut manifest)?;
+    let backup: Backup = serde_json::from_slice(&manifest).map_err(|_| AppError::InvalidFile)?;
+    if !backup.media_files_included {
+        return Err(AppError::InvalidFile);
+    }
+    let mut media_files = Vec::with_capacity(backup.media.len());
+    for media in &backup.media {
+        let mut file = archive
+            .by_name(&media_archive_name(media)?)
+            .map_err(|_| AppError::InvalidFile)?;
+        if file.is_dir() || file.size() != media.byte_size || file.size() > MAX_BACKUP_MEDIA_BYTES {
+            return Err(AppError::InvalidFile);
+        }
+        let mut media_bytes = Vec::new();
+        file.read_to_end(&mut media_bytes)?;
+        if format!("{:x}", Sha256::digest(&media_bytes)) != media.asset_id {
+            return Err(AppError::InvalidFile);
+        }
+        media_files.push(ArchivedMedia {
+            relative_path: media.relative_path.clone(),
+            bytes: media_bytes,
+        });
+    }
+    Ok((backup, media_files))
+}
+
+fn persist_restored_media(
+    database: &AppDatabase,
+    media_files: &[ArchivedMedia],
+) -> Result<Vec<PathBuf>> {
+    if media_files.is_empty() {
+        return Ok(Vec::new());
+    }
+    let root = database_root(database)?;
+    let mut created = Vec::new();
+    for media in media_files {
+        let result = (|| -> Result<Option<PathBuf>> {
+            let destination = root.join(&media.relative_path);
+            let parent = destination.parent().ok_or(AppError::InvalidFile)?;
+            fs::create_dir_all(parent)?;
+            if destination.exists() {
+                if fs::read(&destination)? != media.bytes {
+                    return Err(AppError::InvalidFile);
+                }
+                return Ok(None);
+            }
+            let temporary = parent.join(format!(".{}.tmp", Uuid::new_v4()));
+            let mut file = OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&temporary)?;
+            let persist_result = (|| -> Result<()> {
+                file.write_all(&media.bytes)?;
+                file.sync_all()?;
+                fs::rename(&temporary, &destination)?;
+                Ok(())
+            })();
+            if persist_result.is_err() {
+                let _ = fs::remove_file(&temporary);
+            }
+            persist_result?;
+            Ok(Some(destination))
+        })();
+        match result {
+            Ok(Some(destination)) => created.push(destination),
+            Ok(None) => {}
+            Err(error) => {
+                remove_created_media(created);
+                return Err(error);
+            }
+        }
+    }
+    Ok(created)
+}
+
+fn remove_created_media(created: Vec<PathBuf>) {
+    for path in created {
+        let _ = fs::remove_file(path);
+    }
 }
 
 fn rows<T, F>(database: &AppDatabase, sql: &str, mut map: F) -> Result<Vec<T>>
@@ -545,7 +728,7 @@ fn valid_uuid(value: &str) -> bool {
 }
 fn validate(b: &Backup) -> Result<()> {
     if !matches!(b.schema_version, 1 | 2 | BACKUP_SCHEMA_VERSION)
-        || b.media_files_included
+        || (b.schema_version < 3 && b.media_files_included)
         || b.slots.len() != 4
     {
         return Err(AppError::InvalidFile);
@@ -563,6 +746,7 @@ fn validate(b: &Backup) -> Result<()> {
         )
         || !unique(b.jobs.iter().map(|j| j.job_id.as_str()).collect())
         || !unique(b.media.iter().map(|m| m.asset_id.as_str()).collect())
+        || !unique(b.media.iter().map(|m| m.relative_path.as_str()).collect())
         || !unique(b.projects.iter().map(|p| p.project_id.as_str()).collect())
         || !unique(b.plates.iter().map(|p| p.plate_id.as_str()).collect())
         || !unique(b.ledger.iter().map(|e| e.event_id.as_str()).collect())
@@ -632,12 +816,27 @@ fn validate(b: &Backup) -> Result<()> {
         .collect();
     for asset in &b.media {
         let relative = Path::new(&asset.relative_path);
+        let expected_relative_path = valid_hash(&asset.asset_id)
+            .then(|| media_extension(asset))
+            .transpose()
+            .ok()
+            .flatten()
+            .map(|extension| {
+                format!(
+                    "media/{}/{}.{}",
+                    &asset.asset_id[..2],
+                    asset.asset_id,
+                    extension
+                )
+            });
         if !valid_hash(&asset.asset_id)
             || !relative.is_relative()
             || relative
                 .components()
                 .any(|component| !matches!(component, Component::Normal(_)))
+            || expected_relative_path.as_deref() != Some(asset.relative_path.as_str())
             || asset.mime_type.is_empty()
+            || asset.byte_size > MAX_BACKUP_MEDIA_BYTES
             || unsafe_stamp(&asset.created_at)
             || asset.width == Some(0)
             || asset.height == Some(0)
@@ -1159,10 +1358,14 @@ mod tests {
         },
     };
     use rusqlite::params;
+    use sha2::{Digest, Sha256};
     use std::collections::BTreeMap;
+    use std::fs;
+    use std::io::{Read, Write};
     use std::path::PathBuf;
     use std::time::Duration;
     use uuid::Uuid;
+    use zip::{write::FileOptions, ZipArchive, ZipWriter};
 
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1186,8 +1389,7 @@ mod tests {
         assert!(!json.contains("pet_display_id"));
     }
 
-    fn populated() -> AppDatabase {
-        let database = AppDatabase::open_in_memory().unwrap();
+    fn populate(database: AppDatabase) -> AppDatabase {
         let mut inventory = InventoryService::new(database);
         inventory
             .create_spool(NewSpool {
@@ -1208,6 +1410,150 @@ mod tests {
         let database = inventory.into_database();
         database.connection.execute("INSERT INTO app_settings(setting_key, setting_value) VALUES ('theme', 'dark'), ('device_token', 'never-export-me'), ('watch_folder', '/tmp/slices')", []).unwrap();
         database
+    }
+
+    fn populated() -> AppDatabase {
+        populate(AppDatabase::open_in_memory().unwrap())
+    }
+
+    #[test]
+    fn version_three_backup_archives_and_restores_media_file_bytes() {
+        let root = std::env::temp_dir().join(format!("cylune-media-source-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let source = AppDatabase::open(root.join("inventory.sqlite")).unwrap();
+        let bytes = b"content-addressed-thumbnail";
+        let asset_id = format!("{:x}", Sha256::digest(bytes));
+        let relative_path = format!("media/{}/{}.png", &asset_id[..2], asset_id);
+        let source_media = root.join(&relative_path);
+        fs::create_dir_all(source_media.parent().unwrap()).unwrap();
+        fs::write(&source_media, bytes).unwrap();
+        source
+            .connection
+            .execute(
+                "INSERT INTO media_assets (
+                    asset_id, relative_path, mime_type, byte_size, width, height
+                 ) VALUES (?1, ?2, 'image/png', ?3, 1, 1)",
+                params![asset_id, relative_path, bytes.len() as u64],
+            )
+            .unwrap();
+        let backup_path = root.join("backup.zip");
+
+        export_to_path(&source, &backup_path).unwrap();
+
+        let mut archive = ZipArchive::new(fs::File::open(&backup_path).unwrap()).unwrap();
+        let mut manifest = String::new();
+        archive
+            .by_name("backup.json")
+            .unwrap()
+            .read_to_string(&mut manifest)
+            .unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+        assert_eq!(manifest["schema_version"], 3);
+        assert_eq!(manifest["media_files_included"], true);
+        let mut archived_media = Vec::new();
+        archive
+            .by_name(&format!("media/{asset_id}.png"))
+            .unwrap()
+            .read_to_end(&mut archived_media)
+            .unwrap();
+        assert_eq!(archived_media, bytes);
+        drop(archive);
+
+        let target_root =
+            std::env::temp_dir().join(format!("cylune-media-target-{}", Uuid::new_v4()));
+        fs::create_dir_all(&target_root).unwrap();
+        let mut target = AppDatabase::open(target_root.join("inventory.sqlite")).unwrap();
+        let automatic = import_from_path(&mut target, &backup_path).unwrap();
+        assert_eq!(fs::read(target_root.join(&relative_path)).unwrap(), bytes);
+        assert_eq!(
+            target
+                .connection
+                .query_row(
+                    "SELECT asset_id, relative_path, byte_size FROM media_assets",
+                    [],
+                    |row| Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, u64>(2)?
+                    ))
+                )
+                .unwrap(),
+            (asset_id, relative_path, bytes.len() as u64)
+        );
+
+        fs::remove_file(automatic).unwrap();
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(target_root).unwrap();
+    }
+
+    #[test]
+    fn restore_rejects_media_when_archive_bytes_do_not_match_asset_hash() {
+        let root = std::env::temp_dir().join(format!("cylune-hash-source-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let source = AppDatabase::open(root.join("inventory.sqlite")).unwrap();
+        let bytes = b"content-addressed-thumbnail";
+        let asset_id = format!("{:x}", Sha256::digest(bytes));
+        let relative_path = format!("media/{}/{}.png", &asset_id[..2], asset_id);
+        let source_media = root.join(&relative_path);
+        fs::create_dir_all(source_media.parent().unwrap()).unwrap();
+        fs::write(&source_media, bytes).unwrap();
+        source
+            .connection
+            .execute(
+                "INSERT INTO media_assets (
+                    asset_id, relative_path, mime_type, byte_size, width, height
+                 ) VALUES (?1, ?2, 'image/png', ?3, 1, 1)",
+                params![asset_id, relative_path, bytes.len() as u64],
+            )
+            .unwrap();
+        let valid_backup = root.join("valid.zip");
+        export_to_path(&source, &valid_backup).unwrap();
+        let mut valid_archive = ZipArchive::new(fs::File::open(&valid_backup).unwrap()).unwrap();
+        let mut manifest = Vec::new();
+        valid_archive
+            .by_name("backup.json")
+            .unwrap()
+            .read_to_end(&mut manifest)
+            .unwrap();
+        drop(valid_archive);
+
+        let tampered_backup = root.join("tampered.zip");
+        let mut archive = ZipWriter::new(fs::File::create(&tampered_backup).unwrap());
+        let options = FileOptions::default();
+        archive.start_file("backup.json", options).unwrap();
+        archive.write_all(&manifest).unwrap();
+        archive
+            .start_file(format!("media/{asset_id}.png"), options)
+            .unwrap();
+        let mut tampered = bytes.to_vec();
+        tampered[0] ^= 0xff;
+        archive.write_all(&tampered).unwrap();
+        archive.finish().unwrap();
+
+        let target_root =
+            std::env::temp_dir().join(format!("cylune-hash-target-{}", Uuid::new_v4()));
+        fs::create_dir_all(&target_root).unwrap();
+        let mut target = AppDatabase::open(target_root.join("inventory.sqlite")).unwrap();
+
+        let result = import_from_path(&mut target, &tampered_backup);
+
+        if let Ok(automatic) = &result {
+            fs::remove_file(automatic).unwrap();
+        }
+        assert!(result.is_err());
+        assert_eq!(
+            target
+                .connection
+                .query_row("SELECT COUNT(*) FROM media_assets", [], |row| {
+                    row.get::<_, u32>(0)
+                })
+                .unwrap(),
+            0
+        );
+        assert!(!target_root.join(&relative_path).exists());
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(target_root).unwrap();
     }
 
     #[test]
@@ -1392,7 +1738,10 @@ mod tests {
 
     #[test]
     fn version_three_round_trip_preserves_imported_project_media_job_links_and_skipped_state() {
-        let database = populated();
+        let source_root =
+            std::env::temp_dir().join(format!("cylune-project-v3-source-{}", Uuid::new_v4()));
+        fs::create_dir_all(&source_root).unwrap();
+        let database = populate(AppDatabase::open(source_root.join("inventory.sqlite")).unwrap());
         let spool_id: String = database
             .connection
             .query_row("SELECT spool_id FROM spools", [], |row| row.get(0))
@@ -1402,8 +1751,22 @@ mod tests {
             .import_print_project(&fixture("bambu_multicolor.3mf"))
             .unwrap();
         let plate = &imported.plates[0];
-        let asset_id = "b".repeat(64);
-        service.database.connection.execute("INSERT INTO media_assets(asset_id,relative_path,mime_type,byte_size,width,height) VALUES(?1,?2,'image/png',68,1,1)", params![asset_id, format!("media/bb/{asset_id}.png")]).unwrap();
+        let media_bytes = b"project-thumbnail";
+        let asset_id = format!("{:x}", Sha256::digest(media_bytes));
+        let relative_path = format!("media/{}/{}.png", &asset_id[..2], asset_id);
+        let media_path = source_root.join(&relative_path);
+        fs::create_dir_all(media_path.parent().unwrap()).unwrap();
+        fs::write(&media_path, media_bytes).unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "INSERT INTO media_assets (
+                    asset_id, relative_path, mime_type, byte_size, width, height
+                 ) VALUES (?1, ?2, 'image/png', ?3, 1, 1)",
+                params![asset_id, relative_path, media_bytes.len() as u64],
+            )
+            .unwrap();
         service
             .database
             .connection
@@ -1460,15 +1823,32 @@ mod tests {
             .settle_job(settled_job, crate::domain::JobOutcome::Success)
             .unwrap();
         service.reverse_settlement(settled_job).unwrap();
-        let path = std::env::temp_dir().join(format!("project-v3-backup-{}.json", Uuid::new_v4()));
+        let path = source_root.join("project-v3-backup.zip");
 
         export_to_path(&service.database, &path).unwrap();
-        let value: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let mut archive = ZipArchive::new(fs::File::open(&path).unwrap()).unwrap();
+        let mut manifest = Vec::new();
+        archive
+            .by_name("backup.json")
+            .unwrap()
+            .read_to_end(&mut manifest)
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&manifest).unwrap();
         assert_eq!(value["schema_version"], 3);
-        assert_eq!(value["media_files_included"], false);
+        assert_eq!(value["media_files_included"], true);
+        let mut archived_media = Vec::new();
+        archive
+            .by_name(&format!("media/{asset_id}.png"))
+            .unwrap()
+            .read_to_end(&mut archived_media)
+            .unwrap();
+        assert_eq!(archived_media, media_bytes);
+        drop(archive);
 
-        let mut target = AppDatabase::open_in_memory().unwrap();
+        let target_root =
+            std::env::temp_dir().join(format!("cylune-project-v3-target-{}", Uuid::new_v4()));
+        fs::create_dir_all(&target_root).unwrap();
+        let mut target = AppDatabase::open(target_root.join("inventory.sqlite")).unwrap();
         let automatic = import_from_path(&mut target, &path).unwrap();
         let restored = target
             .connection
@@ -1552,9 +1932,16 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&parsed_json).unwrap()["version"],
             2
         );
+        assert_eq!(
+            fs::read(target_root.join(relative_path)).unwrap(),
+            media_bytes
+        );
 
-        std::fs::remove_file(path).unwrap();
         std::fs::remove_file(automatic).unwrap();
+        drop(target);
+        drop(service);
+        fs::remove_dir_all(source_root).unwrap();
+        fs::remove_dir_all(target_root).unwrap();
     }
 
     #[test]

@@ -50,7 +50,10 @@ pub struct PrintProjectSummary {
     pub source_file_name: String,
     pub imported_at: String,
     pub plate_count: u32,
-    pub cover_asset_id: Option<Uuid>,
+    pub total_estimated_seconds: Option<u32>,
+    pub cover_asset_id: Option<String>,
+    pub cover_url: Option<String>,
+    pub plates: Vec<PrintPlateSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,7 +64,9 @@ pub struct PrintProjectDetail {
     pub source_path: Option<String>,
     pub imported_at: String,
     pub plate_count: u32,
-    pub cover_asset_id: Option<Uuid>,
+    pub total_estimated_seconds: Option<u32>,
+    pub cover_asset_id: Option<String>,
+    pub cover_url: Option<String>,
     pub plates: Vec<PrintPlateSummary>,
 }
 
@@ -71,7 +76,8 @@ pub struct PrintPlateSummary {
     pub project_id: Uuid,
     pub plate_index: u32,
     pub display_name: Option<String>,
-    pub thumbnail_asset_id: Option<Uuid>,
+    pub thumbnail_asset_id: Option<String>,
+    pub thumbnail_url: Option<String>,
     pub estimated_seconds: Option<u32>,
     pub max_layer: u32,
     pub status: PlateStatus,
@@ -212,13 +218,16 @@ mod tests {
             source_path: None,
             imported_at: "2026-07-30 10:00:00".to_owned(),
             plate_count: 1,
+            total_estimated_seconds: Some(900),
             cover_asset_id: None,
+            cover_url: None,
             plates: vec![PrintPlateSummary {
                 plate_id,
                 project_id,
                 plate_index: 1,
                 display_name: Some("Main plate".to_owned()),
                 thumbnail_asset_id: None,
+                thumbnail_url: None,
                 estimated_seconds: Some(900),
                 max_layer: 42,
                 status: PlateStatus::Success,
@@ -229,7 +238,10 @@ mod tests {
             source_file_name: "legacy.gcode.3mf".to_owned(),
             imported_at: "2026-07-30 10:00:00".to_owned(),
             plate_count: 1,
+            total_estimated_seconds: Some(900),
             cover_asset_id: None,
+            cover_url: None,
+            plates: project.plates.clone(),
         };
 
         let detail_value = serde_json::to_value(project).unwrap();
