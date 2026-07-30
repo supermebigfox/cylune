@@ -811,6 +811,60 @@ mod tests {
     }
 
     #[test]
+    fn media_assets_require_relative_paths_and_non_negative_byte_sizes() {
+        let database = AppDatabase::open_in_memory().unwrap();
+
+        assert!(column_exists(&database.connection, "media_assets", "relative_path").unwrap());
+        assert!(column_exists(&database.connection, "media_assets", "byte_size").unwrap());
+        assert!(!column_exists(&database.connection, "media_assets", "storage_path").unwrap());
+        database
+            .connection
+            .execute(
+                "INSERT INTO media_assets (
+                    asset_id,
+                    relative_path,
+                    mime_type,
+                    byte_size
+                 ) VALUES ('asset-1', 'print-history/asset-1.webp', 'image/webp', 0)",
+                [],
+            )
+            .unwrap();
+        let stored = database
+            .connection
+            .query_row(
+                "SELECT relative_path, byte_size FROM media_assets WHERE asset_id = 'asset-1'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stored, ("print-history/asset-1.webp".to_owned(), 0));
+        assert!(database
+            .connection
+            .execute(
+                "INSERT INTO media_assets (
+                    asset_id,
+                    relative_path,
+                    mime_type,
+                    byte_size
+                 ) VALUES ('asset-negative', 'print-history/negative.webp', 'image/webp', -1)",
+                [],
+            )
+            .is_err());
+        assert!(database
+            .connection
+            .execute(
+                "INSERT INTO media_assets (
+                    asset_id,
+                    relative_path,
+                    mime_type,
+                    byte_size
+                 ) VALUES ('asset-null', 'print-history/null.webp', 'image/webp', NULL)",
+                [],
+            )
+            .is_err());
+    }
+
+    #[test]
     fn print_history_migration_rolls_back_schema_when_backfill_fails() {
         let path = std::env::temp_dir().join(format!(
             "bambu-pools-print-history-rollback-{}.sqlite",

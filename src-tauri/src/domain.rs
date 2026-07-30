@@ -80,12 +80,12 @@ pub struct PrintPlateSummary {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlateStatus {
-    Pending,
-    InProgress,
+    PendingMapping,
+    Ready,
     Success,
     Failed,
     Cancelled,
-    Estimated,
+    Skipped,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -239,5 +239,32 @@ mod tests {
         assert_eq!(detail_value["plates"][0]["plate_id"], plate_id.to_string());
         assert_eq!(detail_value["plates"][0]["status"], "success");
         assert_eq!(summary_value["plate_count"], 1);
+    }
+
+    #[test]
+    fn plate_status_serializes_the_complete_history_vocabulary() {
+        let serialized = [
+            PlateStatus::PendingMapping,
+            PlateStatus::Ready,
+            PlateStatus::Success,
+            PlateStatus::Failed,
+            PlateStatus::Cancelled,
+            PlateStatus::Skipped,
+        ]
+        .into_iter()
+        .map(|status| serde_json::to_value(status).unwrap())
+        .collect::<Vec<_>>();
+
+        assert_eq!(
+            serialized,
+            vec![
+                "pending_mapping",
+                "ready",
+                "success",
+                "failed",
+                "cancelled",
+                "skipped",
+            ]
+        );
     }
 }

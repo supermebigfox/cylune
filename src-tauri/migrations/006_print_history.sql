@@ -1,7 +1,8 @@
 CREATE TABLE media_assets (
     asset_id TEXT PRIMARY KEY,
-    storage_path TEXT NOT NULL UNIQUE,
+    relative_path TEXT NOT NULL UNIQUE,
     mime_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
     width INTEGER CHECK (width IS NULL OR width > 0),
     height INTEGER CHECK (height IS NULL OR height > 0),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
