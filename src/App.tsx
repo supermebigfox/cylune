@@ -1,10 +1,11 @@
-import { Disc, GearSix, House, Plus, Tray } from "@phosphor-icons/react";
+import { Disc, GearSix, House, Plus, Printer, Tray } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Mark } from "./brand/Mark";
 import { Home } from "./features/home/Home";
 import { History } from "./features/jobs/History";
 import { Project } from "./features/jobs/Project";
+import { Printers } from "./features/printers/Printers";
 import { Settings } from "./features/settings/Settings";
 import { Spools } from "./features/spools/Spools";
 import type { CreateSpoolResult } from "./features/spools/Add";
@@ -29,7 +30,7 @@ import {
 } from "./lib/tauri";
 import { Theme } from "./theme/Theme";
 
-type Page = "home" | "spools" | "jobs" | "settings";
+type Page = "home" | "spools" | "printers" | "jobs" | "settings";
 type DesktopEventName =
   | "open-job"
   | "open-project"
@@ -426,7 +427,7 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscrib
       ?? [],
   ), [activePreview, selectedPlate]);
   const nav = [
-    ["home", House, "nav.home"], ["spools", Disc, "nav.spools"], ["jobs", Tray, "nav.jobs"], ["settings", GearSix, "nav.settings"],
+    ["home", House, "nav.home"], ["spools", Disc, "nav.spools"], ["printers", Printer, "nav.printers"], ["jobs", Tray, "nav.jobs"], ["settings", GearSix, "nav.settings"],
   ] as const;
 
   return <div className="app-shell">
@@ -442,6 +443,7 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscrib
       {loading ? <div className="skeleton-page" aria-label={copy("common.loading")}><i /><i /><i /></div> : null}
       {page === "home" ? <Home slots={slots} spools={spools} pendingJobs={pendingPlates} busy={busy} importing={busyAction === "import"} onImport={openImport} /> : null}
       {page === "spools" ? <Spools spools={spools} slotBySpool={slotBySpool} busy={busy} onCreate={actions.create} onCalibrate={actions.calibrate} onArchive={actions.archive} onMount={actions.mount} onUnmount={actions.unmount} onMove={actions.move} /> : null}
+      {page === "printers" ? <Printers apiClient={apiClient} /> : null}
       {page === "jobs" ? activeProject ? <Project project={activeProject} selectedPlateId={selectedPlate} preview={activePlatePreview} initialMappings={activeMappings} result={activeResult} repeatSourceHash={repeatCandidate?.project_id === activeProject.project_id ? repeatCandidate.source_hash : null} spools={spools} busy={busy} canDiscardProject={!hasSettledPlate} onBackToHistory={() => { activeProjectRef.current = null; setActiveProject(null); setActivePreview(null); setSelectedPlate(null); setRepeatCandidate(null); }} onSelectPlate={selectPlate} onConfirmMapping={actions.map} onSettle={actions.settle} onConfirmNewPrint={actions.repeat} onDiscard={actions.discard} onSkipPlate={actions.skip} onReverse={actions.reverse} /> : <History pending={pendingProjects} history={historyProjects} onOpenProject={(projectId) => { setRepeatCandidate(null); void loadProject(projectId).catch(() => setError(copy("errors.invalid_job"))); }} /> : null}
       {page === "settings" ? <Settings apiClient={apiClient} onRestored={() => void refresh()} /> : null}
     </main>

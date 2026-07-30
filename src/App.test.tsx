@@ -59,9 +59,27 @@ function fakeTauriApi(overrides: Partial<TauriApi> = {}): TauriApi {
     takePendingNavigation: async () => null,
     settleJob: async () => { throw new Error("unused"); },
     reverseSettlement: async () => ({ job_id: "job", settlement_version: 1, already_reversed: false, restored: [] }),
+    listAvailablePrinters: async () => [],
+    listSavedPrinters: async () => [],
+    savePrinter: async () => { throw new Error("unused"); },
+    deletePrinter: async () => undefined,
+    setDefaultPrinter: async () => undefined,
     ...overrides,
   };
 }
+
+it("opens printer management as an independent top-level destination", async () => {
+  await act(() => setLocale("zh-CN"));
+  render(<DesktopApp apiClient={fakeTauriApi()} pickFile={async () => null} />);
+  await screen.findByText("持久化蓝色 PLA");
+
+  fireEvent.click(screen.getByRole("button", { name: "打印机" }));
+
+  expect(screen.getByRole("heading", { name: "我的打印机" })).toBeVisible();
+  expect(await screen.findByText("还没有保存打印机")).toBeVisible();
+  expect(screen.getByRole("button", { name: "添加打印机" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "设置" })).toBeVisible();
+});
 
 function projectFixture(name = "two-plates.gcode.3mf", projectId = "project-1") {
   const plates = [

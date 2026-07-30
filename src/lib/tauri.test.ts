@@ -204,3 +204,33 @@ it("reads and patches desktop black hole settings through the typed command boun
     patch: { mode: "real", size: 280, reset_position: true },
   });
 });
+
+it("forwards printer library commands with complete typed payloads", async () => {
+  const invoke = vi.fn(async () => []);
+  const api = createTauriApi(invoke);
+  const draft = {
+    printer_id: undefined,
+    display_name: "我的 P2S",
+    model_key: "Bambu Lab P2S",
+    nozzle_diameter: 0.4,
+    default_plate: "Supertack Plate",
+    ams_kind: "ams",
+    is_default: true,
+  };
+
+  await api.listAvailablePrinters();
+  await api.listSavedPrinters();
+  await api.savePrinter(draft);
+  await api.setDefaultPrinter("printer-p2s");
+  await api.deletePrinter("printer-p2s");
+
+  expect(invoke).toHaveBeenNthCalledWith(1, "list_available_printers", undefined);
+  expect(invoke).toHaveBeenNthCalledWith(2, "list_saved_printers", undefined);
+  expect(invoke).toHaveBeenNthCalledWith(3, "save_printer", { printer: draft });
+  expect(invoke).toHaveBeenNthCalledWith(4, "set_default_printer", {
+    printerId: "printer-p2s",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(5, "delete_printer", {
+    printerId: "printer-p2s",
+  });
+});

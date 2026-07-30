@@ -57,6 +57,34 @@ export interface NewSpool {
   remaining_grams: number;
 }
 
+export interface PrinterProfile {
+  model_key: string;
+  display_name: string;
+  nozzle_diameters: number[];
+  plate_keys: string[];
+}
+
+export interface SavedPrinter {
+  printer_id: string;
+  display_name: string;
+  model_key: string;
+  nozzle_diameter: number;
+  default_plate: string;
+  ams_kind: string;
+  is_default: boolean;
+  is_available: boolean;
+}
+
+export interface SavePrinter {
+  printer_id?: string;
+  display_name: string;
+  model_key: string;
+  nozzle_diameter: number;
+  default_plate: string;
+  ams_kind: string;
+  is_default: boolean;
+}
+
 export interface SlotView {
   slot_number: 1 | 2 | 3 | 4;
   spool_id: string | null;
@@ -223,6 +251,11 @@ export interface TauriApi {
   archiveSpool(spoolId: string): Promise<void>;
   listSpools(): Promise<Spool[]>;
   listSlots(): Promise<SlotAssignment[]>;
+  listAvailablePrinters(): Promise<PrinterProfile[]>;
+  listSavedPrinters(): Promise<SavedPrinter[]>;
+  savePrinter(printer: SavePrinter): Promise<SavedPrinter>;
+  deletePrinter(printerId: string): Promise<void>;
+  setDefaultPrinter(printerId: string): Promise<void>;
   importPrintFile(path: string): Promise<ImportPreview>;
   confirmJobMapping(jobId: string, mappings: ToolMapping[]): Promise<void>;
   confirmNewPrint(sourceHash: string): Promise<ImportPreview>;
@@ -347,6 +380,22 @@ function demoApi(): TauriApi {
   let slots = demoSlots.map((slot) => ({ ...slot }));
   let projectPlates = demoProjectPlates.map((plate) => ({ ...plate }));
   let projectDiscarded = false;
+  const printerProfiles: PrinterProfile[] = [{
+    model_key: "Bambu Lab P2S",
+    display_name: "Bambu Lab P2S",
+    nozzle_diameters: [0.2, 0.4, 0.6, 0.8],
+    plate_keys: ["Cool Plate", "Supertack Plate", "Textured PEI Plate"],
+  }];
+  let printers: SavedPrinter[] = [{
+    printer_id: "demo-p2s",
+    display_name: "My P2S",
+    model_key: "Bambu Lab P2S",
+    nozzle_diameter: 0.4,
+    default_plate: "Supertack Plate",
+    ams_kind: "ams",
+    is_default: true,
+    is_available: true,
+  }];
   const settlementResults = new Map<string, SettlementResult>();
   const projectMappings = new Map<string, ToolMapping[]>([
     ["demo-mask-job-2", [
@@ -458,6 +507,46 @@ function demoApi(): TauriApi {
     },
     async listSpools() { return spools.map((spool) => ({ ...spool })); },
     async listSlots() { return slots.map((slot) => ({ ...slot })); },
+    async listAvailablePrinters() {
+      return printerProfiles.map((profile) => ({
+        ...profile,
+        nozzle_diameters: [...profile.nozzle_diameters],
+        plate_keys: [...profile.plate_keys],
+      }));
+    },
+    async listSavedPrinters() { return printers.map((printer) => ({ ...printer })); },
+    async savePrinter(input) {
+      const profile = printerProfiles.find((item) => item.model_key === input.model_key);
+      const printer: SavedPrinter = {
+        ...input,
+        printer_id: input.printer_id ?? `demo-printer-${printers.length + 1}`,
+        is_available: Boolean(
+          profile
+          && profile.nozzle_diameters.includes(input.nozzle_diameter)
+          && profile.plate_keys.includes(input.default_plate),
+        ),
+      };
+      if (printer.is_default) {
+        printers = printers.map((item) => ({ ...item, is_default: false }));
+      }
+      printers = [
+        ...printers.filter((item) => item.printer_id !== printer.printer_id),
+        printer,
+      ];
+      return { ...printer };
+    },
+    async deletePrinter(printerId) {
+      printers = printers.filter((printer) => printer.printer_id !== printerId);
+    },
+    async setDefaultPrinter(printerId) {
+      if (!printers.some((printer) => printer.printer_id === printerId)) {
+        throw { code: "invalid_file" };
+      }
+      printers = printers.map((printer) => ({
+        ...printer,
+        is_default: printer.printer_id === printerId,
+      }));
+    },
     async importPrintFile(path) { return { ...demoPreview, source_file_name: path.split(/[\\/]/).pop() || demoPreview.source_file_name }; },
     async confirmJobMapping(jobId, mappings) {
       projectMappings.set(jobId, mappings.map((mapping) => ({ ...mapping })));
@@ -546,6 +635,11 @@ function commandApi(invoke: Invoke): TauriApi {
     archiveSpool: (spoolId) => call<void>("archive_spool", { spoolId }),
     listSpools: () => call<Spool[]>("list_spools", undefined),
     listSlots: () => call<SlotAssignment[]>("list_slots", undefined),
+    listAvailablePrinters: () => call<PrinterProfile[]>("list_available_printers", undefined),
+    listSavedPrinters: () => call<SavedPrinter[]>("list_saved_printers", undefined),
+    savePrinter: (printer) => call<SavedPrinter>("save_printer", { printer }),
+    deletePrinter: (printerId) => call<void>("delete_printer", { printerId }),
+    setDefaultPrinter: (printerId) => call<void>("set_default_printer", { printerId }),
     importPrintFile: (path) => call<ImportPreview>("import_print_file", { path }),
     confirmJobMapping: (jobId, mappings) => call<void>("confirm_job_mapping", { jobId, mappings }),
     confirmNewPrint: (sourceHash) => call<ImportPreview>("confirm_new_print", { sourceHash }),
