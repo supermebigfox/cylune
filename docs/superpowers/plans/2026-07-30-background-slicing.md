@@ -20,6 +20,9 @@
 - Write to a private temporary directory first, validate the result, then atomically publish to the user-selected destination.
 - Never overwrite an existing destination without explicit user confirmation.
 - Cancelling or exiting terminates the child and removes incomplete temporary output.
+- Printer management and slicing are independent top-level destinations in the main navigation; neither is nested under Settings or implemented only as a modal.
+- The active navigation item uses one shared Apple-style liquid-glass indicator that moves between destinations, supports light/dark themes and reduced-motion/transparency fallbacks, and never blocks navigation while slicing runs.
+- Tasks 1-6 run code, tests, reviews, and commits only. Build and verify `发布/CYLUNE.app` once, at the end of Task 7 after every feature and QA check passes.
 - macOS ships first; isolate discovery/launch details behind an adapter for later Windows support.
 
 ---
@@ -35,9 +38,10 @@
 - Modify `src-tauri/src/error.rs`: stable slicing error codes.
 - Modify `src-tauri/src/lib.rs`: managed services and Tauri commands/events.
 - Modify `src-tauri/src/backup.rs`: backup schema v3 printer rows.
-- Create `src/features/settings/Printers.tsx`: printer library UI.
-- Create `src/features/jobs/Slice.tsx`: fast slicing flow.
-- Modify `src/features/settings/Settings.tsx`, `src/App.tsx`, `src/lib/dialog.ts`, `src/lib/tauri.ts`, styles, and locales.
+- Create `src/features/printers/Printers.tsx`: independent printer library page.
+- Create `src/features/slice/Slice.tsx`: independent fast-slicing workspace.
+- Create `src/features/nav/Nav.tsx`: main navigation with one moving liquid-glass selection indicator.
+- Modify `src/App.tsx`, `src/lib/dialog.ts`, `src/lib/tauri.ts`, styles, and locales.
 
 ---
 
@@ -240,13 +244,13 @@ git commit -m "feat: run cancellable background slicing"
 
 ---
 
-### Task 5: Printer Settings UI
+### Task 5: Independent Printer Page
 
 **Files:**
-- Create: `src/features/settings/Printers.tsx`
-- Create: `src/features/settings/Printers.test.tsx`
-- Modify: `src/features/settings/Settings.tsx`
-- Modify: `src/features/settings/Settings.test.tsx`
+- Create: `src/features/printers/Printers.tsx`
+- Create: `src/features/printers/Printers.test.tsx`
+- Modify: `src/App.tsx`
+- Modify: `src/App.test.tsx`
 - Modify: `src/lib/tauri.ts`
 - Modify: `src/lib/tauri.test.ts`
 - Modify: `src/styles.css`
@@ -254,7 +258,7 @@ git commit -m "feat: run cancellable background slicing"
 
 **Interfaces:**
 - Consumes: printer commands from Task 2.
-- Produces: printer list, add/edit dialog, default action, unavailable-profile warning.
+- Produces: a top-level `printers` destination, printer list, add/edit dialog, default action, unavailable-profile warning.
 
 - [ ] **Step 1: Write failing UI and adapter tests**
 
@@ -262,34 +266,36 @@ Assert a user can add `我的 P2S`, choose `0.4 mm`, `Supertack Plate`, `AMS`, a
 
 - [ ] **Step 2: Run tests and confirm RED**
 
-Run: `npm test -- --run src/features/settings/Printers.test.tsx src/lib/tauri.test.ts`
+Run: `npm test -- --run src/features/printers/Printers.test.tsx src/App.test.tsx src/lib/tauri.test.ts`
 
 - [ ] **Step 3: Add typed API and printer component**
 
-Use complete DTOs matching Rust. Keep dialog focus trapped using the existing spool-dialog pattern. Delete is recoverable only at the database level and must confirm if the printer is default.
+Use complete DTOs matching Rust. Render the page under an independent “打印机 / Printers” main-navigation item, not inside Settings. Keep dialog focus trapped using the existing spool-dialog pattern. Delete is recoverable only at the database level and must confirm if the printer is default.
 
 - [ ] **Step 4: Add three-language copy and responsive styles**
 
-Use official profile display names for model names and localized CYLUNE labels for actions/statuses. Do not translate profile identifiers.
+Use page title “我的打印机” and official profile display names for model names, with localized CYLUNE labels for actions/statuses. Do not translate profile identifiers. Keep Settings limited to application preferences, black-hole behavior, data, backup, language, and theme.
 
 - [ ] **Step 5: Run tests and commit**
 
-Run: `npm test -- --run src/features/settings src/lib/tauri.test.ts src/i18n/i18n.test.ts`
+Run: `npm test -- --run src/features/printers src/App.test.tsx src/lib/tauri.test.ts src/i18n/i18n.test.ts`
 
 Commit:
 
 ```bash
-git add src/features/settings src/lib/tauri.ts src/lib/tauri.test.ts src/styles.css src/i18n/locales
+git add src/features/printers src/App.tsx src/App.test.tsx src/lib/tauri.ts src/lib/tauri.test.ts src/styles.css src/i18n/locales
 git commit -m "feat: manage local printers"
 ```
 
 ---
 
-### Task 6: Fast Slicing Flow
+### Task 6: Slicing Workspace and Liquid-Glass Navigation
 
 **Files:**
-- Create: `src/features/jobs/Slice.tsx`
-- Create: `src/features/jobs/Slice.test.tsx`
+- Create: `src/features/slice/Slice.tsx`
+- Create: `src/features/slice/Slice.test.tsx`
+- Create: `src/features/nav/Nav.tsx`
+- Create: `src/features/nav/Nav.test.tsx`
 - Modify: `src/lib/dialog.ts`
 - Modify: `src/lib/dialog.test.ts`
 - Modify: `src/lib/tauri.ts`
@@ -303,40 +309,44 @@ git commit -m "feat: manage local printers"
 
 **Interfaces:**
 - Consumes: saved printers, available fast presets, `startSlice`, `cancelSlice`, and slicing events.
-- Produces: ordinary `.3mf` selection, settings confirmation, output location, progress, cancellation, and project navigation.
+- Produces: a top-level `slice` workspace, ordinary `.3mf` selection, settings confirmation, output location, progress, cancellation, project navigation, and a responsive main navigation.
 
 - [ ] **Step 1: Write failing end-to-end component tests**
 
-Cover: select unsliced file, default P2S appears, choose layer/process/plate/support/infill/filaments, select destination, start, receive progress phases, receive completed project ID, and navigate to project detail. Also cover user cancellation and CLI failure with “使用 Bambu Studio 打开”.
+Cover: select unsliced file, navigate to the independent slice workspace, default P2S appears, choose layer/process/plate/support/infill/filaments, select destination, start, navigate elsewhere while slicing continues, receive progress phases, return through the navigation progress state, receive completed project ID, and navigate to project detail. Also cover user cancellation and CLI failure with “使用 Bambu Studio 打开”.
 
 - [ ] **Step 2: Run tests and confirm RED**
 
-Run: `npm test -- --run src/features/jobs/Slice.test.tsx src/App.test.tsx`
+Run: `npm test -- --run src/features/slice/Slice.test.tsx src/features/nav/Nav.test.tsx src/App.test.tsx`
 
 - [ ] **Step 3: Expand file dialogs and distinguish input type**
 
-The picker accepts `.3mf` and `.gcode.3mf`. Inspect the archive through a backend `inspect_3mf` command; never infer sliced state only from the filename. Sliced files go directly to import; unsliced projects open `Slice`.
+Rename the global action to “导入 3MF”. The picker accepts `.3mf` and `.gcode.3mf`. Inspect the archive through a backend `inspect_3mf` command; never infer sliced state only from the filename. Sliced files go directly to import; unsliced projects open the independent `Slice` workspace. Update the Overview action copy to describe both paths.
 
 - [ ] **Step 4: Implement the fast-settings form**
 
-Use a single dialog with sections: target printer, process, plate, material mapping, output. Embedded compatible settings prefill the form. Incompatible embedded machine settings show an explicit mismatch warning and require target confirmation.
+Use a full page with states for empty drop zone, inspected project, editable fast settings, running progress, failure, and completion. Sections are target printer, process, plate, material mapping, and output. Embedded compatible settings prefill the form. Incompatible embedded machine settings show an explicit mismatch warning and require target confirmation.
 
 - [ ] **Step 5: Implement progress and action locking**
 
-While running, freeze all settings and file inputs. Show true percentage only when present; otherwise show phase text and an indeterminate bar. Cancel remains enabled and changes to “正在停止…” until the backend confirms child exit.
+While running, freeze only the slicing form and file inputs; the rest of CYLUNE navigation stays usable. Show true percentage only when present; otherwise show phase text and an indeterminate bar. The “切片” navigation item shows a real percentage or active-task count when available. Cancel remains enabled and changes to “正在停止…” until the backend confirms child exit.
 
-- [ ] **Step 6: Add GUI fallback action**
+- [ ] **Step 6: Add the moving liquid-glass navigation indicator**
+
+Use one shared rounded indicator behind the active item rather than separate active backgrounds. Move it with transform-based spring-like motion; briefly stretch in the travel direction and settle without layout movement. Layer translucent fill, backdrop blur/saturation, inner edge highlights, and a restrained CYLUNE blue-violet refraction tint. Provide light and dark tokens, keyboard-visible focus independent from selection, `prefers-reduced-motion` static movement, and a solid readable fallback when transparency is reduced or unsupported. Hover shows only a faint preview. Keep normal-width text navigation, a medium icon rail with accessible tooltips, and a very narrow menu drawer; never compress all six destinations into one row.
+
+- [ ] **Step 7: Add GUI fallback action**
 
 `open_in_bambu_studio(path)` is a separate explicit command invoked only by the visible user button after an error or from advanced settings. It is never called automatically.
 
-- [ ] **Step 7: Run tests and commit**
+- [ ] **Step 8: Run tests and commit**
 
-Run: `npm test -- --run src/features/jobs/Slice.test.tsx src/App.test.tsx src/lib/dialog.test.ts src/i18n/i18n.test.ts`
+Run: `npm test -- --run src/features/slice/Slice.test.tsx src/features/nav/Nav.test.tsx src/App.test.tsx src/lib/dialog.test.ts src/i18n/i18n.test.ts`
 
 Commit:
 
 ```bash
-git add src/features/jobs/Slice.tsx src/features/jobs/Slice.test.tsx src/lib/dialog.ts src/lib/dialog.test.ts src/lib/tauri.ts src/lib/tauri.test.ts src/App.tsx src/App.test.tsx src-tauri/src/slicer/mod.rs src-tauri/src/lib.rs src/styles.css src/i18n/locales
+git add src/features/slice src/features/nav src/lib/dialog.ts src/lib/dialog.test.ts src/lib/tauri.ts src/lib/tauri.test.ts src/App.tsx src/App.test.tsx src-tauri/src/slicer/mod.rs src-tauri/src/lib.rs src/styles.css src/i18n/locales
 git commit -m "feat: add fast background slicing flow"
 ```
 
@@ -374,9 +384,9 @@ Use a user-owned unsliced 3MF copy and a fresh output path. Verify no Bambu Stud
 
 - [ ] **Step 4: Complete manual QA**
 
-Test missing Bambu Studio, missing profile, incompatible embedded printer, destination collision, cancel, CLI crash, empty plate, dark/light modes, and all three languages. Record exact results in `docs/qa-background-slicing.md`.
+Test missing Bambu Studio, missing profile, incompatible embedded printer, destination collision, cancel, CLI crash, empty plate, dark/light modes, all three languages, keyboard navigation, reduced motion/transparency, liquid-glass movement, icon-rail/tooltips, narrow menu drawer, and continued navigation while a slice runs. Record exact results in `docs/qa-background-slicing.md`.
 
-- [ ] **Step 5: Build and verify the macOS app**
+- [ ] **Step 5: Build and verify the macOS app once, after every preceding task and QA check is complete**
 
 Run:
 
