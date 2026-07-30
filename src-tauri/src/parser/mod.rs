@@ -4,7 +4,7 @@ pub mod three_mf;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub use three_mf::parse_3mf;
+pub use three_mf::{parse_3mf, parse_3mf_project};
 
 pub(crate) fn preset_base(value: &str) -> &str {
     value
@@ -15,6 +15,22 @@ pub(crate) fn preset_base(value: &str) -> &str {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParsedPrintFile {
+    pub filaments: Vec<FilamentProfile>,
+    pub gcode: gcode::GcodeReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParsedProjectV2 {
+    pub version: u8,
+    pub plates: Vec<ParsedPlate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParsedPlate {
+    pub plate_index: u32,
+    pub display_name: Option<String>,
+    pub estimated_seconds: Option<u32>,
+    pub thumbnail_entries: Vec<String>,
     pub filaments: Vec<FilamentProfile>,
     pub gcode: gcode::GcodeReport,
 }

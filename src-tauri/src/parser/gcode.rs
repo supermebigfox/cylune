@@ -17,6 +17,10 @@ pub struct GcodeReport {
     pub layers: Vec<LayerUsage>,
     pub totals_mm: BTreeMap<u8, f64>,
     pub max_layer: u32,
+    #[serde(default)]
+    pub declared_estimated_seconds: Option<u32>,
+    #[serde(default)]
+    pub declared_total_layers: Option<u32>,
 }
 
 pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
@@ -27,9 +31,19 @@ pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
     let mut layers = Vec::new();
     let mut current_layer = None;
     let mut saw_extrusion_command = false;
+    let mut declared_estimated_seconds = None;
+    let mut declared_total_layers = None;
 
     for line in reader.lines() {
         let line = line?;
+        if let Some(comment) = line.split_once(';').map(|(_, comment)| comment.trim()) {
+            if let Some(value) = comment.strip_prefix("total estimated time:") {
+                declared_estimated_seconds = parse_estimated_seconds(value);
+            }
+            if let Some(value) = comment.strip_prefix("total layer number:") {
+                declared_total_layers = value.trim().parse().ok();
+            }
+        }
         if let Some(layer) = layer_marker(&line) {
             add_layers_through(&mut layers, layer, &totals_mm);
             current_layer = Some(layer as usize);
@@ -101,7 +115,28 @@ pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
         max_layer: layers.len() as u32,
         layers,
         totals_mm,
+        declared_estimated_seconds,
+        declared_total_layers,
     })
+}
+
+fn parse_estimated_seconds(value: &str) -> Option<u32> {
+    let mut seconds = 0_u32;
+    let mut saw_component = false;
+
+    for component in value.split_ascii_whitespace() {
+        let (amount, unit) = component.split_at(component.len().checked_sub(1)?);
+        let multiplier = match unit {
+            "h" => 3_600,
+            "m" => 60,
+            "s" => 1,
+            _ => return None,
+        };
+        seconds = seconds.checked_add(amount.parse::<u32>().ok()?.checked_mul(multiplier)?)?;
+        saw_component = true;
+    }
+
+    saw_component.then_some(seconds)
 }
 
 fn layer_marker(line: &str) -> Option<u32> {
@@ -211,6 +246,18 @@ mod tests {
         assert_eq!(report.layers[0].cumulative_mm[&0], 2.0);
         assert_eq!(report.layers[1].cumulative_mm[&0], 5.0);
         assert_eq!(report.layers[2].cumulative_mm[&0], 9.0);
+    }
+
+    #[test]
+    fn records_declared_time_and_total_layers_without_changing_extrusion_totals() {
+        let src = b"; total estimated time: 5h 5m 7s\n; total layer number: 14\nM83\n; LAYER:0\nG1 E2\nG1 E-1\n";
+
+        let report = parse_gcode(&src[..]).unwrap();
+
+        assert_eq!(report.declared_estimated_seconds, Some(18_307));
+        assert_eq!(report.declared_total_layers, Some(14));
+        assert_eq!(report.max_layer, 1);
+        assert_eq!(report.totals_mm[&0], 2.0);
     }
 
     #[test]

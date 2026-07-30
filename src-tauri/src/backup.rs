@@ -192,6 +192,8 @@ impl From<BackupParsed> for ParsedPrintFile {
                     .collect(),
                 totals_mm: value.gcode.totals_mm,
                 max_layer: value.gcode.max_layer,
+                declared_estimated_seconds: None,
+                declared_total_layers: None,
             },
         }
     }
@@ -831,6 +833,8 @@ mod tests {
                 }],
                 totals_mm: BTreeMap::from([(0, 10.0)]),
                 max_layer: 1,
+                declared_estimated_seconds: None,
+                declared_total_layers: None,
             },
         };
         database.connection.execute("INSERT INTO parse_cache(source_hash,source_file_name,parsed_json,parse_count) VALUES(?1,?2,?3,1)",params!["a".repeat(64),"private.gcode.3mf",serde_json::to_string(&parsed).unwrap()]).unwrap();
