@@ -95,6 +95,13 @@ pub fn run() {
                 initial_pending,
             )?;
             app.manage(pet_runtime);
+            let slicer_cache = app.path().app_cache_dir()?;
+            std::fs::create_dir_all(&slicer_cache)?;
+            app.manage(slicer::SlicerService::for_app(
+                app.handle().clone(),
+                slicer_cache,
+                None,
+            ));
             service_instance_recall(app.handle());
             if let Some(folder) = saved_watch {
                 if tray::set_watch_folder(
@@ -147,6 +154,9 @@ pub fn run() {
             printers::save_printer,
             printers::delete_printer,
             printers::set_default_printer,
+            slicer::start_slice,
+            slicer::cancel_slice,
+            slicer::get_slice_task,
             pet::get_pet_settings,
             pet::set_pet_settings,
             tray::set_watch_folder,
@@ -161,6 +171,9 @@ pub fn run() {
         .expect("error while building Tauri application")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(slicer) = app.try_state::<slicer::SlicerService>() {
+                    slicer.shutdown();
+                }
                 if let Some(runtime) = app.try_state::<pet::runtime::PetRuntime>() {
                     runtime.shutdown();
                 }

@@ -2,6 +2,7 @@ use crate::{
     error::{AppError, Result},
     printers::SavedPrinter,
 };
+use serde::{Deserialize, Serialize};
 use std::{
     ffi::{OsStr, OsString},
     fs,
@@ -12,7 +13,8 @@ const THREE_MF_SUFFIX: &str = ".3mf";
 const GCODE_THREE_MF_SUFFIX: &str = ".gcode.3mf";
 
 /// Bambu Studio's all-plates selection is represented by CLI value `0`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PlateSelection {
     #[default]
     All,
@@ -29,13 +31,13 @@ impl PlateSelection {
 /// The small, explicit subset of Bambu Studio settings that can be overridden
 /// without changing a process preset. Layer height intentionally remains in
 /// the process preset.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct FastOverrides {
     pub infill_density: Option<f64>,
 }
 
 /// All inputs required to prepare one local Bambu Studio slicing invocation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SliceRequest {
     /// The saved printer selected by the user. Profile resolution is performed
     /// by the caller, while the request preserves the selected printer.
@@ -443,5 +445,16 @@ mod tests {
         let request = fixture.request();
 
         assert!(build_bambu_args(&request, &fixture.temporary_output).is_ok());
+    }
+
+    #[test]
+    fn slice_request_round_trips_through_the_tauri_json_boundary() {
+        let fixture = Fixture::new();
+        let request = fixture.request();
+
+        let json = serde_json::to_value(&request).unwrap();
+        let decoded: SliceRequest = serde_json::from_value(json).unwrap();
+
+        assert_eq!(decoded, request);
     }
 }
