@@ -89,10 +89,11 @@ it("demo history keeps a two-plate project tied to existing spool identities", a
   const detail = await api.getPrintProject(project.project_id);
 
   expect(project.plate_count).toBe(2);
+  expect(project.cover_url).toMatch(/mask(?:-[\w]+)?\.png$/);
   expect(project.plates).toEqual([
     expect.objectContaining({
       plate_id: "demo-mask-plate-1",
-      thumbnail_url: "/demo/plates/mask-1.png",
+      thumbnail_url: project.cover_url,
       status: "pending_mapping",
       filaments: expect.arrayContaining([expect.objectContaining({
         profile: expect.objectContaining({ color_hex: "#FFFEFC" }),
@@ -101,7 +102,7 @@ it("demo history keeps a two-plate project tied to existing spool identities", a
     }),
     expect.objectContaining({
       plate_id: "demo-mask-plate-2",
-      thumbnail_url: "/demo/plates/mask-2.png",
+      thumbnail_url: project.cover_url,
       status: "ready",
     }),
   ]);

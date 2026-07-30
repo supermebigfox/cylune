@@ -447,6 +447,7 @@ mod tests {
         domain::{Confidence, JobOutcome},
         imports::{PrintService, ToolMapping},
         inventory::{InventoryService, NewSpool},
+        media::MediaStore,
     };
     use rusqlite::params;
     use std::fs::{self, File};
@@ -915,11 +916,27 @@ mod tests {
         assert_eq!(
             plate_probe.thumbnail_entries,
             [
+                "Auxiliaries/.thumbnails/thumbnail_middle.png",
+                "Auxiliaries/.thumbnails/thumbnail_3mf.png",
                 "Metadata/plate_1.png",
                 "Metadata/plate_1_small.png",
                 "Metadata/plate_no_light_1.png",
             ]
         );
+        let media_root = std::env::temp_dir().join(format!(
+            "cylune-real-thumbnail-smoke-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let media_store = MediaStore::new(media_root.clone()).unwrap();
+        let thumbnail_asset = media_store
+            .extract_image(&path, &plate_probe.thumbnail_entries[0])
+            .unwrap()
+            .expect("the real sliced 3MF should contain its colorful thumbnail");
+        assert_eq!(thumbnail_asset.mime_type, "image/png");
+        assert!(thumbnail_asset.width > 1);
+        assert!(thumbnail_asset.height > 1);
+        assert!(media_root.join(&thumbnail_asset.relative_path).is_file());
+        std::fs::remove_dir_all(media_root).unwrap();
         let probe = crate::parser::parse_3mf(&path).unwrap();
         assert_eq!(probe.filaments.len(), 4);
 

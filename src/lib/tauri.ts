@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import demoMaskUrl from "../assets/demo/mask.png";
 
 export type SpoolStatus = "available" | "assigned" | "empty" | "archived";
 export type Confidence = "exact" | "estimated" | "needs_confirmation";
@@ -315,7 +316,7 @@ const demoProjectPlates: PrintPlateSummary[] = [
     plate_index: 1,
     display_name: "面具前片",
     thumbnail_asset_id: "demo-mask-plate-1-thumbnail",
-    thumbnail_url: "/demo/plates/mask-1.png",
+    thumbnail_url: demoMaskUrl,
     estimated_seconds: 5400,
     max_layer: 186,
     status: "pending_mapping",
@@ -330,7 +331,7 @@ const demoProjectPlates: PrintPlateSummary[] = [
     plate_index: 2,
     display_name: "面具后片",
     thumbnail_asset_id: "demo-mask-plate-2-thumbnail",
-    thumbnail_url: "/demo/plates/mask-2.png",
+    thumbnail_url: demoMaskUrl,
     estimated_seconds: 4200,
     max_layer: 154,
     status: "ready",
@@ -347,7 +348,12 @@ function demoApi(): TauriApi {
   let projectPlates = demoProjectPlates.map((plate) => ({ ...plate }));
   let projectDiscarded = false;
   const settlementResults = new Map<string, SettlementResult>();
-  const projectMappings = new Map<string, ToolMapping[]>();
+  const projectMappings = new Map<string, ToolMapping[]>([
+    ["demo-mask-job-2", [
+      { tool: 2, spool_id: "blue-01" },
+      { tool: 3, spool_id: "yellow-01" },
+    ]],
+  ]);
   let pet: PetSettings = {
     mode: "lite", visual_style: "gargantua", size: 220, fps: "auto", visible: false, x: null, y: null,
     display_id: null, effective_mode: "lite", permission: "unavailable",
@@ -370,7 +376,7 @@ function demoApi(): TauriApi {
       0,
     ),
     cover_asset_id: "demo-mask-cover",
-    cover_url: "/demo/plates/mask-cover.png",
+    cover_url: demoMaskUrl,
     plates: projectPlates.map((plate) => ({ ...plate })),
   });
   const projectDetail = (): PrintProjectDetail => ({

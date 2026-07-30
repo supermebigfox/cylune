@@ -81,6 +81,7 @@ pub fn parse_3mf_project(path: &Path) -> Result<ParsedProjectV2> {
         .as_deref()
         .map(slice_predictions)
         .unwrap_or_default();
+    let single_plate = gcode_entries.len() == 1;
     let plates = gcode_entries
         .into_iter()
         .map(|(plate_index, gcode_name)| {
@@ -102,7 +103,7 @@ pub fn parse_3mf_project(path: &Path) -> Result<ParsedProjectV2> {
                     .get(&plate_index)
                     .copied()
                     .or(gcode.declared_estimated_seconds),
-                thumbnail_entries: thumbnail_entries(plate_index, &entry_names),
+                thumbnail_entries: thumbnail_entries(plate_index, &entry_names, single_plate),
                 filaments: filaments.clone(),
                 gcode,
             })
@@ -146,15 +147,29 @@ fn plate_entry_index(name: &str, prefix: &str, suffix: &str) -> Option<u32> {
         .flatten()
 }
 
-fn thumbnail_entries(plate_index: u32, entry_names: &BTreeSet<String>) -> Vec<String> {
-    [
+fn thumbnail_entries(
+    plate_index: u32,
+    entry_names: &BTreeSet<String>,
+    prefer_project_thumbnail: bool,
+) -> Vec<String> {
+    let project = [
+        "Auxiliaries/.thumbnails/thumbnail_middle.png".to_owned(),
+        "Auxiliaries/.thumbnails/thumbnail_3mf.png".to_owned(),
+    ];
+    let plate = [
         format!("Metadata/plate_{plate_index}.png"),
         format!("Metadata/plate_{plate_index}_small.png"),
         format!("Metadata/plate_no_light_{plate_index}.png"),
-    ]
-    .into_iter()
-    .filter(|name| entry_names.contains(name))
-    .collect()
+    ];
+    let candidates = if prefer_project_thumbnail {
+        project.into_iter().chain(plate).collect::<Vec<_>>()
+    } else {
+        plate.into_iter().chain(project).collect::<Vec<_>>()
+    };
+    candidates
+        .into_iter()
+        .filter(|name| entry_names.contains(name))
+        .collect()
 }
 
 fn parse_display_name(contents: &str) -> Result<Option<String>> {
@@ -417,6 +432,8 @@ mod tests {
             .unwrap();
         archive.write_all(br#"{"name":"Detailed plate"}"#).unwrap();
         for image in [
+            "Auxiliaries/.thumbnails/thumbnail_middle.png",
+            "Auxiliaries/.thumbnails/thumbnail_3mf.png",
             "Metadata/plate_2.png",
             "Metadata/plate_2_small.png",
             "Metadata/plate_no_light_2.png",
@@ -440,9 +457,55 @@ mod tests {
         assert_eq!(
             plate.thumbnail_entries,
             vec![
+                "Auxiliaries/.thumbnails/thumbnail_middle.png",
+                "Auxiliaries/.thumbnails/thumbnail_3mf.png",
                 "Metadata/plate_2.png",
                 "Metadata/plate_2_small.png",
                 "Metadata/plate_no_light_2.png",
+            ]
+        );
+    }
+
+    #[test]
+    fn multi_plate_projects_prioritize_each_plates_own_thumbnail() {
+        let path = temporary_archive_path();
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = FileOptions::default();
+        write_filament_config(&mut archive, options);
+        for image in [
+            "Auxiliaries/.thumbnails/thumbnail_middle.png",
+            "Auxiliaries/.thumbnails/thumbnail_3mf.png",
+            "Metadata/plate_1.png",
+            "Metadata/plate_2.png",
+        ] {
+            archive.start_file(image, options).unwrap();
+            archive.write_all(b"image").unwrap();
+        }
+        for plate_index in [1, 2] {
+            archive
+                .start_file(format!("Metadata/plate_{plate_index}.gcode"), options)
+                .unwrap();
+            archive.write_all(b"M83\nG1 E1\n").unwrap();
+        }
+        archive.finish().unwrap();
+
+        let project = parse_3mf_project(&path).unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(
+            project.plates[0].thumbnail_entries,
+            [
+                "Metadata/plate_1.png",
+                "Auxiliaries/.thumbnails/thumbnail_middle.png",
+                "Auxiliaries/.thumbnails/thumbnail_3mf.png",
+            ]
+        );
+        assert_eq!(
+            project.plates[1].thumbnail_entries,
+            [
+                "Metadata/plate_2.png",
+                "Auxiliaries/.thumbnails/thumbnail_middle.png",
+                "Auxiliaries/.thumbnails/thumbnail_3mf.png",
             ]
         );
     }

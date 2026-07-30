@@ -8,6 +8,7 @@ mod tests {
         media::MediaStore,
     };
     use image::{codecs::png::PngEncoder, ColorType, ImageEncoder};
+    use rusqlite::params;
     use std::path::PathBuf;
     use std::time::Duration;
     use std::{fs, fs::File, io::Write};
@@ -90,15 +91,25 @@ mod tests {
                 br##"{"filament_settings_id":["Bambu PLA Basic"],"filament_type":["PLA"],"filament_colour":["#FFFFFF"],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
             )
             .unwrap();
-        let mut thumbnail = Vec::new();
-        PngEncoder::new(&mut thumbnail)
-            .write_image(&[0, 0, 0, 0], 1, 1, ColorType::Rgba8.into())
+        let preferred_thumbnail = png_pixel([12, 80, 240, 255]);
+        archive
+            .start_file("Auxiliaries/.thumbnails/thumbnail_middle.png", options)
             .unwrap();
+        archive.write_all(&preferred_thumbnail).unwrap();
+        archive
+            .start_file("Auxiliaries/.thumbnails/thumbnail_3mf.png", options)
+            .unwrap();
+        archive.write_all(&png_pixel([120, 70, 220, 255])).unwrap();
         for plate_index in [1, 2] {
+            let plate_thumbnail = if plate_index == 1 {
+                png_pixel([220, 48, 60, 255])
+            } else {
+                png_pixel([250, 190, 20, 255])
+            };
             archive
                 .start_file(format!("Metadata/plate_{plate_index}.png"), options)
                 .unwrap();
-            archive.write_all(&thumbnail).unwrap();
+            archive.write_all(&plate_thumbnail).unwrap();
             archive
                 .start_file(format!("Metadata/plate_{plate_index}.gcode"), options)
                 .unwrap();
@@ -108,6 +119,14 @@ mod tests {
         }
         archive.finish().unwrap();
         path
+    }
+
+    fn png_pixel(rgba: [u8; 4]) -> Vec<u8> {
+        let mut thumbnail = Vec::new();
+        PngEncoder::new(&mut thumbnail)
+            .write_image(&rgba, 1, 1, ColorType::Rgba8.into())
+            .unwrap();
+        thumbnail
     }
 
     fn media_file_count(root: &std::path::Path) -> usize {
@@ -324,7 +343,358 @@ mod tests {
             confirmed.plates[0].thumbnail_url,
             imported.plates[0].thumbnail_url
         );
-        assert_eq!(count(&service, "media_assets"), 1);
+        assert_eq!(count(&service, "media_assets"), 2);
+        fs::remove_dir_all(media_root).unwrap();
+    }
+
+    #[test]
+    fn reimport_backfills_missing_legacy_project_thumbnails_and_source_path() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let media_root =
+            std::env::temp_dir().join(format!("cylune-media-backfill-{}", uuid::Uuid::new_v4()));
+        let media_store = MediaStore::new(media_root.clone()).unwrap();
+        let mut service = PrintService::with_media_store_and_stability_delay(
+            database,
+            media_store,
+            Duration::ZERO,
+        );
+        let path = two_plate_fixture_with_shared_thumbnail();
+        let imported = service.import_print_project(&path).unwrap();
+        let cached_json: String = service
+            .database
+            .connection
+            .query_row(
+                "SELECT parsed_json FROM parse_cache WHERE source_hash = ?1",
+                [&imported.source_hash],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut cached: crate::parser::ParsedProjectV2 =
+            serde_json::from_str(&cached_json).unwrap();
+        for plate in &mut cached.plates {
+            plate.thumbnail_entries = vec![format!("Metadata/plate_{}.png", plate.plate_index)];
+        }
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE parse_cache SET parsed_json = ?1 WHERE source_hash = ?2",
+                params![
+                    serde_json::to_string(&cached).unwrap(),
+                    imported.source_hash
+                ],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_projects
+                 SET source_path = NULL, cover_asset_id = NULL
+                 WHERE project_id = ?1",
+                [imported.project_id.to_string()],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_plates SET thumbnail_asset_id = NULL WHERE project_id = ?1",
+                [imported.project_id.to_string()],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute("DELETE FROM media_assets", [])
+            .unwrap();
+        let projects_before = count(&service, "print_projects");
+        let plates_before = count(&service, "print_plates");
+        let jobs_before = count(&service, "print_jobs");
+        let consumption_before = count(&service, "job_consumption");
+        let ledger_before = count(&service, "ledger_events");
+
+        let reopened = service.import_print_project(&path).unwrap();
+
+        assert_eq!(reopened.project_id, imported.project_id);
+        assert_eq!(reopened.state, ImportState::ExistingPending);
+        assert!(reopened
+            .plates
+            .iter()
+            .all(|plate| plate.thumbnail_url.is_some()));
+        assert_eq!(count(&service, "print_projects"), projects_before);
+        assert_eq!(count(&service, "print_plates"), plates_before);
+        assert_eq!(count(&service, "print_jobs"), jobs_before);
+        assert_eq!(count(&service, "job_consumption"), consumption_before);
+        assert_eq!(count(&service, "ledger_events"), ledger_before);
+        assert_eq!(count(&service, "media_assets"), 2);
+        let (source_path, cover_asset_id): (String, String) = service
+            .database
+            .connection
+            .query_row(
+                "SELECT source_path, cover_asset_id
+                 FROM print_projects
+                 WHERE project_id = ?1",
+                [imported.project_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(source_path, path.to_string_lossy());
+        let plate_assets: Vec<String> = {
+            let mut statement = service
+                .database
+                .connection
+                .prepare(
+                    "SELECT thumbnail_asset_id
+                     FROM print_plates
+                     WHERE project_id = ?1
+                     ORDER BY plate_index",
+                )
+                .unwrap();
+            statement
+                .query_map([imported.project_id.to_string()], |row| row.get(0))
+                .unwrap()
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        assert_eq!(plate_assets.len(), 2);
+        assert_eq!(plate_assets[0], cover_asset_id);
+        assert_ne!(plate_assets[0], plate_assets[1]);
+        let relative_path: String = service
+            .database
+            .connection
+            .query_row(
+                "SELECT relative_path FROM media_assets WHERE asset_id = ?1",
+                [&cover_asset_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            fs::read(media_root.join(relative_path)).unwrap(),
+            png_pixel([220, 48, 60, 255])
+        );
+        let refreshed: crate::parser::ParsedProjectV2 = service
+            .persisted_project(&imported.source_hash)
+            .unwrap()
+            .unwrap();
+        assert!(refreshed
+            .plates
+            .iter()
+            .all(
+                |plate| plate.thumbnail_entries.first().is_some_and(|entry| {
+                    entry == &format!("Metadata/plate_{}.png", plate.plate_index)
+                })
+            ));
+        fs::remove_file(path).unwrap();
+        fs::remove_dir_all(media_root).unwrap();
+    }
+
+    #[test]
+    fn reimport_replaces_existing_legacy_thumbnail_associations() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let media_root =
+            std::env::temp_dir().join(format!("cylune-media-upgrade-{}", uuid::Uuid::new_v4()));
+        let media_store = MediaStore::new(media_root.clone()).unwrap();
+        let mut service = PrintService::with_media_store_and_stability_delay(
+            database,
+            media_store,
+            Duration::ZERO,
+        );
+        let path = two_plate_fixture_with_shared_thumbnail();
+        let imported = service.import_print_project(&path).unwrap();
+        let legacy = MediaStore::new(media_root.clone())
+            .unwrap()
+            .extract_image(&path, "Auxiliaries/.thumbnails/thumbnail_middle.png")
+            .unwrap()
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "INSERT OR IGNORE INTO media_assets (
+                    asset_id, relative_path, mime_type, byte_size, width, height
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    &legacy.asset_id,
+                    &legacy.relative_path,
+                    &legacy.mime_type,
+                    legacy.byte_size,
+                    legacy.width,
+                    legacy.height,
+                ],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_projects SET cover_asset_id = ?1 WHERE project_id = ?2",
+                params![&legacy.asset_id, imported.project_id.to_string()],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_plates SET thumbnail_asset_id = ?1 WHERE project_id = ?2",
+                params![&legacy.asset_id, imported.project_id.to_string()],
+            )
+            .unwrap();
+        let projects_before = count(&service, "print_projects");
+        let jobs_before = count(&service, "print_jobs");
+
+        let reopened = service.import_print_project(&path).unwrap();
+
+        assert_eq!(reopened.project_id, imported.project_id);
+        assert_eq!(count(&service, "print_projects"), projects_before);
+        assert_eq!(count(&service, "print_jobs"), jobs_before);
+        let (distinct_assets, legacy_assets): (u32, u32) = service
+            .database
+            .connection
+            .query_row(
+                "SELECT COUNT(DISTINCT thumbnail_asset_id),
+                        SUM(thumbnail_asset_id = ?1)
+                 FROM print_plates
+                 WHERE project_id = ?2",
+                params![&legacy.asset_id, imported.project_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(distinct_assets, 2);
+        assert_eq!(legacy_assets, 0);
+        let cover_asset_id: String = service
+            .database
+            .connection
+            .query_row(
+                "SELECT cover_asset_id FROM print_projects WHERE project_id = ?1",
+                [imported.project_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_ne!(cover_asset_id, legacy.asset_id);
+        fs::remove_file(path).unwrap();
+        fs::remove_dir_all(media_root).unwrap();
+    }
+
+    #[test]
+    fn reimport_recreates_a_missing_content_addressed_thumbnail_file() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let media_root =
+            std::env::temp_dir().join(format!("cylune-media-repair-{}", uuid::Uuid::new_v4()));
+        let media_store = MediaStore::new(media_root.clone()).unwrap();
+        let mut service = PrintService::with_media_store_and_stability_delay(
+            database,
+            media_store,
+            Duration::ZERO,
+        );
+        let path = two_plate_fixture_with_shared_thumbnail();
+        let imported = service.import_print_project(&path).unwrap();
+        let relative_path: String = service
+            .database
+            .connection
+            .query_row(
+                "SELECT assets.relative_path
+                 FROM print_plates AS plates
+                 JOIN media_assets AS assets ON assets.asset_id = plates.thumbnail_asset_id
+                 WHERE plates.project_id = ?1 AND plates.plate_index = 1",
+                [imported.project_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let thumbnail_path = media_root.join(relative_path);
+        fs::remove_file(&thumbnail_path).unwrap();
+        assert!(!thumbnail_path.exists());
+        let projects_before = count(&service, "print_projects");
+        let jobs_before = count(&service, "print_jobs");
+
+        let reopened = service.import_print_project(&path).unwrap();
+
+        assert_eq!(reopened.project_id, imported.project_id);
+        assert!(thumbnail_path.is_file());
+        assert_eq!(count(&service, "print_projects"), projects_before);
+        assert_eq!(count(&service, "print_jobs"), jobs_before);
+        assert_eq!(count(&service, "media_assets"), 2);
+        fs::remove_file(path).unwrap();
+        fs::remove_dir_all(media_root).unwrap();
+    }
+
+    #[test]
+    fn reimport_rejects_cached_plate_identity_drift_before_attaching_media() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let media_root =
+            std::env::temp_dir().join(format!("cylune-media-identity-{}", uuid::Uuid::new_v4()));
+        let media_store = MediaStore::new(media_root.clone()).unwrap();
+        let mut service = PrintService::with_media_store_and_stability_delay(
+            database,
+            media_store,
+            Duration::ZERO,
+        );
+        let path = two_plate_fixture_with_shared_thumbnail();
+        let imported = service.import_print_project(&path).unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_jobs
+                 SET outcome = '{\"kind\":\"success\"}', settlement_version = 1
+                 WHERE plate_id IN (
+                    SELECT plate_id FROM print_plates WHERE project_id = ?1
+                 )",
+                [imported.project_id.to_string()],
+            )
+            .unwrap();
+        let mut cached = service
+            .persisted_project(&imported.source_hash)
+            .unwrap()
+            .unwrap();
+        cached.plates[0].plate_index = 99;
+        let broken_json = serde_json::to_string(&cached).unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE parse_cache SET parsed_json = ?1 WHERE source_hash = ?2",
+                params![&broken_json, &imported.source_hash],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_projects
+                 SET source_path = NULL, cover_asset_id = NULL
+                 WHERE project_id = ?1",
+                [imported.project_id.to_string()],
+            )
+            .unwrap();
+
+        let error = service.import_print_project(&path).unwrap_err();
+
+        assert_eq!(error.code(), "database");
+        let (source_path, cover_asset_id): (Option<String>, Option<String>) = service
+            .database
+            .connection
+            .query_row(
+                "SELECT source_path, cover_asset_id
+                 FROM print_projects
+                 WHERE project_id = ?1",
+                [imported.project_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(source_path.is_none());
+        assert!(cover_asset_id.is_none());
+        let persisted_json: String = service
+            .database
+            .connection
+            .query_row(
+                "SELECT parsed_json FROM parse_cache WHERE source_hash = ?1",
+                [&imported.source_hash],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(persisted_json, broken_json);
+        fs::remove_file(path).unwrap();
         fs::remove_dir_all(media_root).unwrap();
     }
 
@@ -345,7 +715,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_plate_media_and_confirmed_reimport_are_content_deduplicated() {
+    fn distinct_plate_media_and_confirmed_reimport_are_content_deduplicated() {
         let database = AppDatabase::open_in_memory().unwrap();
         let media_root =
             std::env::temp_dir().join(format!("cylune-project-media-{}", uuid::Uuid::new_v4()));
@@ -375,13 +745,13 @@ mod tests {
             .unwrap();
 
         fs::remove_file(path).unwrap();
-        assert_eq!(first.plates[0].thumbnail_url, first.plates[1].thumbnail_url);
+        assert_ne!(first.plates[0].thumbnail_url, first.plates[1].thumbnail_url);
         assert_eq!(
             confirmed.plates[0].thumbnail_url,
             first.plates[0].thumbnail_url
         );
-        assert_eq!(count(&service, "media_assets"), 1);
-        assert_eq!(media_file_count(&media_root), 1);
+        assert_eq!(count(&service, "media_assets"), 2);
+        assert_eq!(media_file_count(&media_root), 2);
         fs::remove_dir_all(media_root).unwrap();
     }
 
@@ -1500,17 +1870,42 @@ impl PrintService {
         let source_hash = sha256(path)?;
         if let Some(parsed) = self.persisted_project(&source_hash)? {
             if let Some(preview) = self.continue_project(&source_hash)? {
+                let (parsed, media, refreshed_json) =
+                    self.recover_project_media(&source_hash, path, &parsed)?;
                 #[cfg(test)]
                 self.run_before_final_stability_check(path);
                 self.ensure_unchanged(path, stability)?;
-                return Ok(preview);
+                self.attach_project_media(
+                    preview.project_id,
+                    &source_hash,
+                    path,
+                    &parsed,
+                    &media,
+                    refreshed_json.as_deref(),
+                )?;
+                return self.project_preview_from_database(
+                    preview.project_id,
+                    ImportState::ExistingPending,
+                );
             }
             if let Some(project_id) = self.latest_project_id(&source_hash)? {
-                let mut preview = self.get_project_preview(project_id)?;
-                preview.state = ImportState::NewPrintConfirmationRequired;
+                let (parsed, media, refreshed_json) =
+                    self.recover_project_media(&source_hash, path, &parsed)?;
                 #[cfg(test)]
                 self.run_before_final_stability_check(path);
                 self.ensure_unchanged(path, stability)?;
+                self.attach_project_media(
+                    project_id,
+                    &source_hash,
+                    path,
+                    &parsed,
+                    &media,
+                    refreshed_json.as_deref(),
+                )?;
+                let preview = self.project_preview_from_database(
+                    project_id,
+                    ImportState::NewPrintConfirmationRequired,
+                )?;
                 return Ok(preview);
             }
             for plate in &parsed.plates {
@@ -1521,10 +1916,17 @@ impl PrintService {
                 [&source_hash],
                 |row| row.get(0),
             )?;
-            let media = self.extract_project_media(path, &parsed)?;
+            let (parsed, media, refreshed_json) =
+                self.recover_project_media(&source_hash, path, &parsed)?;
             #[cfg(test)]
             self.run_before_final_stability_check(path);
             self.ensure_unchanged(path, stability)?;
+            if let Some(parsed_json) = refreshed_json {
+                self.database.connection.execute(
+                    "UPDATE parse_cache SET parsed_json = ?1 WHERE source_hash = ?2",
+                    params![parsed_json, &source_hash],
+                )?;
+            }
             return self.create_project_from_parsed(
                 source_hash,
                 source_file_name,
@@ -1997,6 +2399,123 @@ impl PrintService {
                     .map_err(Into::into)
             })
             .collect()
+    }
+
+    fn recover_project_media(
+        &self,
+        source_hash: &str,
+        source_path: &Path,
+        cached: &ParsedProjectV2,
+    ) -> Result<(ParsedProjectV2, Vec<Option<MediaAsset>>, Option<String>)> {
+        let mut media = self.persisted_project_media(source_hash, cached)?;
+        if self.media_store.is_none() {
+            return Ok((cached.clone(), media, None));
+        }
+
+        // Reparse the user-selected source even when the database already has a
+        // media row. This upgrades legacy monochrome choices and lets extraction
+        // recreate a content-addressed file that was removed outside the app.
+        let reparsed = parse_3mf_project(source_path)?;
+        for plate in &reparsed.plates {
+            validate_plate_profiles(plate)?;
+        }
+        let cached_plate_indices = cached
+            .plates
+            .iter()
+            .map(|plate| plate.plate_index)
+            .collect::<Vec<_>>();
+        let parsed_plate_indices = reparsed
+            .plates
+            .iter()
+            .map(|plate| plate.plate_index)
+            .collect::<Vec<_>>();
+        if cached_plate_indices != parsed_plate_indices || reparsed.plates.len() != media.len() {
+            return Err(AppError::Database(
+                "cached project plate identity mismatch".to_owned(),
+            ));
+        }
+        let mut parsed = cached.clone();
+        for (saved_plate, reparsed_plate) in parsed.plates.iter_mut().zip(&reparsed.plates) {
+            saved_plate.thumbnail_entries = reparsed_plate.thumbnail_entries.clone();
+        }
+        let extracted = self.extract_project_media(source_path, &parsed)?;
+        for (saved, fresh) in media.iter_mut().zip(extracted) {
+            if fresh.is_some() {
+                *saved = fresh;
+            }
+        }
+        let refreshed_json = serde_json::to_string(&parsed)
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        Ok((parsed, media, Some(refreshed_json)))
+    }
+
+    fn attach_project_media(
+        &mut self,
+        project_id: Uuid,
+        source_hash: &str,
+        source_path: &Path,
+        parsed: &ParsedProjectV2,
+        media: &[Option<MediaAsset>],
+        refreshed_parse_json: Option<&str>,
+    ) -> Result<()> {
+        if parsed.plates.len() != media.len() {
+            return Err(AppError::Database(
+                "project media plate count mismatch".to_owned(),
+            ));
+        }
+        let transaction = self.database.connection.transaction()?;
+        for asset in media.iter().flatten() {
+            transaction.execute(
+                "INSERT OR IGNORE INTO media_assets (
+                    asset_id, relative_path, mime_type, byte_size, width, height
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    asset.asset_id,
+                    asset.relative_path,
+                    asset.mime_type,
+                    asset.byte_size,
+                    asset.width,
+                    asset.height,
+                ],
+            )?;
+        }
+        for (plate, asset) in parsed.plates.iter().zip(media) {
+            let Some(asset) = asset else { continue };
+            let changed = transaction.execute(
+                "UPDATE print_plates
+                 SET thumbnail_asset_id = ?1
+                 WHERE project_id = ?2 AND plate_index = ?3",
+                params![asset.asset_id, project_id.to_string(), plate.plate_index],
+            )?;
+            if changed != 1 {
+                return Err(AppError::Database(
+                    "project media plate identity mismatch".to_owned(),
+                ));
+            }
+        }
+        let cover_asset_id = media.iter().flatten().next().map(|asset| &asset.asset_id);
+        let changed = transaction.execute(
+            "UPDATE print_projects
+             SET source_path = ?1,
+                 cover_asset_id = COALESCE(?2, cover_asset_id)
+             WHERE project_id = ?3",
+            params![
+                source_path.to_string_lossy().into_owned(),
+                cover_asset_id,
+                project_id.to_string(),
+            ],
+        )?;
+        if changed != 1 {
+            return Err(AppError::InvalidJob);
+        }
+        if let Some(parsed_json) = refreshed_parse_json {
+            transaction.execute(
+                "UPDATE parse_cache SET parsed_json = ?1 WHERE source_hash = ?2",
+                params![parsed_json, source_hash],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
     }
 
     pub fn import_print_file(&mut self, path: &Path) -> Result<ImportPreview> {
