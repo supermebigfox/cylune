@@ -212,6 +212,139 @@ mod tests {
     }
 
     #[test]
+    fn confirm_new_project_reuses_any_existing_pending_batch() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+        let imported = service.import_print_project(&path).unwrap();
+
+        let confirmed = service
+            .confirm_new_project(&imported.source_hash, &path)
+            .unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(confirmed.project_id, imported.project_id);
+        assert_eq!(confirmed.state, ImportState::ExistingPending);
+        assert_eq!(count(&service, "print_projects"), 1);
+        assert_eq!(count(&service, "print_jobs"), 2);
+    }
+
+    #[test]
+    fn confirmed_project_retry_returns_the_same_new_pending_batch() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+        let imported = service.import_print_project(&path).unwrap();
+        service.database.connection.execute("UPDATE print_jobs SET outcome='{\"kind\":\"success\"}',settlement_version=1 WHERE plate_id IN(SELECT plate_id FROM print_plates WHERE project_id=?1)",[imported.project_id.to_string()]).unwrap();
+
+        let first = service
+            .confirm_new_project(&imported.source_hash, &path)
+            .unwrap();
+        let retry = service
+            .confirm_new_project(&imported.source_hash, &path)
+            .unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(retry.project_id, first.project_id);
+        assert_eq!(retry.state, ImportState::ExistingPending);
+        assert_eq!(count(&service, "print_projects"), 2);
+        assert_eq!(count(&service, "print_jobs"), 4);
+    }
+
+    #[test]
+    fn confirm_new_project_rejects_a_path_with_a_different_source_hash() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+        let imported = service.import_print_project(&path).unwrap();
+        service.database.connection.execute("UPDATE print_jobs SET outcome='{\"kind\":\"success\"}',settlement_version=1 WHERE plate_id IN(SELECT plate_id FROM print_plates WHERE project_id=?1)",[imported.project_id.to_string()]).unwrap();
+
+        let error = service
+            .confirm_new_project(&imported.source_hash, &fixture("project_only.3mf"))
+            .unwrap_err();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(error.code(), "invalid_file");
+        assert_eq!(count(&service, "print_projects"), 1);
+    }
+
+    #[test]
+    fn confirm_new_project_rejects_a_source_changed_after_hashing() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = std::env::temp_dir().join(format!(
+            "cylune-confirm-changing-{}.3mf",
+            uuid::Uuid::new_v4()
+        ));
+        fs::copy(fixture("bambu_multicolor.3mf"), &path).unwrap();
+        let imported = service.import_print_project(&path).unwrap();
+        service.database.connection.execute("UPDATE print_jobs SET outcome='{\"kind\":\"success\"}',settlement_version=1 WHERE plate_id IN(SELECT plate_id FROM print_plates WHERE project_id=?1)",[imported.project_id.to_string()]).unwrap();
+        service.before_final_stability_check = Some(Box::new(|path| {
+            fs::OpenOptions::new()
+                .append(true)
+                .open(path)
+                .unwrap()
+                .write_all(b"changed")
+                .unwrap();
+        }));
+
+        let error = service
+            .confirm_new_project(&imported.source_hash, &path)
+            .unwrap_err();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(error.code(), "file_not_stable");
+        assert_eq!(count(&service, "print_projects"), 1);
+    }
+
+    #[test]
+    fn legacy_confirm_reuses_cached_media_without_source_file_access() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let media_root =
+            std::env::temp_dir().join(format!("cylune-legacy-confirm-{}", uuid::Uuid::new_v4()));
+        let media_store = MediaStore::new(media_root.clone()).unwrap();
+        let mut service = PrintService::with_media_store_and_stability_delay(
+            database,
+            media_store,
+            Duration::ZERO,
+        );
+        let path = two_plate_fixture_with_shared_thumbnail();
+        let imported = service.import_print_project(&path).unwrap();
+        service.database.connection.execute("UPDATE print_jobs SET outcome='{\"kind\":\"success\"}',settlement_version=1 WHERE plate_id IN(SELECT plate_id FROM print_plates WHERE project_id=?1)",[imported.project_id.to_string()]).unwrap();
+        fs::remove_file(&path).unwrap();
+
+        service.confirm_new_print(&imported.source_hash).unwrap();
+        let newest = service
+            .latest_project_id(&imported.source_hash)
+            .unwrap()
+            .unwrap();
+        let confirmed = service.get_project_preview(newest).unwrap();
+
+        assert_eq!(
+            confirmed.plates[0].thumbnail_url,
+            imported.plates[0].thumbnail_url
+        );
+        assert_eq!(count(&service, "media_assets"), 1);
+        fs::remove_dir_all(media_root).unwrap();
+    }
+
+    #[test]
+    fn cached_project_versions_other_than_two_are_rejected() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+        let imported = service.import_print_project(&path).unwrap();
+        service.discard_project(imported.project_id).unwrap();
+        service.database.connection.execute("UPDATE parse_cache SET parsed_json=json_set(parsed_json,'$.version',3) WHERE source_hash=?1",[imported.source_hash]).unwrap();
+
+        let error = service.import_print_project(&path).unwrap_err();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(error.code(), "invalid_file");
+        assert_eq!(count(&service, "print_projects"), 0);
+    }
+
+    #[test]
     fn shared_plate_media_and_confirmed_reimport_are_content_deduplicated() {
         let database = AppDatabase::open_in_memory().unwrap();
         let media_root =
@@ -1452,6 +1585,13 @@ impl PrintService {
         source_hash: &str,
         source_path: &Path,
     ) -> Result<ImportProjectPreview> {
+        if let Some(project) = self.continue_project(source_hash)? {
+            return Ok(project);
+        }
+        let stability = self.ensure_stable(source_path)?;
+        if sha256(source_path)? != source_hash {
+            return Err(AppError::InvalidFile);
+        }
         let parsed = self
             .persisted_project(source_hash)?
             .ok_or(AppError::InvalidJob)?;
@@ -1463,7 +1603,18 @@ impl PrintService {
             [source_hash],
             |row| row.get(0),
         )?;
-        let media = self.extract_project_media(source_path, &parsed)?;
+        let mut media = self.persisted_project_media(source_hash, &parsed)?;
+        if media.iter().any(Option::is_none) {
+            let extracted = self.extract_project_media(source_path, &parsed)?;
+            for (saved, extracted) in media.iter_mut().zip(extracted) {
+                if saved.is_none() {
+                    *saved = extracted;
+                }
+            }
+        }
+        #[cfg(test)]
+        self.run_before_final_stability_check(source_path);
+        self.ensure_unchanged(source_path, stability)?;
         self.create_project_from_parsed(
             source_hash.to_owned(),
             source_file_name,
@@ -1774,6 +1925,45 @@ impl PrintService {
             .collect()
     }
 
+    fn persisted_project_media(
+        &self,
+        source_hash: &str,
+        parsed: &ParsedProjectV2,
+    ) -> Result<Vec<Option<MediaAsset>>> {
+        parsed
+            .plates
+            .iter()
+            .map(|plate| {
+                self.database
+                    .connection
+                    .query_row(
+                        "SELECT assets.asset_id, assets.relative_path, assets.mime_type,
+                                assets.width, assets.height, assets.byte_size
+                         FROM print_projects AS projects
+                         JOIN print_plates AS plates USING(project_id)
+                         JOIN media_assets AS assets ON assets.asset_id = plates.thumbnail_asset_id
+                         WHERE projects.source_hash = ?1
+                           AND plates.plate_index = ?2
+                         ORDER BY projects.rowid DESC
+                         LIMIT 1",
+                        params![source_hash, plate.plate_index],
+                        |row| {
+                            Ok(MediaAsset {
+                                asset_id: row.get(0)?,
+                                relative_path: row.get(1)?,
+                                mime_type: row.get(2)?,
+                                width: row.get(3)?,
+                                height: row.get(4)?,
+                                byte_size: row.get(5)?,
+                            })
+                        },
+                    )
+                    .optional()
+                    .map_err(Into::into)
+            })
+            .collect()
+    }
+
     pub fn import_print_file(&mut self, path: &Path) -> Result<ImportPreview> {
         legacy_preview(self.import_print_project(path)?)
     }
@@ -1923,12 +2113,7 @@ impl PrintService {
             [source_hash],
             |row| row.get(0),
         )?;
-        let media = match source_path.as_deref() {
-            Some(path) if Path::new(path).is_file() => {
-                self.extract_project_media(Path::new(path), &parsed)?
-            }
-            _ => vec![None; parsed.plates.len()],
-        };
+        let media = self.persisted_project_media(source_hash, &parsed)?;
         legacy_preview(self.create_project_from_parsed(
             source_hash.to_owned(),
             source_file_name,
@@ -2087,6 +2272,9 @@ impl PrintService {
             } else {
                 let project: ParsedProjectV2 = serde_json::from_str(&json)
                     .map_err(|error| AppError::Database(error.to_string()))?;
+                if project.version != 2 {
+                    return Err(AppError::InvalidFile);
+                }
                 let plate = project
                     .plates
                     .into_iter()
@@ -2291,6 +2479,9 @@ impl PrintService {
             .optional()?;
         json.map(|json| {
             if let Ok(project) = serde_json::from_str::<ParsedProjectV2>(&json) {
+                if project.version != 2 {
+                    return Err(AppError::InvalidFile);
+                }
                 return Ok(project);
             }
             let legacy: ParsedPrintFile = serde_json::from_str(&json)

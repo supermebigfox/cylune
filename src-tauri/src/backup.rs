@@ -5,7 +5,7 @@ use crate::{
     error::{AppError, Result},
     parser::{
         gcode::{GcodeReport, LayerUsage},
-        FilamentProfile, ParsedPrintFile,
+        FilamentProfile, ParsedPlate, ParsedPrintFile, ParsedProjectV2,
     },
 };
 use rusqlite::{params, OptionalExtension, Transaction};
@@ -13,11 +13,11 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 use uuid::Uuid;
 
-pub const BACKUP_SCHEMA_VERSION: u32 = 2;
+pub const BACKUP_SCHEMA_VERSION: u32 = 3;
 const SAFE_SETTINGS: &[&str] = &["theme", "locale", "notifications_enabled"];
 
 #[tauri::command]
@@ -44,9 +44,17 @@ pub fn import_backup(path: String, state: tauri::State<'_, PrintState>) -> Resul
 #[serde(deny_unknown_fields)]
 struct Backup {
     schema_version: u32,
+    #[serde(default)]
+    media_files_included: bool,
     spools: Vec<SpoolRow>,
     slots: Vec<SlotRow>,
     parse_cache: Vec<ParseRow>,
+    #[serde(default)]
+    media: Vec<MediaRow>,
+    #[serde(default)]
+    projects: Vec<ProjectRow>,
+    #[serde(default)]
+    plates: Vec<PlateRow>,
     jobs: Vec<JobRow>,
     mappings: Vec<MappingRow>,
     consumption: Vec<ConsumptionRow>,
@@ -89,9 +97,49 @@ struct SlotRow {
 #[serde(deny_unknown_fields)]
 struct ParseRow {
     source_hash: String,
-    parsed: BackupParsed,
+    parsed: BackupCachedParse,
     parse_count: u32,
     created_at: String,
+}
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+enum BackupCachedParse {
+    Project(BackupProject),
+    Legacy(BackupParsed),
+}
+
+impl<'de> Deserialize<'de> for BackupCachedParse {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if value.get("version").is_some() {
+            serde_json::from_value(value)
+                .map(Self::Project)
+                .map_err(serde::de::Error::custom)
+        } else {
+            serde_json::from_value(value)
+                .map(Self::Legacy)
+                .map_err(serde::de::Error::custom)
+        }
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BackupProject {
+    version: u8,
+    plates: Vec<BackupProjectPlate>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BackupProjectPlate {
+    plate_index: u32,
+    display_name: Option<String>,
+    estimated_seconds: Option<u32>,
+    thumbnail_entries: Vec<String>,
+    filaments: Vec<BackupProfile>,
+    gcode: BackupGcode,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -117,6 +165,10 @@ struct BackupGcode {
     layers: Vec<BackupLayer>,
     totals_mm: BTreeMap<u8, f64>,
     max_layer: u32,
+    #[serde(default)]
+    declared_estimated_seconds: Option<u32>,
+    #[serde(default)]
+    declared_total_layers: Option<u32>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -157,6 +209,8 @@ impl TryFrom<ParsedPrintFile> for BackupParsed {
                     .collect(),
                 totals_mm: value.gcode.totals_mm,
                 max_layer: value.gcode.max_layer,
+                declared_estimated_seconds: value.gcode.declared_estimated_seconds,
+                declared_total_layers: value.gcode.declared_total_layers,
             },
         })
     }
@@ -192,11 +246,99 @@ impl From<BackupParsed> for ParsedPrintFile {
                     .collect(),
                 totals_mm: value.gcode.totals_mm,
                 max_layer: value.gcode.max_layer,
-                declared_estimated_seconds: None,
-                declared_total_layers: None,
+                declared_estimated_seconds: value.gcode.declared_estimated_seconds,
+                declared_total_layers: value.gcode.declared_total_layers,
             },
         }
     }
+}
+
+impl TryFrom<ParsedProjectV2> for BackupProject {
+    type Error = AppError;
+
+    fn try_from(value: ParsedProjectV2) -> Result<Self> {
+        let plates = value
+            .plates
+            .into_iter()
+            .map(|plate| {
+                let parsed = BackupParsed::try_from(ParsedPrintFile {
+                    filaments: plate.filaments,
+                    gcode: plate.gcode,
+                })?;
+                Ok(BackupProjectPlate {
+                    plate_index: plate.plate_index,
+                    display_name: plate.display_name,
+                    estimated_seconds: plate.estimated_seconds,
+                    thumbnail_entries: plate.thumbnail_entries,
+                    filaments: parsed.filaments,
+                    gcode: parsed.gcode,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self {
+            version: value.version,
+            plates,
+        })
+    }
+}
+
+impl From<BackupProject> for ParsedProjectV2 {
+    fn from(value: BackupProject) -> Self {
+        Self {
+            version: value.version,
+            plates: value
+                .plates
+                .into_iter()
+                .map(|plate| {
+                    let parsed: ParsedPrintFile = BackupParsed {
+                        filaments: plate.filaments,
+                        gcode: plate.gcode,
+                    }
+                    .into();
+                    ParsedPlate {
+                        plate_index: plate.plate_index,
+                        display_name: plate.display_name,
+                        estimated_seconds: plate.estimated_seconds,
+                        thumbnail_entries: plate.thumbnail_entries,
+                        filaments: parsed.filaments,
+                        gcode: parsed.gcode,
+                    }
+                })
+                .collect(),
+        }
+    }
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MediaRow {
+    asset_id: String,
+    relative_path: String,
+    mime_type: String,
+    byte_size: u64,
+    width: Option<u32>,
+    height: Option<u32>,
+    created_at: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectRow {
+    project_id: String,
+    source_hash: String,
+    imported_at: String,
+    plate_count: u32,
+    cover_asset_id: Option<String>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlateRow {
+    plate_id: String,
+    project_id: String,
+    plate_index: u32,
+    display_name: Option<String>,
+    thumbnail_asset_id: Option<String>,
+    estimated_seconds: Option<u32>,
+    max_layer: u32,
+    parsed: BackupParsed,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -206,6 +348,8 @@ struct JobRow {
     outcome: Option<String>,
     settlement_version: u32,
     created_at: String,
+    #[serde(default)]
+    plate_id: Option<String>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -293,6 +437,7 @@ where
 fn read_backup(db: &AppDatabase) -> Result<Backup> {
     Ok(Backup {
         schema_version: BACKUP_SCHEMA_VERSION,
+        media_files_included: false,
         spools: rows(db, "SELECT spool_id,display_name,preset_id,catalog_id,color_name,color_code,color_hexes,preset_base,brand,material,series,color_hex,remaining_grams,status,created_at FROM spools ORDER BY spool_id", |r| {
             let color_hex: String = r.get(11)?;
             let color_hexes = r
@@ -320,7 +465,10 @@ fn read_backup(db: &AppDatabase) -> Result<Backup> {
         })?,
         slots: rows(db, "SELECT slot_number,spool_id,assigned_at FROM ams_slots ORDER BY slot_number", |r| Ok(SlotRow{slot_number:r.get(0)?,spool_id:r.get(1)?,assigned_at:r.get(2)?}))?,
         parse_cache: read_parse_cache(db)?,
-        jobs: rows(db, "SELECT job_id,source_hash,outcome,settlement_version,created_at FROM print_jobs ORDER BY job_id", |r| Ok(JobRow{job_id:r.get(0)?,source_hash:r.get(1)?,outcome:r.get(2)?,settlement_version:r.get(3)?,created_at:r.get(4)?}))?,
+        media: rows(db, "SELECT asset_id,relative_path,mime_type,byte_size,width,height,created_at FROM media_assets ORDER BY asset_id", |r| Ok(MediaRow{asset_id:r.get(0)?,relative_path:r.get(1)?,mime_type:r.get(2)?,byte_size:r.get(3)?,width:r.get(4)?,height:r.get(5)?,created_at:r.get(6)?}))?,
+        projects: rows(db, "SELECT project_id,source_hash,imported_at,plate_count,cover_asset_id FROM print_projects ORDER BY project_id", |r| Ok(ProjectRow{project_id:r.get(0)?,source_hash:r.get(1)?,imported_at:r.get(2)?,plate_count:r.get(3)?,cover_asset_id:r.get(4)?}))?,
+        plates: read_plates(db)?,
+        jobs: rows(db, "SELECT job_id,source_hash,outcome,settlement_version,created_at,plate_id FROM print_jobs ORDER BY job_id", |r| Ok(JobRow{job_id:r.get(0)?,source_hash:r.get(1)?,outcome:r.get(2)?,settlement_version:r.get(3)?,created_at:r.get(4)?,plate_id:r.get(5)?}))?,
         mappings: rows(db, "SELECT job_id,tool,spool_id,slot_number FROM job_mappings ORDER BY job_id,tool", |r| Ok(MappingRow{job_id:r.get(0)?,tool:r.get(1)?,spool_id:r.get(2)?,slot_number:r.get(3)?}))?,
         consumption: rows(db, "SELECT job_id,spool_id,settlement_version,consumed_grams,confidence,slot_number FROM job_consumption ORDER BY job_id,spool_id,settlement_version", |r| Ok(ConsumptionRow{job_id:r.get(0)?,spool_id:r.get(1)?,settlement_version:r.get(2)?,consumed_grams:r.get(3)?,confidence:r.get(4)?,slot_number:r.get(5)?}))?,
         ledger: rows(db, "SELECT event_id,idempotency_key,spool_id,job_id,settlement_version,event_type,delta_grams,confidence,reverses_event_id,created_at FROM ledger_events ORDER BY CASE event_type WHEN 'reversal' THEN 1 ELSE 0 END,created_at,event_id", |r| Ok(LedgerRow{event_id:r.get(0)?,idempotency_key:r.get(1)?,spool_id:r.get(2)?,job_id:r.get(3)?,settlement_version:r.get(4)?,event_type:r.get(5)?,delta_grams:r.get(6)?,confidence:r.get(7)?,reverses_event_id:r.get(8)?,created_at:r.get(9)?}))?,
@@ -337,11 +485,19 @@ fn read_parse_cache(db: &AppDatabase) -> Result<Vec<ParseRow>> {
     let raw=rows(db,"SELECT source_hash,parsed_json,parse_count,created_at FROM parse_cache ORDER BY source_hash",|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,u32>(2)?,r.get::<_,String>(3)?)))?;
     raw.into_iter()
         .map(|(source_hash, json, parse_count, created_at)| {
-            let parsed: ParsedPrintFile =
-                serde_json::from_str(&json).map_err(|_| AppError::InvalidFile)?;
+            let parsed = if let Ok(project) = serde_json::from_str::<ParsedProjectV2>(&json) {
+                if project.version != 2 {
+                    return Err(AppError::InvalidFile);
+                }
+                BackupCachedParse::Project(BackupProject::try_from(project)?)
+            } else {
+                let legacy: ParsedPrintFile =
+                    serde_json::from_str(&json).map_err(|_| AppError::InvalidFile)?;
+                BackupCachedParse::Legacy(BackupParsed::try_from(legacy)?)
+            };
             Ok(ParseRow {
                 source_hash,
-                parsed: BackupParsed::try_from(parsed)?,
+                parsed,
                 parse_count,
                 created_at,
             })
@@ -349,11 +505,49 @@ fn read_parse_cache(db: &AppDatabase) -> Result<Vec<ParseRow>> {
         .collect()
 }
 
+fn read_plates(db: &AppDatabase) -> Result<Vec<PlateRow>> {
+    let raw = rows(
+        db,
+        "SELECT plate_id,project_id,plate_index,display_name,thumbnail_asset_id,estimated_seconds,max_layer,parsed_json FROM print_plates ORDER BY plate_id",
+        |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,u32>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?,r.get::<_,Option<u32>>(5)?,r.get::<_,u32>(6)?,r.get::<_,String>(7)?)),
+    )?;
+    raw.into_iter()
+        .map(
+            |(
+                plate_id,
+                project_id,
+                plate_index,
+                display_name,
+                thumbnail_asset_id,
+                estimated_seconds,
+                max_layer,
+                json,
+            )| {
+                let parsed: ParsedPrintFile =
+                    serde_json::from_str(&json).map_err(|_| AppError::InvalidFile)?;
+                Ok(PlateRow {
+                    plate_id,
+                    project_id,
+                    plate_index,
+                    display_name,
+                    thumbnail_asset_id,
+                    estimated_seconds,
+                    max_layer,
+                    parsed: BackupParsed::try_from(parsed)?,
+                })
+            },
+        )
+        .collect()
+}
+
 fn valid_uuid(value: &str) -> bool {
     Uuid::parse_str(value).is_ok()
 }
 fn validate(b: &Backup) -> Result<()> {
-    if !matches!(b.schema_version, 1 | BACKUP_SCHEMA_VERSION) || b.slots.len() != 4 {
+    if !matches!(b.schema_version, 1 | 2 | BACKUP_SCHEMA_VERSION)
+        || b.media_files_included
+        || b.slots.len() != 4
+    {
         return Err(AppError::InvalidFile);
     }
     let unique = |values: Vec<&str>| {
@@ -368,6 +562,9 @@ fn validate(b: &Backup) -> Result<()> {
                 .collect(),
         )
         || !unique(b.jobs.iter().map(|j| j.job_id.as_str()).collect())
+        || !unique(b.media.iter().map(|m| m.asset_id.as_str()).collect())
+        || !unique(b.projects.iter().map(|p| p.project_id.as_str()).collect())
+        || !unique(b.plates.iter().map(|p| p.plate_id.as_str()).collect())
         || !unique(b.ledger.iter().map(|e| e.event_id.as_str()).collect())
         || !unique(
             b.ledger
@@ -376,6 +573,17 @@ fn validate(b: &Backup) -> Result<()> {
                 .collect(),
         )
         || !unique(b.settings.iter().map(|s| s.key.as_str()).collect())
+    {
+        return Err(AppError::InvalidFile);
+    }
+    if b.schema_version < 3
+        && (!b.media.is_empty()
+            || !b.projects.is_empty()
+            || !b.plates.is_empty()
+            || b.jobs.iter().any(|job| job.plate_id.is_some())
+            || b.parse_cache
+                .iter()
+                .any(|cached| !matches!(cached.parsed, BackupCachedParse::Legacy(_))))
     {
         return Err(AppError::InvalidFile);
     }
@@ -412,8 +620,77 @@ fn validate(b: &Backup) -> Result<()> {
         if !valid_hash(&cached.source_hash)
             || cached.parse_count != 1
             || unsafe_stamp(&cached.created_at)
-            || validate_parsed(&cached.parsed).is_err()
+            || validate_cached_parse(&cached.parsed).is_err()
         {
+            return Err(AppError::InvalidFile);
+        }
+    }
+    let asset_ids: HashSet<_> = b
+        .media
+        .iter()
+        .map(|asset| asset.asset_id.as_str())
+        .collect();
+    for asset in &b.media {
+        let relative = Path::new(&asset.relative_path);
+        if !valid_hash(&asset.asset_id)
+            || !relative.is_relative()
+            || relative
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+            || asset.mime_type.is_empty()
+            || unsafe_stamp(&asset.created_at)
+            || asset.width == Some(0)
+            || asset.height == Some(0)
+        {
+            return Err(AppError::InvalidFile);
+        }
+    }
+    let project_by_id: HashMap<_, _> = b
+        .projects
+        .iter()
+        .map(|project| (project.project_id.as_str(), project))
+        .collect();
+    for project in &b.projects {
+        if !valid_uuid(&project.project_id)
+            || !parse_by_hash.contains_key(project.source_hash.as_str())
+            || project.plate_count == 0
+            || unsafe_stamp(&project.imported_at)
+            || project
+                .cover_asset_id
+                .as_deref()
+                .is_some_and(|asset| !asset_ids.contains(asset))
+        {
+            return Err(AppError::InvalidFile);
+        }
+    }
+    let plate_by_id: HashMap<_, _> = b
+        .plates
+        .iter()
+        .map(|plate| (plate.plate_id.as_str(), plate))
+        .collect();
+    let mut project_plate_indices = HashSet::new();
+    for plate in &b.plates {
+        if !valid_uuid(&plate.plate_id)
+            || !project_by_id.contains_key(plate.project_id.as_str())
+            || plate.plate_index == 0
+            || !project_plate_indices.insert((&plate.project_id, plate.plate_index))
+            || plate
+                .thumbnail_asset_id
+                .as_deref()
+                .is_some_and(|asset| !asset_ids.contains(asset))
+            || plate.max_layer != plate.parsed.gcode.max_layer
+            || validate_parsed(&plate.parsed).is_err()
+        {
+            return Err(AppError::InvalidFile);
+        }
+    }
+    for project in &b.projects {
+        let actual = b
+            .plates
+            .iter()
+            .filter(|plate| plate.project_id == project.project_id)
+            .count() as u32;
+        if actual != project.plate_count {
             return Err(AppError::InvalidFile);
         }
     }
@@ -423,11 +700,25 @@ fn validate(b: &Backup) -> Result<()> {
         if !valid_uuid(&job.job_id)
             || !parse_by_hash.contains_key(job.source_hash.as_str())
             || unsafe_stamp(&job.created_at)
+            || (b.schema_version == 3
+                && job.plate_id.as_deref().is_none_or(|plate_id| {
+                    plate_by_id.get(plate_id).is_none_or(|plate| {
+                        project_by_id[plate.project_id.as_str()].source_hash != job.source_hash
+                    })
+                }))
         {
             return Err(AppError::InvalidFile);
         }
         if let Some(outcome) = &job.outcome {
-            if serde_json::from_str::<JobOutcome>(outcome).is_err() || job.settlement_version == 0 {
+            let skipped = serde_json::from_str::<serde_json::Value>(outcome)
+                .ok()
+                .and_then(|value| value.get("kind")?.as_str().map(|kind| kind == "skipped"))
+                .unwrap_or(false);
+            if (skipped && job.settlement_version != 0)
+                || (!skipped
+                    && (serde_json::from_str::<JobOutcome>(outcome).is_err()
+                        || job.settlement_version == 0))
+            {
                 return Err(AppError::InvalidFile);
             }
         } else if job.settlement_version != 0 {
@@ -445,8 +736,31 @@ fn validate(b: &Backup) -> Result<()> {
         {
             return Err(AppError::InvalidFile);
         }
-        let parsed = &parse_by_hash[job.source_hash.as_str()].parsed;
-        if !parsed.filaments.iter().any(|p| p.tool == mapping.tool) {
+        let has_tool = if let Some(plate_id) = job.plate_id.as_deref() {
+            plate_by_id
+                .get(plate_id)
+                .ok_or(AppError::InvalidFile)?
+                .parsed
+                .filaments
+                .iter()
+                .any(|profile| profile.tool == mapping.tool)
+        } else {
+            match &parse_by_hash[job.source_hash.as_str()].parsed {
+                BackupCachedParse::Legacy(parsed) => parsed
+                    .filaments
+                    .iter()
+                    .any(|profile| profile.tool == mapping.tool),
+                BackupCachedParse::Project(project) => {
+                    project.plates.first().is_some_and(|plate| {
+                        plate
+                            .filaments
+                            .iter()
+                            .any(|profile| profile.tool == mapping.tool)
+                    })
+                }
+            }
+        };
+        if !has_tool {
             return Err(AppError::InvalidFile);
         }
     }
@@ -462,6 +776,22 @@ fn validate(b: &Backup) -> Result<()> {
             || !valid_confidence(&item.confidence)
             || item.slot_number.is_some_and(|s| !(1..=4).contains(&s))
             || !consumption_keys.insert((&item.job_id, &item.spool_id, item.settlement_version))
+        {
+            return Err(AppError::InvalidFile);
+        }
+    }
+    for job in &b.jobs {
+        let skipped = job.outcome.as_deref().is_some_and(|outcome| {
+            serde_json::from_str::<serde_json::Value>(outcome)
+                .ok()
+                .and_then(|value| value.get("kind")?.as_str().map(|kind| kind == "skipped"))
+                .unwrap_or(false)
+        });
+        if skipped
+            && (b.consumption.iter().any(|item| item.job_id == job.job_id)
+                || b.ledger
+                    .iter()
+                    .any(|event| event.job_id.as_deref() == Some(&job.job_id)))
         {
             return Err(AppError::InvalidFile);
         }
@@ -603,6 +933,30 @@ fn unsafe_setting(s: &SettingRow) -> bool {
         _ => true,
     }
 }
+fn validate_cached_parse(parsed: &BackupCachedParse) -> Result<()> {
+    match parsed {
+        BackupCachedParse::Legacy(parsed) => validate_parsed(parsed),
+        BackupCachedParse::Project(project) => {
+            let mut plate_indices = HashSet::new();
+            if project.version != 2
+                || project.plates.is_empty()
+                || project.plates.iter().any(|plate| {
+                    plate.plate_index == 0
+                        || !plate_indices.insert(plate.plate_index)
+                        || validate_parsed(&BackupParsed {
+                            filaments: plate.filaments.clone(),
+                            gcode: plate.gcode.clone(),
+                        })
+                        .is_err()
+                })
+            {
+                Err(AppError::InvalidFile)
+            } else {
+                Ok(())
+            }
+        }
+    }
+}
 fn validate_parsed(parsed: &BackupParsed) -> Result<()> {
     let tools: HashSet<_> = parsed.filaments.iter().map(|p| p.tool).collect();
     if tools.len() != parsed.filaments.len()
@@ -650,7 +1004,7 @@ const CREATE_LEDGER_TRIGGERS: &str = r#"CREATE TRIGGER prevent_ledger_event_dele
 
 fn restore(tx: &Transaction<'_>, b: &Backup) -> Result<()> {
     tx.execute_batch(DROP_LEDGER_TRIGGERS)?;
-    tx.execute_batch("DELETE FROM ledger_events;DELETE FROM job_consumption;DELETE FROM job_mappings;DELETE FROM print_jobs;DELETE FROM parse_cache;DELETE FROM ams_slots;DELETE FROM spools;")?;
+    tx.execute_batch("DELETE FROM ledger_events;DELETE FROM job_consumption;DELETE FROM job_mappings;DELETE FROM print_jobs;DELETE FROM print_plates;DELETE FROM print_projects;DELETE FROM parse_cache;DELETE FROM media_assets;DELETE FROM ams_slots;DELETE FROM spools;")?;
     for key in SAFE_SETTINGS {
         tx.execute("DELETE FROM app_settings WHERE setting_key=?1", [key])?;
     }
@@ -665,12 +1019,85 @@ fn restore(tx: &Transaction<'_>, b: &Backup) -> Result<()> {
         tx.execute("INSERT INTO spools(spool_id,display_name,preset_id,catalog_id,color_name,color_code,color_hexes,preset_base,brand,material,series,color_hex,remaining_grams,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",params![s.spool_id,s.display_name,s.preset_id,s.catalog_id,s.color_name,s.color_code,color_hexes_json,s.preset_base,s.brand,s.material,s.series,s.color_hex,s.remaining_grams,s.status,s.created_at])?;
     }
     for p in &b.parse_cache {
-        let parsed: ParsedPrintFile = p.parsed.clone().into();
-        let json = serde_json::to_string(&parsed).map_err(|_| AppError::InvalidFile)?;
+        let json = match p.parsed.clone() {
+            BackupCachedParse::Project(project) => {
+                let parsed: ParsedProjectV2 = project.into();
+                serde_json::to_string(&parsed).map_err(|_| AppError::InvalidFile)?
+            }
+            BackupCachedParse::Legacy(parsed) => {
+                let parsed: ParsedPrintFile = parsed.into();
+                if b.schema_version < 3 {
+                    let project = ParsedProjectV2 {
+                        version: 2,
+                        plates: vec![ParsedPlate {
+                            plate_index: 1,
+                            display_name: None,
+                            estimated_seconds: parsed.gcode.declared_estimated_seconds,
+                            thumbnail_entries: Vec::new(),
+                            filaments: parsed.filaments,
+                            gcode: parsed.gcode,
+                        }],
+                    };
+                    serde_json::to_string(&project).map_err(|_| AppError::InvalidFile)?
+                } else {
+                    serde_json::to_string(&parsed).map_err(|_| AppError::InvalidFile)?
+                }
+            }
+        };
         tx.execute("INSERT INTO parse_cache(source_hash,source_file_name,parsed_json,parse_count,created_at) VALUES(?1,'restored-print',?2,?3,?4)",params![p.source_hash,json,p.parse_count,p.created_at])?;
     }
+    for media in &b.media {
+        tx.execute("INSERT INTO media_assets(asset_id,relative_path,mime_type,byte_size,width,height,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![media.asset_id,media.relative_path,media.mime_type,media.byte_size,media.width,media.height,media.created_at])?;
+    }
+    let mut legacy_plate_by_hash = HashMap::new();
+    if b.schema_version == 3 {
+        for project in &b.projects {
+            tx.execute("INSERT INTO print_projects(project_id,source_hash,source_file_name,source_path,imported_at,plate_count,cover_asset_id) VALUES(?1,?2,'restored-print',NULL,?3,?4,?5)",params![project.project_id,project.source_hash,project.imported_at,project.plate_count,project.cover_asset_id])?;
+        }
+        for plate in &b.plates {
+            let parsed: ParsedPrintFile = plate.parsed.clone().into();
+            let parsed_json = serde_json::to_string(&parsed).map_err(|_| AppError::InvalidFile)?;
+            tx.execute("INSERT INTO print_plates(plate_id,project_id,plate_index,display_name,thumbnail_asset_id,estimated_seconds,max_layer,parsed_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",params![plate.plate_id,plate.project_id,plate.plate_index,plate.display_name,plate.thumbnail_asset_id,plate.estimated_seconds,plate.max_layer,parsed_json])?;
+        }
+    } else {
+        for cached in &b.parse_cache {
+            if !b
+                .jobs
+                .iter()
+                .any(|job| job.source_hash == cached.source_hash)
+            {
+                continue;
+            }
+            let BackupCachedParse::Legacy(parsed) = cached.parsed.clone() else {
+                return Err(AppError::InvalidFile);
+            };
+            let project_id = Uuid::new_v4().to_string();
+            let plate_id = Uuid::new_v4().to_string();
+            let imported_at = b
+                .jobs
+                .iter()
+                .filter(|job| job.source_hash == cached.source_hash)
+                .map(|job| job.created_at.as_str())
+                .min()
+                .unwrap_or(&cached.created_at);
+            let max_layer = parsed.gcode.max_layer;
+            let parsed_file: ParsedPrintFile = parsed.into();
+            let parsed_json =
+                serde_json::to_string(&parsed_file).map_err(|_| AppError::InvalidFile)?;
+            tx.execute("INSERT INTO print_projects(project_id,source_hash,source_file_name,source_path,imported_at,plate_count) VALUES(?1,?2,'restored-print',NULL,?3,1)",params![project_id,cached.source_hash,imported_at])?;
+            tx.execute("INSERT INTO print_plates(plate_id,project_id,plate_index,max_layer,parsed_json) VALUES(?1,?2,1,?3,?4)",params![plate_id,project_id,max_layer,parsed_json])?;
+            legacy_plate_by_hash.insert(cached.source_hash.clone(), plate_id);
+        }
+    }
     for j in &b.jobs {
-        tx.execute("INSERT INTO print_jobs(job_id,source_hash,source_file_name,outcome,settlement_version,created_at) VALUES(?1,?2,'restored-print',?3,?4,?5)",params![j.job_id,j.source_hash,j.outcome,j.settlement_version,j.created_at])?;
+        let plate_id = if b.schema_version == 3 {
+            j.plate_id.as_ref().ok_or(AppError::InvalidFile)?
+        } else {
+            legacy_plate_by_hash
+                .get(&j.source_hash)
+                .ok_or(AppError::InvalidFile)?
+        };
+        tx.execute("INSERT INTO print_jobs(job_id,source_hash,source_file_name,outcome,settlement_version,created_at,plate_id) VALUES(?1,?2,'restored-print',?3,?4,?5,?6)",params![j.job_id,j.source_hash,j.outcome,j.settlement_version,j.created_at,plate_id])?;
     }
     for m in &b.mappings {
         tx.execute(
@@ -724,7 +1151,7 @@ mod tests {
     use super::{export_json_for_test, export_to_path, import_from_path};
     use crate::{
         db::AppDatabase,
-        imports::PrintService,
+        imports::{PrintService, ToolMapping},
         inventory::{InventoryService, NewSpool},
         parser::{
             gcode::{GcodeReport, LayerUsage},
@@ -842,7 +1269,7 @@ mod tests {
         export_to_path(&database, &path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(value["schema_version"], 2);
+        assert_eq!(value["schema_version"], 3);
         assert_eq!(value["spools"].as_array().unwrap().len(), 1);
         assert_eq!(value["spools"][0]["color_code"], "10100");
         assert_eq!(
@@ -964,6 +1391,173 @@ mod tests {
     }
 
     #[test]
+    fn version_three_round_trip_preserves_imported_project_media_job_links_and_skipped_state() {
+        let database = populated();
+        let spool_id: String = database
+            .connection
+            .query_row("SELECT spool_id FROM spools", [], |row| row.get(0))
+            .unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let imported = service
+            .import_print_project(&fixture("bambu_multicolor.3mf"))
+            .unwrap();
+        let plate = &imported.plates[0];
+        let asset_id = "b".repeat(64);
+        service.database.connection.execute("INSERT INTO media_assets(asset_id,relative_path,mime_type,byte_size,width,height) VALUES(?1,?2,'image/png',68,1,1)", params![asset_id, format!("media/bb/{asset_id}.png")]).unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_projects SET cover_asset_id=?1 WHERE project_id=?2",
+                params![asset_id, imported.project_id.to_string()],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_plates SET thumbnail_asset_id=?1 WHERE plate_id=?2",
+                params![asset_id, plate.plate_id.to_string()],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "INSERT INTO job_mappings(job_id,tool,spool_id) VALUES(?1,0,?2)",
+                params![plate.job_id.to_string(), spool_id],
+            )
+            .unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_jobs SET outcome='{\"kind\":\"skipped\"}' WHERE job_id=?1",
+                [plate.job_id.to_string()],
+            )
+            .unwrap();
+        let settled_project = service
+            .confirm_new_project(&imported.source_hash, &fixture("bambu_multicolor.3mf"))
+            .unwrap();
+        let settled_job = settled_project.plates[0].job_id;
+        let spool_uuid = spool_id.parse().unwrap();
+        service
+            .confirm_job_mapping(
+                settled_job,
+                vec![
+                    ToolMapping {
+                        tool: 0,
+                        spool_id: spool_uuid,
+                    },
+                    ToolMapping {
+                        tool: 1,
+                        spool_id: spool_uuid,
+                    },
+                ],
+            )
+            .unwrap();
+        service
+            .settle_job(settled_job, crate::domain::JobOutcome::Success)
+            .unwrap();
+        service.reverse_settlement(settled_job).unwrap();
+        let path = std::env::temp_dir().join(format!("project-v3-backup-{}.json", Uuid::new_v4()));
+
+        export_to_path(&service.database, &path).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(value["schema_version"], 3);
+        assert_eq!(value["media_files_included"], false);
+
+        let mut target = AppDatabase::open_in_memory().unwrap();
+        let automatic = import_from_path(&mut target, &path).unwrap();
+        let restored = target
+            .connection
+            .query_row(
+                "SELECT projects.project_id, plates.plate_id, jobs.job_id, jobs.outcome,
+                    jobs.settlement_version, plates.thumbnail_asset_id, projects.cover_asset_id
+             FROM print_projects AS projects
+             JOIN print_plates AS plates USING(project_id)
+             JOIN print_jobs AS jobs USING(plate_id)
+             WHERE jobs.job_id=?1",
+                [plate.job_id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, u32>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(restored.0, imported.project_id.to_string());
+        assert_eq!(restored.1, plate.plate_id.to_string());
+        assert_eq!(restored.2, plate.job_id.to_string());
+        assert_eq!(restored.3, r#"{"kind":"skipped"}"#);
+        assert_eq!(restored.4, 0);
+        assert_eq!(restored.5, asset_id);
+        assert_eq!(restored.6, asset_id);
+        assert_eq!(
+            target
+                .connection
+                .query_row("SELECT COUNT(*) FROM job_consumption", [], |row| row
+                    .get::<_, u32>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            target
+                .connection
+                .query_row("SELECT COUNT(*) FROM ledger_events", [], |row| row
+                    .get::<_, u32>(0))
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            target
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM ledger_events WHERE event_type='reversal'",
+                    [],
+                    |row| row.get::<_, u32>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            target
+                .connection
+                .query_row("SELECT COUNT(*) FROM job_mappings", [], |row| row
+                    .get::<_, u32>(0))
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            target
+                .connection
+                .query_row("SELECT remaining_grams FROM spools", [], |row| row
+                    .get::<_, f64>(0))
+                .unwrap(),
+            812.5
+        );
+        assert_eq!(target.connection.query_row("SELECT COUNT(*) FROM print_jobs WHERE job_id=?1 AND outcome='{\"kind\":\"success\"}' AND settlement_version=1",[settled_job.to_string()],|row|row.get::<_,u32>(0)).unwrap(),1);
+        let parsed_json: String = target
+            .connection
+            .query_row("SELECT parsed_json FROM parse_cache", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&parsed_json).unwrap()["version"],
+            2
+        );
+
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(automatic).unwrap();
+    }
+
+    #[test]
     fn version_two_backup_with_legacy_at_base_still_matches_after_restore() {
         let source = populated();
         let spool_id: Uuid = source
@@ -1009,6 +1603,71 @@ mod tests {
 
         assert_eq!(basic.candidate_spool_ids, vec![spool_id]);
         assert_eq!(basic.suggested_spool_id, Some(spool_id));
+
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(automatic).unwrap();
+    }
+
+    #[test]
+    fn version_two_restore_backfills_one_plate_project_without_changing_ledger_truth() {
+        let source = populated();
+        let source_hash = "a".repeat(64);
+        let job_id = Uuid::new_v4().to_string();
+        let parsed = crate::parser::parse_3mf(&fixture("bambu_multicolor.3mf")).unwrap();
+        source.connection.execute("INSERT INTO parse_cache(source_hash,source_file_name,parsed_json,parse_count) VALUES(?1,'legacy.gcode.3mf',?2,1)",params![source_hash,serde_json::to_string(&parsed).unwrap()]).unwrap();
+        source.connection.execute("INSERT INTO print_jobs(job_id,source_hash,source_file_name) VALUES(?1,?2,'legacy.gcode.3mf')",params![job_id,source_hash]).unwrap();
+        let path = std::env::temp_dir().join(format!("legacy-v2-history-{}.json", Uuid::new_v4()));
+        export_to_path(&source, &path).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        value["schema_version"] = serde_json::json!(2);
+        for field in ["media", "projects", "plates"] {
+            value.as_object_mut().unwrap().remove(field);
+        }
+        value["jobs"][0].as_object_mut().unwrap().remove("plate_id");
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+
+        let mut target = AppDatabase::open_in_memory().unwrap();
+        let automatic = import_from_path(&mut target, &path).unwrap();
+        let counts = target
+            .connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM print_projects),
+                    (SELECT COUNT(*) FROM print_plates),
+                    (SELECT COUNT(*) FROM print_jobs WHERE plate_id IS NOT NULL),
+                    (SELECT COUNT(*) FROM ledger_events)",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, u32>(0)?,
+                        row.get::<_, u32>(1)?,
+                        row.get::<_, u32>(2)?,
+                        row.get::<_, u32>(3)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(counts, (1, 1, 1, 1));
+        let cached: String = target
+            .connection
+            .query_row(
+                "SELECT parsed_json FROM parse_cache WHERE source_hash=?1",
+                [source_hash],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&cached).unwrap()["version"],
+            2
+        );
+        assert_eq!(
+            target
+                .connection
+                .query_row("SELECT remaining_grams FROM spools", [], |row| row
+                    .get::<_, f64>(0))
+                .unwrap(),
+            812.5
+        );
 
         std::fs::remove_file(path).unwrap();
         std::fs::remove_file(automatic).unwrap();
