@@ -2,6 +2,7 @@ pub mod backup;
 pub mod db;
 pub mod domain;
 pub mod error;
+pub mod history;
 pub mod imports;
 pub mod inventory;
 pub mod media;
@@ -58,7 +59,9 @@ pub fn run() {
             let inventory_database = AppDatabase::open(&database_path)?;
             let print_database = AppDatabase::open(&database_path)?;
             let initial_pet_settings = pet::PetStore::load(&print_database)?;
-            let print_service = PrintService::new(print_database);
+            let media_store = MediaStore::new(data_dir.clone())?;
+            let print_service =
+                PrintService::with_media_store(print_database, media_store.clone());
             let initial_pending = print_service.pending_summary()?;
             let pet_enabled = initial_pet_settings.enabled();
             let pet_visible = initial_pet_settings.effective_visibility();
@@ -78,7 +81,7 @@ pub fn run() {
                 inventory_database,
             )));
             app.manage(PrintState::new(print_service));
-            app.manage(MediaStore::new(data_dir.clone())?);
+            app.manage(media_store);
             app.manage(tray::WatchState(std::sync::Mutex::new(None)));
             tray::setup(app, &initial_locale, pet_enabled, pet_visible)?;
             let pet_runtime = pet::runtime::PetRuntime::start(
@@ -118,10 +121,15 @@ pub fn run() {
             inventory::list_spools,
             inventory::list_slots,
             imports::import_print_file,
+            imports::import_print_project,
             imports::confirm_job_mapping,
             imports::discard_pending_job,
+            imports::discard_project,
+            imports::skip_plate,
             imports::confirm_new_print,
+            imports::confirm_new_project,
             imports::get_job_preview,
+            imports::get_project_preview,
             settlement::settle_job,
             settlement::reverse_settlement,
             backup::export_backup,

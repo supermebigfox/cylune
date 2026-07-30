@@ -5,10 +5,13 @@ mod tests {
         db::AppDatabase,
         domain::Confidence,
         inventory::{InventoryService, NewSpool},
+        media::MediaStore,
     };
+    use image::{codecs::png::PngEncoder, ColorType, ImageEncoder};
     use std::path::PathBuf;
     use std::time::Duration;
     use std::{fs, fs::File, io::Write};
+    use zip::write::FileOptions;
 
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -36,6 +39,362 @@ mod tests {
             color_hex: color_hex.to_owned(),
             remaining_grams: 1000.0,
         }
+    }
+
+    fn two_plate_fixture() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "cylune-two-plate-import-{}.3mf",
+            uuid::Uuid::new_v4()
+        ));
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = FileOptions::default();
+        archive
+            .start_file("Metadata/filament_settings.config", options)
+            .unwrap();
+        archive
+            .write_all(
+                br##"{"filament_settings_id":["Bambu PLA Basic"],"filament_type":["PLA"],"filament_colour":["#FFFFFF"],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
+            )
+            .unwrap();
+        for plate_index in [1, 2] {
+            archive
+                .start_file(format!("Metadata/plate_{plate_index}.gcode"), options)
+                .unwrap();
+            archive
+                .write_all(
+                    format!(
+                        "; total layer number: {}\nM83\n; LAYER:0\nG1 E{}\n",
+                        plate_index + 1,
+                        plate_index
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+        }
+        archive.finish().unwrap();
+        path
+    }
+
+    fn two_plate_fixture_with_shared_thumbnail() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "cylune-two-plate-thumbnail-import-{}.3mf",
+            uuid::Uuid::new_v4()
+        ));
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = FileOptions::default();
+        archive
+            .start_file("Metadata/filament_settings.config", options)
+            .unwrap();
+        archive
+            .write_all(
+                br##"{"filament_settings_id":["Bambu PLA Basic"],"filament_type":["PLA"],"filament_colour":["#FFFFFF"],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
+            )
+            .unwrap();
+        let mut thumbnail = Vec::new();
+        PngEncoder::new(&mut thumbnail)
+            .write_image(&[0, 0, 0, 0], 1, 1, ColorType::Rgba8.into())
+            .unwrap();
+        for plate_index in [1, 2] {
+            archive
+                .start_file(format!("Metadata/plate_{plate_index}.png"), options)
+                .unwrap();
+            archive.write_all(&thumbnail).unwrap();
+            archive
+                .start_file(format!("Metadata/plate_{plate_index}.gcode"), options)
+                .unwrap();
+            archive
+                .write_all(b"; total layer number: 1\nM83\n; LAYER:0\nG1 E1\n")
+                .unwrap();
+        }
+        archive.finish().unwrap();
+        path
+    }
+
+    fn media_file_count(root: &std::path::Path) -> usize {
+        let media = root.join("media");
+        fs::read_dir(media)
+            .unwrap()
+            .flat_map(|entry| fs::read_dir(entry.unwrap().path()).unwrap())
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_type().unwrap().is_file())
+            .count()
+    }
+
+    fn count(service: &PrintService, table: &str) -> u32 {
+        service
+            .database
+            .connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn two_plate_import_creates_one_project_and_two_jobs() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+        let ledger_before = count(&service, "ledger_events");
+
+        let preview = service.import_print_project(&path).unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(preview.plates.len(), 2);
+        assert_eq!(count(&service, "print_projects"), 1);
+        assert_eq!(count(&service, "print_plates"), 2);
+        assert_eq!(count(&service, "print_jobs"), 2);
+        assert_eq!(count(&service, "parse_cache"), 1);
+        assert_eq!(count(&service, "ledger_events"), ledger_before);
+    }
+
+    #[test]
+    fn repeated_project_import_continues_the_pending_batch() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+
+        let first = service.import_print_project(&path).unwrap();
+        let repeated = service.import_print_project(&path).unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(repeated.project_id, first.project_id);
+        assert_eq!(
+            repeated
+                .plates
+                .iter()
+                .map(|plate| plate.job_id)
+                .collect::<Vec<_>>(),
+            first
+                .plates
+                .iter()
+                .map(|plate| plate.job_id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(repeated.state, ImportState::ExistingPending);
+        assert_eq!(count(&service, "print_projects"), 1);
+        assert_eq!(count(&service, "parse_cache"), 1);
+    }
+
+    #[test]
+    fn settled_duplicate_requires_confirmation_then_creates_a_new_project_from_cache() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+        let first = service.import_print_project(&path).unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_jobs
+                 SET outcome = '{\"kind\":\"success\"}', settlement_version = 1
+                 WHERE plate_id IN (
+                    SELECT plate_id FROM print_plates WHERE project_id = ?1
+                 )",
+                [first.project_id.to_string()],
+            )
+            .unwrap();
+
+        let duplicate = service.import_print_project(&path).unwrap();
+        let confirmed = service
+            .confirm_new_project(&first.source_hash, &path)
+            .unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(duplicate.project_id, first.project_id);
+        assert_eq!(duplicate.state, ImportState::NewPrintConfirmationRequired);
+        assert_ne!(confirmed.project_id, first.project_id);
+        assert_eq!(confirmed.state, ImportState::New);
+        assert_eq!(confirmed.plates.len(), 2);
+        assert_eq!(count(&service, "print_projects"), 2);
+        assert_eq!(count(&service, "print_jobs"), 4);
+        assert_eq!(count(&service, "parse_cache"), 1);
+    }
+
+    #[test]
+    fn shared_plate_media_and_confirmed_reimport_are_content_deduplicated() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let media_root =
+            std::env::temp_dir().join(format!("cylune-project-media-{}", uuid::Uuid::new_v4()));
+        let media_store = MediaStore::new(media_root.clone()).unwrap();
+        let mut service = PrintService::with_media_store_and_stability_delay(
+            database,
+            media_store,
+            Duration::ZERO,
+        );
+        let path = two_plate_fixture_with_shared_thumbnail();
+
+        let first = service.import_print_project(&path).unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_jobs
+                 SET outcome = '{\"kind\":\"success\"}', settlement_version = 1
+                 WHERE plate_id IN (
+                    SELECT plate_id FROM print_plates WHERE project_id = ?1
+                 )",
+                [first.project_id.to_string()],
+            )
+            .unwrap();
+        let confirmed = service
+            .confirm_new_project(&first.source_hash, &path)
+            .unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(first.plates[0].thumbnail_url, first.plates[1].thumbnail_url);
+        assert_eq!(
+            confirmed.plates[0].thumbnail_url,
+            first.plates[0].thumbnail_url
+        );
+        assert_eq!(count(&service, "media_assets"), 1);
+        assert_eq!(media_file_count(&media_root), 1);
+        fs::remove_dir_all(media_root).unwrap();
+    }
+
+    #[test]
+    fn discard_project_atomically_removes_pending_batch_and_preserves_cache_and_ledger() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+        let spool_id = inventory
+            .create_spool(new_spool("Bambu PLA Basic", "#FFFFFF"))
+            .unwrap();
+        let database = inventory.into_database();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+        let preview = service.import_print_project(&path).unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "INSERT INTO job_mappings (job_id, tool, spool_id)
+                 VALUES (?1, 0, ?2)",
+                [preview.plates[0].job_id.to_string(), spool_id.to_string()],
+            )
+            .unwrap();
+        let ledger_before = count(&service, "ledger_events");
+
+        service.discard_project(preview.project_id).unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(count(&service, "print_projects"), 0);
+        assert_eq!(count(&service, "print_plates"), 0);
+        assert_eq!(count(&service, "print_jobs"), 0);
+        assert_eq!(count(&service, "job_mappings"), 0);
+        assert_eq!(count(&service, "parse_cache"), 1);
+        assert_eq!(count(&service, "ledger_events"), ledger_before);
+    }
+
+    #[test]
+    fn discard_project_rejects_any_settled_plate_without_mutation() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+        let preview = service.import_print_project(&path).unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_jobs
+                 SET outcome = '{\"kind\":\"success\"}', settlement_version = 1
+                 WHERE job_id = ?1",
+                [preview.plates[0].job_id.to_string()],
+            )
+            .unwrap();
+        let before = (
+            count(&service, "print_projects"),
+            count(&service, "print_plates"),
+            count(&service, "print_jobs"),
+            count(&service, "parse_cache"),
+            count(&service, "ledger_events"),
+        );
+
+        let error = service.discard_project(preview.project_id).unwrap_err();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(error.code(), "invalid_job");
+        assert_eq!(
+            (
+                count(&service, "print_projects"),
+                count(&service, "print_plates"),
+                count(&service, "print_jobs"),
+                count(&service, "parse_cache"),
+                count(&service, "ledger_events"),
+            ),
+            before
+        );
+    }
+
+    #[test]
+    fn skip_plate_is_only_allowed_after_the_project_can_no_longer_be_discarded() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+        let imported = service.import_print_project(&path).unwrap();
+        let skipped_plate = imported.plates[1].plate_id;
+
+        let early_error = service.skip_plate(skipped_plate).unwrap_err();
+        assert_eq!(early_error.code(), "invalid_job");
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_jobs
+                 SET outcome = '{\"kind\":\"success\"}', settlement_version = 1
+                 WHERE job_id = ?1",
+                [imported.plates[0].job_id.to_string()],
+            )
+            .unwrap();
+        let ledger_before = count(&service, "ledger_events");
+
+        service.skip_plate(skipped_plate).unwrap();
+        let preview = service.get_project_preview(imported.project_id).unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(
+            preview.plates[1].status,
+            crate::domain::PlateStatus::Skipped
+        );
+        assert_eq!(count(&service, "job_consumption"), 0);
+        assert_eq!(count(&service, "ledger_events"), ledger_before);
+        assert_eq!(
+            service
+                .discard_project(imported.project_id)
+                .unwrap_err()
+                .code(),
+            "invalid_job"
+        );
+    }
+
+    #[test]
+    fn legacy_import_print_file_returns_plate_one_from_the_project_batch() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+
+        let legacy = service.import_print_file(&path).unwrap();
+        let project_id: String = service
+            .database
+            .connection
+            .query_row(
+                "SELECT project_id
+                 FROM print_plates
+                 WHERE plate_id = (
+                    SELECT plate_id FROM print_jobs WHERE job_id = ?1
+                 )",
+                [legacy.job_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let project = service
+            .get_project_preview(project_id.parse().unwrap())
+            .unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(legacy.job_id, project.plates[0].job_id);
+        assert_eq!(legacy.max_layer, project.plates[0].max_layer);
+        assert_eq!(count(&service, "print_projects"), 1);
+        assert_eq!(count(&service, "print_jobs"), 2);
     }
 
     #[test]
@@ -818,7 +1177,12 @@ use crate::{
     db::AppDatabase,
     domain::Confidence,
     error::{AppError, Result},
-    parser::{parse_3mf, preset_base, FilamentProfile, ParsedPrintFile},
+    history::{status_for_job, ImportPlatePreview, ImportProjectPreview},
+    media::{MediaAsset, MediaStore},
+    parser::{
+        parse_3mf_project, preset_base, FilamentProfile, ParsedPlate, ParsedPrintFile,
+        ParsedProjectV2,
+    },
 };
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -912,6 +1276,7 @@ pub struct SavedMapping {
 pub struct PrintService {
     pub(crate) database: AppDatabase,
     stability_delay: Duration,
+    media_store: Option<MediaStore>,
     #[cfg(test)]
     before_final_stability_check: Option<Box<dyn FnOnce(&Path) + Send>>,
 }
@@ -927,12 +1292,35 @@ impl PrintService {
         Self {
             database,
             stability_delay,
+            media_store: None,
             #[cfg(test)]
             before_final_stability_check: None,
         }
     }
 
-    pub fn import_print_file(&mut self, path: &Path) -> Result<ImportPreview> {
+    pub fn with_media_store_and_stability_delay(
+        database: AppDatabase,
+        media_store: MediaStore,
+        stability_delay: Duration,
+    ) -> Self {
+        Self {
+            database,
+            stability_delay,
+            media_store: Some(media_store),
+            #[cfg(test)]
+            before_final_stability_check: None,
+        }
+    }
+
+    pub fn with_media_store(database: AppDatabase, media_store: MediaStore) -> Self {
+        Self::with_media_store_and_stability_delay(
+            database,
+            media_store,
+            Duration::from_millis(750),
+        )
+    }
+
+    pub fn import_print_project(&mut self, path: &Path) -> Result<ImportProjectPreview> {
         if path
             .extension()
             .and_then(|extension| extension.to_str())
@@ -942,79 +1330,452 @@ impl PrintService {
         }
         let stability = self.ensure_stable(path)?;
         let source_hash = sha256(path)?;
-
-        if let Some((file_name, parsed)) = self.persisted_parse(&source_hash)? {
-            validate_profiles(&parsed)?;
-            if let Some(job_id) = self.pending_job(&source_hash)? {
-                let preview = self.preview(
-                    job_id,
-                    source_hash,
-                    file_name,
-                    &parsed,
-                    ImportState::ExistingPending,
-                )?;
+        if let Some(parsed) = self.persisted_project(&source_hash)? {
+            if let Some(preview) = self.continue_project(&source_hash)? {
                 #[cfg(test)]
                 self.run_before_final_stability_check(path);
                 self.ensure_unchanged(path, stability)?;
                 return Ok(preview);
             }
-            if let Some(job_id) = self.latest_job(&source_hash)? {
-                let preview = self.preview(
-                    job_id,
-                    source_hash,
-                    file_name,
-                    &parsed,
-                    ImportState::NewPrintConfirmationRequired,
-                )?;
+            if let Some(project_id) = self.latest_project_id(&source_hash)? {
+                let mut preview = self.get_project_preview(project_id)?;
+                preview.state = ImportState::NewPrintConfirmationRequired;
                 #[cfg(test)]
                 self.run_before_final_stability_check(path);
                 self.ensure_unchanged(path, stability)?;
                 return Ok(preview);
             }
-
-            let job_id = Uuid::new_v4();
+            for plate in &parsed.plates {
+                validate_plate_profiles(plate)?;
+            }
+            let source_file_name: String = self.database.connection.query_row(
+                "SELECT source_file_name FROM parse_cache WHERE source_hash = ?1",
+                [&source_hash],
+                |row| row.get(0),
+            )?;
+            let media = self.extract_project_media(path, &parsed)?;
             #[cfg(test)]
             self.run_before_final_stability_check(path);
             self.ensure_unchanged(path, stability)?;
-            self.database.connection.execute(
-                "INSERT INTO print_jobs (job_id, source_hash, source_file_name) VALUES (?1, ?2, ?3)",
-                params![job_id.to_string(), source_hash, file_name],
-            )?;
-            return self.preview(job_id, source_hash, file_name, &parsed, ImportState::New);
+            return self.create_project_from_parsed(
+                source_hash,
+                source_file_name,
+                path.to_string_lossy().into_owned(),
+                &parsed,
+                ImportState::New,
+                None,
+                &media,
+            );
         }
-
-        let parsed = parse_3mf(path)?;
-        validate_profiles(&parsed)?;
-        let job_id = Uuid::new_v4();
         let source_file_name = path
             .file_name()
             .and_then(|name| name.to_str())
             .filter(|name| !name.is_empty())
             .ok_or(AppError::InvalidFile)?
             .to_owned();
+        let parsed = parse_3mf_project(path)?;
+        for plate in &parsed.plates {
+            validate_plate_profiles(plate)?;
+        }
         let parsed_json = serde_json::to_string(&parsed)
             .map_err(|error| AppError::Database(error.to_string()))?;
+        let media = self.extract_project_media(path, &parsed)?;
         #[cfg(test)]
         self.run_before_final_stability_check(path);
         self.ensure_unchanged(path, stability)?;
+
+        let source_path = path.to_string_lossy().into_owned();
+        self.create_project_from_parsed(
+            source_hash,
+            source_file_name,
+            source_path,
+            &parsed,
+            ImportState::New,
+            Some(parsed_json),
+            &media,
+        )
+    }
+
+    pub fn continue_project(&self, source_hash: &str) -> Result<Option<ImportProjectPreview>> {
+        let project_id: Option<String> = self
+            .database
+            .connection
+            .query_row(
+                "SELECT projects.project_id
+                 FROM print_projects AS projects
+                 WHERE projects.source_hash = ?1
+                   AND EXISTS (
+                       SELECT 1
+                       FROM print_plates AS plates
+                       JOIN print_jobs AS jobs ON jobs.plate_id = plates.plate_id
+                       WHERE plates.project_id = projects.project_id
+                         AND jobs.outcome IS NULL
+                   )
+                 ORDER BY projects.rowid DESC
+                 LIMIT 1",
+                [source_hash],
+                |row| row.get(0),
+            )
+            .optional()?;
+        project_id
+            .map(|project_id| {
+                let project_id = parse_uuid(&project_id)?;
+                self.project_preview_from_database(project_id, ImportState::ExistingPending)
+            })
+            .transpose()
+    }
+
+    pub fn get_project_preview(&self, project_id: Uuid) -> Result<ImportProjectPreview> {
+        let has_pending: bool = self.database.connection.query_row(
+            "SELECT EXISTS(
+                    SELECT 1
+                    FROM print_plates AS plates
+                    JOIN print_jobs AS jobs ON jobs.plate_id = plates.plate_id
+                    WHERE plates.project_id = ?1
+                      AND jobs.outcome IS NULL
+                 )",
+            [project_id.to_string()],
+            |row| row.get(0),
+        )?;
+        self.project_preview_from_database(
+            project_id,
+            if has_pending {
+                ImportState::ExistingPending
+            } else {
+                ImportState::NewPrintConfirmationRequired
+            },
+        )
+    }
+
+    pub fn confirm_new_project(
+        &mut self,
+        source_hash: &str,
+        source_path: &Path,
+    ) -> Result<ImportProjectPreview> {
+        let parsed = self
+            .persisted_project(source_hash)?
+            .ok_or(AppError::InvalidJob)?;
+        for plate in &parsed.plates {
+            validate_plate_profiles(plate)?;
+        }
+        let source_file_name: String = self.database.connection.query_row(
+            "SELECT source_file_name FROM parse_cache WHERE source_hash = ?1",
+            [source_hash],
+            |row| row.get(0),
+        )?;
+        let media = self.extract_project_media(source_path, &parsed)?;
+        self.create_project_from_parsed(
+            source_hash.to_owned(),
+            source_file_name,
+            source_path.to_string_lossy().into_owned(),
+            &parsed,
+            ImportState::New,
+            None,
+            &media,
+        )
+    }
+
+    pub fn discard_project(&mut self, project_id: Uuid) -> Result<()> {
         let transaction = self.database.connection.transaction()?;
+        let exists: bool = transaction.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM print_projects WHERE project_id = ?1
+             )",
+            [project_id.to_string()],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Err(AppError::InvalidJob);
+        }
+        let unsafe_to_discard: bool = transaction.query_row(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM print_plates AS plates
+                JOIN print_jobs AS jobs ON jobs.plate_id = plates.plate_id
+                WHERE plates.project_id = ?1
+                  AND (
+                    jobs.outcome IS NOT NULL
+                    OR jobs.settlement_version > 0
+                    OR EXISTS (
+                        SELECT 1 FROM job_consumption
+                        WHERE job_id = jobs.job_id
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM ledger_events
+                        WHERE job_id = jobs.job_id
+                    )
+                  )
+             )",
+            [project_id.to_string()],
+            |row| row.get(0),
+        )?;
+        if unsafe_to_discard {
+            return Err(AppError::InvalidJob);
+        }
         transaction.execute(
-            "INSERT INTO parse_cache (source_hash, source_file_name, parsed_json, parse_count) VALUES (?1, ?2, ?3, 1)",
-            params![source_hash, source_file_name, parsed_json],
+            "DELETE FROM app_settings
+             WHERE setting_key = 'pending_job_id'
+               AND setting_value IN (
+                    SELECT jobs.job_id
+                    FROM print_jobs AS jobs
+                    JOIN print_plates AS plates ON plates.plate_id = jobs.plate_id
+                    WHERE plates.project_id = ?1
+               )",
+            [project_id.to_string()],
         )?;
         transaction.execute(
-            "INSERT INTO print_jobs (job_id, source_hash, source_file_name) VALUES (?1, ?2, ?3)",
-            params![job_id.to_string(), source_hash, source_file_name],
+            "DELETE FROM job_mappings
+             WHERE job_id IN (
+                SELECT jobs.job_id
+                FROM print_jobs AS jobs
+                JOIN print_plates AS plates ON plates.plate_id = jobs.plate_id
+                WHERE plates.project_id = ?1
+             )",
+            [project_id.to_string()],
+        )?;
+        transaction.execute(
+            "DELETE FROM print_jobs
+             WHERE plate_id IN (
+                SELECT plate_id FROM print_plates WHERE project_id = ?1
+             )",
+            [project_id.to_string()],
+        )?;
+        transaction.execute(
+            "DELETE FROM print_plates WHERE project_id = ?1",
+            [project_id.to_string()],
+        )?;
+        transaction.execute(
+            "DELETE FROM print_projects WHERE project_id = ?1",
+            [project_id.to_string()],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn skip_plate(&mut self, plate_id: Uuid) -> Result<()> {
+        let transaction = self.database.connection.transaction()?;
+        let row: Option<(String, String, Option<String>)> = transaction
+            .query_row(
+                "SELECT plates.project_id, jobs.job_id, jobs.outcome
+                 FROM print_plates AS plates
+                 JOIN print_jobs AS jobs ON jobs.plate_id = plates.plate_id
+                 WHERE plates.plate_id = ?1",
+                [plate_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((project_id, job_id, outcome)) = row else {
+            return Err(AppError::InvalidJob);
+        };
+        if outcome.is_some() {
+            return Err(AppError::InvalidJob);
+        }
+        let discard_is_unsafe: bool = transaction.query_row(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM print_plates AS plates
+                JOIN print_jobs AS jobs ON jobs.plate_id = plates.plate_id
+                WHERE plates.project_id = ?1
+                  AND (
+                    jobs.outcome IS NOT NULL
+                    OR jobs.settlement_version > 0
+                    OR EXISTS (
+                        SELECT 1 FROM job_consumption
+                        WHERE job_id = jobs.job_id
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM ledger_events
+                        WHERE job_id = jobs.job_id
+                    )
+                  )
+             )",
+            [&project_id],
+            |row| row.get(0),
+        )?;
+        if !discard_is_unsafe {
+            return Err(AppError::InvalidJob);
+        }
+        let changed = transaction.execute(
+            "UPDATE print_jobs
+             SET outcome = '{\"kind\":\"skipped\"}'
+             WHERE job_id = ?1
+               AND outcome IS NULL
+               AND settlement_version = 0
+               AND NOT EXISTS (
+                    SELECT 1 FROM job_consumption WHERE job_id = ?1
+               )",
+            [&job_id],
+        )?;
+        if changed != 1 {
+            return Err(AppError::InvalidJob);
+        }
+        transaction.execute(
+            "DELETE FROM app_settings
+             WHERE setting_key = 'pending_job_id'
+               AND setting_value = ?1",
+            [&job_id],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    fn create_project_from_parsed(
+        &mut self,
+        source_hash: String,
+        source_file_name: String,
+        source_path: String,
+        parsed: &ParsedProjectV2,
+        state: ImportState,
+        parse_cache_json: Option<String>,
+        media: &[Option<MediaAsset>],
+    ) -> Result<ImportProjectPreview> {
+        let project_id = Uuid::new_v4();
+        let transaction = self.database.connection.transaction()?;
+        if let Some(parsed_json) = parse_cache_json {
+            transaction.execute(
+                "INSERT INTO parse_cache (
+                    source_hash,
+                    source_file_name,
+                    parsed_json,
+                    parse_count
+                 ) VALUES (?1, ?2, ?3, 1)",
+                params![source_hash, source_file_name, parsed_json],
+            )?;
+        }
+        for asset in media.iter().flatten() {
+            transaction.execute(
+                "INSERT OR IGNORE INTO media_assets (
+                    asset_id,
+                    relative_path,
+                    mime_type,
+                    byte_size,
+                    width,
+                    height
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    asset.asset_id,
+                    asset.relative_path,
+                    asset.mime_type,
+                    asset.byte_size,
+                    asset.width,
+                    asset.height,
+                ],
+            )?;
+        }
+        let cover_asset_id = media.iter().flatten().next().map(|asset| &asset.asset_id);
+        transaction.execute(
+            "INSERT INTO print_projects (
+                project_id,
+                source_hash,
+                source_file_name,
+                source_path,
+                plate_count,
+                cover_asset_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                project_id.to_string(),
+                source_hash,
+                source_file_name,
+                source_path,
+                parsed.plates.len() as u32,
+                cover_asset_id,
+            ],
+        )?;
+
+        let mut identities = Vec::with_capacity(parsed.plates.len());
+        for (index, plate) in parsed.plates.iter().enumerate() {
+            let plate_id = Uuid::new_v4();
+            let job_id = Uuid::new_v4();
+            let thumbnail_asset_id = media
+                .get(index)
+                .and_then(Option::as_ref)
+                .map(|asset| &asset.asset_id);
+            let plate_json = serde_json::to_string(&ParsedPrintFile {
+                filaments: plate.filaments.clone(),
+                gcode: plate.gcode.clone(),
+            })
+            .map_err(|error| AppError::Database(error.to_string()))?;
+            transaction.execute(
+                "INSERT INTO print_plates (
+                    plate_id,
+                    project_id,
+                    plate_index,
+                    display_name,
+                    thumbnail_asset_id,
+                    estimated_seconds,
+                    max_layer,
+                    parsed_json
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    plate_id.to_string(),
+                    project_id.to_string(),
+                    plate.plate_index,
+                    plate.display_name,
+                    thumbnail_asset_id,
+                    plate.estimated_seconds,
+                    plate.gcode.max_layer,
+                    plate_json,
+                ],
+            )?;
+            transaction.execute(
+                "INSERT INTO print_jobs (
+                    job_id,
+                    source_hash,
+                    source_file_name,
+                    plate_id
+                 ) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    job_id.to_string(),
+                    source_hash,
+                    source_file_name,
+                    plate_id.to_string(),
+                ],
+            )?;
+            identities.push((plate_id, job_id));
+        }
+        let imported_at = transaction.query_row(
+            "SELECT imported_at FROM print_projects WHERE project_id = ?1",
+            [project_id.to_string()],
+            |row| row.get::<_, String>(0),
         )?;
         transaction.commit()?;
 
-        self.preview(
-            job_id,
+        self.project_preview(
+            project_id,
             source_hash,
             source_file_name,
-            &parsed,
-            ImportState::New,
+            imported_at,
+            parsed,
+            &identities,
+            state,
+            media,
         )
+    }
+
+    fn extract_project_media(
+        &self,
+        source_path: &Path,
+        parsed: &ParsedProjectV2,
+    ) -> Result<Vec<Option<MediaAsset>>> {
+        let Some(store) = &self.media_store else {
+            return Ok(vec![None; parsed.plates.len()]);
+        };
+        parsed
+            .plates
+            .iter()
+            .map(|plate| {
+                for entry in &plate.thumbnail_entries {
+                    if let Some(asset) = store.extract_image(source_path, entry)? {
+                        return Ok(Some(asset));
+                    }
+                }
+                Ok(None)
+            })
+            .collect()
+    }
+
+    pub fn import_print_file(&mut self, path: &Path) -> Result<ImportPreview> {
+        legacy_preview(self.import_print_project(path)?)
     }
 
     pub fn pending_summary(&self) -> Result<PendingSummary> {
@@ -1045,6 +1806,21 @@ impl PrintService {
     }
 
     pub fn discard_pending_job(&mut self, job_id: Uuid) -> Result<()> {
+        let project_id: Option<String> = self
+            .database
+            .connection
+            .query_row(
+                "SELECT plates.project_id
+                 FROM print_jobs AS jobs
+                 JOIN print_plates AS plates ON plates.plate_id = jobs.plate_id
+                 WHERE jobs.job_id = ?1",
+                [job_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(project_id) = project_id {
+            return self.discard_project(parse_uuid(&project_id)?);
+        }
         let transaction = self.database.connection.transaction()?;
         let outcome = transaction
             .query_row(
@@ -1107,9 +1883,7 @@ impl PrintService {
             )
             .optional()?
             .ok_or(AppError::InvalidJob)?;
-        let (_, parsed) = self
-            .persisted_parse(&source_hash)?
-            .ok_or(AppError::InvalidJob)?;
+        let parsed = self.parsed_job(job_id)?;
         self.preview(
             job_id,
             source_hash,
@@ -1124,32 +1898,46 @@ impl PrintService {
     }
 
     pub fn confirm_new_print(&mut self, source_hash: &str) -> Result<ImportPreview> {
-        let (source_file_name, parsed) = self
-            .persisted_parse(source_hash)?
-            .ok_or(AppError::InvalidJob)?;
-        validate_profiles(&parsed)?;
-        if let Some(job_id) = self.pending_job(source_hash)? {
-            return self.preview(
-                job_id,
-                source_hash.to_owned(),
-                source_file_name,
-                &parsed,
-                ImportState::ExistingPending,
-            );
+        if let Some(project) = self.continue_project(source_hash)? {
+            return legacy_preview(project);
         }
-
-        let job_id = Uuid::new_v4();
-        self.database.connection.execute(
-            "INSERT INTO print_jobs (job_id, source_hash, source_file_name) VALUES (?1, ?2, ?3)",
-            params![job_id.to_string(), source_hash, source_file_name],
+        let source_path: Option<String> = self
+            .database
+            .connection
+            .query_row(
+                "SELECT source_path
+                 FROM print_projects
+                 WHERE source_hash = ?1
+                 ORDER BY rowid DESC
+                 LIMIT 1",
+                [source_hash],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        let parsed = self
+            .persisted_project(source_hash)?
+            .ok_or(AppError::InvalidJob)?;
+        let source_file_name: String = self.database.connection.query_row(
+            "SELECT source_file_name FROM parse_cache WHERE source_hash = ?1",
+            [source_hash],
+            |row| row.get(0),
         )?;
-        self.preview(
-            job_id,
+        let media = match source_path.as_deref() {
+            Some(path) if Path::new(path).is_file() => {
+                self.extract_project_media(Path::new(path), &parsed)?
+            }
+            _ => vec![None; parsed.plates.len()],
+        };
+        legacy_preview(self.create_project_from_parsed(
             source_hash.to_owned(),
             source_file_name,
+            source_path.unwrap_or_default(),
             &parsed,
             ImportState::New,
-        )
+            None,
+            &media,
+        )?)
     }
 
     pub fn confirm_job_mapping(&mut self, job_id: Uuid, mappings: Vec<ToolMapping>) -> Result<()> {
@@ -1234,17 +2022,26 @@ impl PrintService {
     }
 
     pub(crate) fn parsed_job(&self, job_id: Uuid) -> Result<ParsedPrintFile> {
-        let json: Option<String> = self
+        let row: Option<(String, Option<String>)> = self
             .database
             .connection
             .query_row(
-                "SELECT parse_cache.parsed_json FROM print_jobs JOIN parse_cache USING (source_hash) WHERE print_jobs.job_id = ?1",
+                "SELECT jobs.source_hash, plates.parsed_json
+                 FROM print_jobs AS jobs
+                 LEFT JOIN print_plates AS plates ON plates.plate_id = jobs.plate_id
+                 WHERE jobs.job_id = ?1",
                 params![job_id.to_string()],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        let json = json.ok_or(AppError::InvalidJob)?;
-        serde_json::from_str(&json).map_err(|error| AppError::Database(error.to_string()))
+        let (source_hash, plate_json) = row.ok_or(AppError::InvalidJob)?;
+        if let Some(json) = plate_json {
+            return serde_json::from_str(&json)
+                .map_err(|error| AppError::Database(error.to_string()));
+        }
+        self.persisted_parse(&source_hash)?
+            .map(|(_, parsed)| parsed)
+            .ok_or(AppError::InvalidJob)
     }
 
     fn ensure_stable(&self, path: &Path) -> Result<FileStability> {
@@ -1285,40 +2082,24 @@ impl PrintService {
             )
             .optional()?;
         row.map(|(file_name, json)| {
-            let parsed = serde_json::from_str(&json)
-                .map_err(|error| AppError::Database(error.to_string()))?;
+            let parsed = if let Ok(parsed) = serde_json::from_str::<ParsedPrintFile>(&json) {
+                parsed
+            } else {
+                let project: ParsedProjectV2 = serde_json::from_str(&json)
+                    .map_err(|error| AppError::Database(error.to_string()))?;
+                let plate = project
+                    .plates
+                    .into_iter()
+                    .next()
+                    .ok_or(AppError::InvalidJob)?;
+                ParsedPrintFile {
+                    filaments: plate.filaments,
+                    gcode: plate.gcode,
+                }
+            };
             Ok((file_name, parsed))
         })
         .transpose()
-    }
-
-    fn pending_job(&self, source_hash: &str) -> Result<Option<Uuid>> {
-        self.job_id_query(
-            "SELECT job_id FROM print_jobs WHERE source_hash = ?1 AND outcome IS NULL ORDER BY rowid DESC LIMIT 1",
-            source_hash,
-        )
-    }
-
-    fn latest_job(&self, source_hash: &str) -> Result<Option<Uuid>> {
-        self.job_id_query(
-            "SELECT job_id FROM print_jobs WHERE source_hash = ?1 ORDER BY rowid DESC LIMIT 1",
-            source_hash,
-        )
-    }
-
-    fn job_id_query(&self, sql: &str, source_hash: &str) -> Result<Option<Uuid>> {
-        let value: Option<String> = self
-            .database
-            .connection
-            .query_row(sql, params![source_hash], |row| row.get(0))
-            .optional()?;
-        value
-            .map(|value| {
-                value
-                    .parse()
-                    .map_err(|_| AppError::Database("invalid job id".to_owned()))
-            })
-            .transpose()
     }
 
     fn preview(
@@ -1359,6 +2140,193 @@ impl PrintService {
             max_layer: parsed.gcode.max_layer,
             state,
         })
+    }
+
+    fn project_preview(
+        &self,
+        project_id: Uuid,
+        source_hash: String,
+        source_file_name: String,
+        imported_at: String,
+        parsed: &ParsedProjectV2,
+        identities: &[(Uuid, Uuid)],
+        state: ImportState,
+        media: &[Option<MediaAsset>],
+    ) -> Result<ImportProjectPreview> {
+        let mut plates = Vec::with_capacity(parsed.plates.len());
+        for (index, (plate, (plate_id, job_id))) in parsed.plates.iter().zip(identities).enumerate()
+        {
+            let parsed_file = ParsedPrintFile {
+                filaments: plate.filaments.clone(),
+                gcode: plate.gcode.clone(),
+            };
+            let legacy = self.preview(
+                *job_id,
+                source_hash.clone(),
+                source_file_name.clone(),
+                &parsed_file,
+                state,
+            )?;
+            plates.push(ImportPlatePreview {
+                plate_id: *plate_id,
+                job_id: *job_id,
+                plate_index: plate.plate_index,
+                thumbnail_url: media
+                    .get(index)
+                    .and_then(Option::as_ref)
+                    .map(|asset| asset.relative_path.clone()),
+                estimated_seconds: plate.estimated_seconds,
+                max_layer: plate.gcode.max_layer,
+                filaments: legacy.filaments,
+                status: crate::domain::PlateStatus::PendingMapping,
+            });
+        }
+        Ok(ImportProjectPreview {
+            project_id,
+            source_hash,
+            source_file_name,
+            imported_at,
+            plates,
+            state,
+        })
+    }
+
+    fn project_preview_from_database(
+        &self,
+        project_id: Uuid,
+        state: ImportState,
+    ) -> Result<ImportProjectPreview> {
+        let (source_hash, source_file_name, imported_at): (String, String, String) = self
+            .database
+            .connection
+            .query_row(
+                "SELECT source_hash, source_file_name, imported_at
+                 FROM print_projects
+                 WHERE project_id = ?1",
+                [project_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?
+            .ok_or(AppError::InvalidJob)?;
+        let parsed = self
+            .persisted_project(&source_hash)?
+            .ok_or(AppError::InvalidJob)?;
+        let mut statement = self.database.connection.prepare(
+            "SELECT
+                plates.plate_id,
+                jobs.job_id,
+                plates.plate_index,
+                assets.relative_path,
+                jobs.outcome,
+                (SELECT COUNT(*) FROM job_mappings WHERE job_id = jobs.job_id)
+             FROM print_plates AS plates
+             JOIN print_jobs AS jobs ON jobs.plate_id = plates.plate_id
+             LEFT JOIN media_assets AS assets ON assets.asset_id = plates.thumbnail_asset_id
+             WHERE plates.project_id = ?1
+             ORDER BY plates.plate_index",
+        )?;
+        let rows = statement
+            .query_map([project_id.to_string()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, u32>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, u32>(5)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(statement);
+
+        let mut plates = Vec::with_capacity(rows.len());
+        for (plate_id, job_id, plate_index, thumbnail_url, outcome, mapping_count) in rows {
+            let plate = parsed
+                .plates
+                .iter()
+                .find(|plate| plate.plate_index == plate_index)
+                .ok_or_else(|| AppError::Database("missing cached plate".to_owned()))?;
+            let parsed_file = ParsedPrintFile {
+                filaments: plate.filaments.clone(),
+                gcode: plate.gcode.clone(),
+            };
+            let job_id = parse_uuid(&job_id)?;
+            let legacy = self.preview(
+                job_id,
+                source_hash.clone(),
+                source_file_name.clone(),
+                &parsed_file,
+                state,
+            )?;
+            plates.push(ImportPlatePreview {
+                plate_id: parse_uuid(&plate_id)?,
+                job_id,
+                plate_index,
+                thumbnail_url,
+                estimated_seconds: plate.estimated_seconds,
+                max_layer: plate.gcode.max_layer,
+                filaments: legacy.filaments,
+                status: status_for_job(outcome.as_deref(), mapping_count, plate.filaments.len())?,
+            });
+        }
+        Ok(ImportProjectPreview {
+            project_id,
+            source_hash,
+            source_file_name,
+            imported_at,
+            plates,
+            state,
+        })
+    }
+
+    fn persisted_project(&self, source_hash: &str) -> Result<Option<ParsedProjectV2>> {
+        let json: Option<String> = self
+            .database
+            .connection
+            .query_row(
+                "SELECT parsed_json FROM parse_cache WHERE source_hash = ?1",
+                [source_hash],
+                |row| row.get(0),
+            )
+            .optional()?;
+        json.map(|json| {
+            if let Ok(project) = serde_json::from_str::<ParsedProjectV2>(&json) {
+                return Ok(project);
+            }
+            let legacy: ParsedPrintFile = serde_json::from_str(&json)
+                .map_err(|error| AppError::Database(error.to_string()))?;
+            Ok(ParsedProjectV2 {
+                version: 2,
+                plates: vec![ParsedPlate {
+                    plate_index: 1,
+                    display_name: None,
+                    estimated_seconds: legacy.gcode.declared_estimated_seconds,
+                    thumbnail_entries: Vec::new(),
+                    filaments: legacy.filaments,
+                    gcode: legacy.gcode,
+                }],
+            })
+        })
+        .transpose()
+    }
+
+    fn latest_project_id(&self, source_hash: &str) -> Result<Option<Uuid>> {
+        let project_id: Option<String> = self
+            .database
+            .connection
+            .query_row(
+                "SELECT project_id
+                 FROM print_projects
+                 WHERE source_hash = ?1
+                 ORDER BY rowid DESC
+                 LIMIT 1",
+                [source_hash],
+                |row| row.get(0),
+            )
+            .optional()?;
+        project_id
+            .map(|project_id| parse_uuid(&project_id))
+            .transpose()
     }
 
     fn matching_spools(&self, profile: &FilamentProfile) -> Result<Vec<Uuid>> {
@@ -1537,6 +2505,35 @@ fn validate_profiles(parsed: &ParsedPrintFile) -> Result<()> {
     }
 }
 
+fn validate_plate_profiles(parsed: &ParsedPlate) -> Result<()> {
+    validate_profiles(&ParsedPrintFile {
+        filaments: parsed.filaments.clone(),
+        gcode: parsed.gcode.clone(),
+    })
+}
+
+fn parse_uuid(value: &str) -> Result<Uuid> {
+    value
+        .parse()
+        .map_err(|_| AppError::Database("invalid uuid".to_owned()))
+}
+
+fn legacy_preview(project: ImportProjectPreview) -> Result<ImportPreview> {
+    let plate = project
+        .plates
+        .into_iter()
+        .find(|plate| plate.plate_index == 1)
+        .ok_or(AppError::InvalidJob)?;
+    Ok(ImportPreview {
+        job_id: plate.job_id,
+        source_hash: project.source_hash,
+        source_file_name: project.source_file_name,
+        filaments: plate.filaments,
+        max_layer: plate.max_layer,
+        state: project.state,
+    })
+}
+
 pub(crate) fn sha256(path: &Path) -> Result<String> {
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
@@ -1584,6 +2581,33 @@ pub fn import_print_file(
 }
 
 #[tauri::command]
+pub fn import_print_project(
+    path: String,
+    state: tauri::State<'_, PrintState>,
+    runtime: tauri::State<'_, crate::pet::runtime::PetRuntime>,
+) -> Result<ImportProjectPreview> {
+    let mut service = state
+        .lock()
+        .map_err(|_| AppError::Database("print service lock poisoned".to_owned()))?;
+    let preview = service.import_print_project(Path::new(&path))?;
+    let summary = service.pending_summary()?;
+    let job_id = preview
+        .plates
+        .first()
+        .map(|plate| plate.job_id)
+        .ok_or(AppError::InvalidJob)?;
+    drop(service);
+    runtime.refresh_pending(
+        summary,
+        Some(crate::pet::runtime::PetSignal::ImportSucceeded {
+            job_id,
+            pending_count: summary.count,
+        }),
+    );
+    Ok(preview)
+}
+
+#[tauri::command]
 pub fn confirm_job_mapping(
     job_id: Uuid,
     mappings: Vec<ToolMapping>,
@@ -1604,6 +2628,38 @@ pub fn discard_pending_job(
         .lock()
         .map_err(|_| AppError::Database("print service lock poisoned".to_owned()))?;
     service.discard_pending_job(job_id)?;
+    let summary = service.pending_summary()?;
+    drop(service);
+    runtime.refresh_pending(summary, None);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn discard_project(
+    project_id: Uuid,
+    state: tauri::State<'_, PrintState>,
+    runtime: tauri::State<'_, crate::pet::runtime::PetRuntime>,
+) -> Result<()> {
+    let mut service = state
+        .lock()
+        .map_err(|_| AppError::Database("print service lock poisoned".to_owned()))?;
+    service.discard_project(project_id)?;
+    let summary = service.pending_summary()?;
+    drop(service);
+    runtime.refresh_pending(summary, None);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn skip_plate(
+    plate_id: Uuid,
+    state: tauri::State<'_, PrintState>,
+    runtime: tauri::State<'_, crate::pet::runtime::PetRuntime>,
+) -> Result<()> {
+    let mut service = state
+        .lock()
+        .map_err(|_| AppError::Database("print service lock poisoned".to_owned()))?;
+    service.skip_plate(plate_id)?;
     let summary = service.pending_summary()?;
     drop(service);
     runtime.refresh_pending(summary, None);
@@ -1633,9 +2689,48 @@ pub fn confirm_new_print(
 }
 
 #[tauri::command]
+pub fn confirm_new_project(
+    source_hash: String,
+    source_path: String,
+    state: tauri::State<'_, PrintState>,
+    runtime: tauri::State<'_, crate::pet::runtime::PetRuntime>,
+) -> Result<ImportProjectPreview> {
+    let mut service = state
+        .lock()
+        .map_err(|_| AppError::Database("print service lock poisoned".to_owned()))?;
+    let preview = service.confirm_new_project(&source_hash, Path::new(&source_path))?;
+    let summary = service.pending_summary()?;
+    let job_id = preview
+        .plates
+        .first()
+        .map(|plate| plate.job_id)
+        .ok_or(AppError::InvalidJob)?;
+    drop(service);
+    runtime.refresh_pending(
+        summary,
+        Some(crate::pet::runtime::PetSignal::ImportSucceeded {
+            job_id,
+            pending_count: summary.count,
+        }),
+    );
+    Ok(preview)
+}
+
+#[tauri::command]
 pub fn get_job_preview(job_id: Uuid, state: tauri::State<'_, PrintState>) -> Result<ImportPreview> {
     state
         .lock()
         .map_err(|_| AppError::Database("print lock poisoned".into()))?
         .get_job_preview(job_id)
+}
+
+#[tauri::command]
+pub fn get_project_preview(
+    project_id: Uuid,
+    state: tauri::State<'_, PrintState>,
+) -> Result<ImportProjectPreview> {
+    state
+        .lock()
+        .map_err(|_| AppError::Database("print lock poisoned".into()))?
+        .get_project_preview(project_id)
 }
