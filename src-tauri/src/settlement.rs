@@ -461,6 +461,35 @@ mod tests {
         path
     }
 
+    fn two_plate_settlement_fixture() -> PathBuf {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "cylune-two-plate-settlement-{}-{}.3mf",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = zip::write::FileOptions::default();
+        archive
+            .start_file("Metadata/project_settings.config", options)
+            .unwrap();
+        archive
+            .write_all(
+                br##"{"filament_settings_id":["Bambu PLA Basic @BBL A1"],"filament_type":["PLA"],"filament_colour":["#FF0000"],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
+            )
+            .unwrap();
+        archive
+            .start_file("Metadata/plate_1.gcode", options)
+            .unwrap();
+        archive.write_all(b"M83\n; LAYER:0\nT0\nG1 E10\n").unwrap();
+        archive
+            .start_file("Metadata/plate_2.gcode", options)
+            .unwrap();
+        archive.write_all(b"M83\n; LAYER:0\nT0\nG1 E50\n").unwrap();
+        archive.finish().unwrap();
+        path
+    }
+
     fn prepared_service() -> (PrintService, uuid::Uuid, [uuid::Uuid; 2]) {
         prepared_service_with_balances([1000.0, 1000.0])
     }
@@ -547,6 +576,88 @@ mod tests {
                 (service.spool_balance(spool_id).unwrap() - (1000.0 - used.grams)).abs() < 1e-9
             );
         }
+    }
+
+    #[test]
+    fn settling_one_plate_never_consumes_another_plate() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+        let first_spool = inventory
+            .create_spool(NewSpool {
+                display_name: "Plate one".to_owned(),
+                preset_id: Some("Bambu PLA Basic @BBL A1".to_owned()),
+                catalog_id: None,
+                color_name: None,
+                color_code: None,
+                color_hexes: vec!["#FF0000".to_owned()],
+                preset_base: None,
+                brand: "Bambu Lab".to_owned(),
+                material: "PLA".to_owned(),
+                series: "Basic".to_owned(),
+                color_hex: "#FF0000".to_owned(),
+                remaining_grams: 1000.0,
+            })
+            .unwrap();
+        let second_spool = inventory
+            .create_spool(NewSpool {
+                display_name: "Plate two".to_owned(),
+                preset_id: Some("Bambu PLA Basic @BBL A1".to_owned()),
+                catalog_id: None,
+                color_name: None,
+                color_code: None,
+                color_hexes: vec!["#FF0000".to_owned()],
+                preset_base: None,
+                brand: "Bambu Lab".to_owned(),
+                material: "PLA".to_owned(),
+                series: "Basic".to_owned(),
+                color_hex: "#FF0000".to_owned(),
+                remaining_grams: 1000.0,
+            })
+            .unwrap();
+        let mut service =
+            PrintService::with_stability_delay(inventory.into_database(), Duration::ZERO);
+        let fixture = two_plate_settlement_fixture();
+        let project = service.import_print_project(&fixture).unwrap();
+        fs::remove_file(fixture).unwrap();
+        let first_job = project.plates[0].job_id;
+        let second_job = project.plates[1].job_id;
+        service
+            .confirm_job_mapping(
+                first_job,
+                vec![ToolMapping {
+                    tool: 0,
+                    spool_id: first_spool,
+                }],
+            )
+            .unwrap();
+        service
+            .confirm_job_mapping(
+                second_job,
+                vec![ToolMapping {
+                    tool: 0,
+                    spool_id: second_spool,
+                }],
+            )
+            .unwrap();
+
+        let settled = service.settle_job(second_job, JobOutcome::Success).unwrap();
+
+        assert_eq!(settled.job_id, second_job);
+        assert_eq!(settled.consumption.len(), 1);
+        assert_eq!(settled.consumption[0].spool_id, second_spool);
+        assert_eq!(service.spool_balance(first_spool).unwrap(), 1000.0);
+        assert!(service.spool_balance(second_spool).unwrap() < 1000.0);
+        assert_eq!(service.settlement_event_count(first_job).unwrap(), 0);
+        let first_outcome: Option<String> = service
+            .database
+            .connection
+            .query_row(
+                "SELECT outcome FROM print_jobs WHERE job_id = ?1",
+                [first_job.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(first_outcome, None);
     }
 
     #[test]

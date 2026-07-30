@@ -7,7 +7,7 @@ use crate::{
         NativeShutdownState, PetCallbackKind, PetNativeConfig,
     },
     pet::{CapturePermission, PetMode, PetSettings, PetSettingsPatch, PetStatus, PetStore},
-    tray::persist_pending_job,
+    tray::{pending_navigation_for_job, persist_pending_job, PendingNavigation},
 };
 use std::{
     ffi::{c_char, CStr},
@@ -238,9 +238,27 @@ pub enum NativeEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PetSignal {
-    ImportSucceeded { job_id: Uuid, pending_count: u32 },
-    ImportFailed { code: String },
-    SettlementCompleted { pending_count: u32 },
+    ImportSucceeded {
+        job_id: Uuid,
+        pending_count: u32,
+    },
+    ProjectImportSucceeded {
+        navigation: PendingNavigation,
+        plate_count: u32,
+        pending_count: u32,
+    },
+    NewProjectConfirmationRequired {
+        project_id: Uuid,
+        source_hash: String,
+        source_path: PathBuf,
+        plate_count: u32,
+    },
+    ImportFailed {
+        code: String,
+    },
+    SettlementCompleted {
+        pending_count: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1047,15 +1065,25 @@ fn open_from_pet(app: &AppHandle) {
         .map_err(|_| AppError::Database("print lock poisoned".to_owned()))
         .and_then(|service| {
             let summary = service.pending_summary()?;
-            if let Some(job_id) = summary.newest_job_id {
+            let navigation = summary
+                .newest_job_id
+                .map(|job_id| pending_navigation_for_job(&service.database, job_id))
+                .transpose()?
+                .flatten();
+            if let Some(navigation) = &navigation {
+                persist_pending_job(&service.database, &navigation.job_id.to_string())?;
+            } else if let Some(job_id) = summary.newest_job_id {
                 persist_pending_job(&service.database, &job_id.to_string())?;
             }
-            Ok(summary)
+            Ok((summary, navigation))
         });
     match pending {
-        Ok(summary) => {
+        Ok((summary, navigation)) => {
             crate::tray::show_main(app);
-            if let Some(job_id) = summary.newest_job_id {
+            if let Some(navigation) = navigation {
+                let _ = app.emit_to("main", "open-project", navigation.clone());
+                let _ = app.emit_to("main", "open-job", navigation.job_id.to_string());
+            } else if let Some(job_id) = summary.newest_job_id {
                 let _ = app.emit_to("main", "open-job", job_id.to_string());
             } else {
                 let _ = app.emit_to("main", "open-overview", ());
@@ -1088,10 +1116,34 @@ fn import_from_pet(
         }
     };
     match outcome {
-        Ok(job_id) => {
+        Ok(PetSignal::ProjectImportSucceeded { navigation, .. }) => {
+            crate::tray::show_main(app);
+            let _ = app.emit_to("main", "open-project", navigation.clone());
+            let _ = app.emit_to("main", "open-job", navigation.job_id.to_string());
+        }
+        Ok(PetSignal::NewProjectConfirmationRequired {
+            project_id,
+            source_hash,
+            source_path,
+            plate_count,
+        }) => {
+            crate::tray::show_main(app);
+            let _ = app.emit_to(
+                "main",
+                "confirm-new-project",
+                serde_json::json!({
+                    "project_id": project_id,
+                    "source_hash": source_hash,
+                    "source_path": source_path,
+                    "plate_count": plate_count,
+                }),
+            );
+        }
+        Ok(PetSignal::ImportSucceeded { job_id, .. }) => {
             crate::tray::show_main(app);
             let _ = app.emit_to("main", "open-job", job_id.to_string());
         }
+        Ok(_) => unreachable!("file drop returned a non-import signal"),
         Err(error) => {
             let code = error.code().to_owned();
             eprintln!("pet import failed: {}", error.code());
@@ -1106,12 +1158,34 @@ fn process_pet_drop(
     state: &Arc<Mutex<RuntimeState>>,
     generation: u64,
     path: &Path,
-) -> Result<Uuid> {
+) -> Result<PetSignal> {
     match handle_file_drop(service, path) {
-        Ok(PetSignal::ImportSucceeded {
-            job_id,
+        Ok(PetSignal::ProjectImportSucceeded {
+            navigation,
+            plate_count,
             pending_count,
         }) => {
+            refresh_pending_state(
+                state,
+                PendingSummary {
+                    count: pending_count,
+                    newest_job_id: Some(navigation.job_id),
+                },
+                None,
+            );
+            finish_native_drop(state, generation, NativeDropResult::Accepted);
+            Ok(PetSignal::ProjectImportSucceeded {
+                navigation,
+                plate_count,
+                pending_count,
+            })
+        }
+        Ok(
+            signal @ PetSignal::ImportSucceeded {
+                job_id,
+                pending_count,
+            },
+        ) => {
             refresh_pending_state(
                 state,
                 PendingSummary {
@@ -1121,7 +1195,16 @@ fn process_pet_drop(
                 None,
             );
             finish_native_drop(state, generation, NativeDropResult::Accepted);
-            Ok(job_id)
+            Ok(signal)
+        }
+        Ok(signal @ PetSignal::NewProjectConfirmationRequired { .. }) => {
+            let summary = service.pending_summary().unwrap_or(PendingSummary {
+                count: pending_count_state(state),
+                newest_job_id: None,
+            });
+            refresh_pending_state(state, summary, None);
+            finish_native_drop(state, generation, NativeDropResult::Accepted);
+            Ok(signal)
         }
         Ok(_) => unreachable!("file import only returns an import result"),
         Err(error) => {
@@ -1157,7 +1240,9 @@ fn refresh_pending_state(
     state.apply(false);
     if let (Some(signal), Some(pet)) = (signal, state.pet.as_ref()) {
         pet.signal(match signal {
-            PetSignal::ImportSucceeded { .. } => SIGNAL_IMPORT_SUCCEEDED,
+            PetSignal::ImportSucceeded { .. }
+            | PetSignal::ProjectImportSucceeded { .. }
+            | PetSignal::NewProjectConfirmationRequired { .. } => SIGNAL_IMPORT_SUCCEEDED,
             PetSignal::ImportFailed { .. } => SIGNAL_IMPORT_FAILED,
             PetSignal::SettlementCompleted { .. } => SIGNAL_SETTLEMENT_COMPLETED,
         });
@@ -1186,16 +1271,35 @@ extern "C" fn native_callback(kind: u32, payload: *const c_char, x: f64, y: f64,
 
 pub fn handle_file_drop(service: &mut PrintService, path: &Path) -> Result<PetSignal> {
     let validation = DropValidation::read(path).map_err(|_| AppError::InvalidFile)?;
-    let preview = service.import_print_file(&validation.canonical_path)?;
-    let preview = if preview.state == ImportState::NewPrintConfirmationRequired {
-        service.confirm_new_print(&preview.source_hash)?
-    } else {
-        preview
+    let preview = service.import_print_project(&validation.canonical_path)?;
+    if preview.state == ImportState::NewPrintConfirmationRequired {
+        return Ok(PetSignal::NewProjectConfirmationRequired {
+            project_id: preview.project_id,
+            source_hash: preview.source_hash,
+            source_path: validation.canonical_path,
+            plate_count: preview.plates.len() as u32,
+        });
+    }
+    let first_pending = preview
+        .plates
+        .iter()
+        .find(|plate| {
+            matches!(
+                plate.status,
+                crate::domain::PlateStatus::PendingMapping | crate::domain::PlateStatus::Ready
+            )
+        })
+        .ok_or(AppError::InvalidJob)?;
+    let navigation = PendingNavigation {
+        project_id: preview.project_id,
+        plate_id: first_pending.plate_id,
+        job_id: first_pending.job_id,
     };
-    persist_pending_job(&service.database, &preview.job_id.to_string())?;
+    persist_pending_job(&service.database, &navigation.job_id.to_string())?;
     let pending_count = service.pending_summary()?.count;
-    Ok(PetSignal::ImportSucceeded {
-        job_id: preview.job_id,
+    Ok(PetSignal::ProjectImportSucceeded {
+        navigation,
+        plate_count: preview.plates.len() as u32,
         pending_count,
     })
 }
@@ -1317,6 +1421,8 @@ mod tests {
     };
     use std::{
         ffi::CString,
+        fs::File,
+        io::Write,
         path::{Path, PathBuf},
         sync::{atomic::AtomicBool, mpsc, Arc, Barrier, Condvar, Mutex},
         thread,
@@ -1328,6 +1434,31 @@ mod tests {
             .join("tests")
             .join("fixtures")
             .join(name)
+    }
+
+    fn two_plate_fixture() -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("cylune-pet-two-plate-{}.3mf", uuid::Uuid::new_v4()));
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = zip::write::FileOptions::default();
+        archive
+            .start_file("Metadata/project_settings.config", options)
+            .unwrap();
+        archive
+            .write_all(
+                br##"{"filament_settings_id":["Bambu PLA Basic @BBL A1"],"filament_type":["PLA"],"filament_colour":["#FF0000"],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
+            )
+            .unwrap();
+        archive
+            .start_file("Metadata/plate_1.gcode", options)
+            .unwrap();
+        archive.write_all(b"M83\n; LAYER:0\nT0\nG1 E10\n").unwrap();
+        archive
+            .start_file("Metadata/plate_2.gcode", options)
+            .unwrap();
+        archive.write_all(b"M83\n; LAYER:0\nT0\nG1 E20\n").unwrap();
+        archive.finish().unwrap();
+        path
     }
 
     fn balance_rows(db: &AppDatabase) -> Vec<(String, f64)> {
@@ -1356,8 +1487,9 @@ mod tests {
 
         assert!(matches!(
             signal,
-            PetSignal::ImportSucceeded {
+            PetSignal::ProjectImportSucceeded {
                 pending_count: 1,
+                plate_count: 1,
                 ..
             }
         ));
@@ -1365,7 +1497,42 @@ mod tests {
     }
 
     #[test]
-    fn dropping_a_settled_file_confirms_a_fresh_pending_job_without_deducting_again() {
+    fn dropped_multi_plate_file_imports_one_project_and_reports_plate_count() {
+        let db = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(db, Duration::ZERO);
+        let path = two_plate_fixture();
+
+        let signal = handle_file_drop(&mut service, &path).unwrap();
+
+        std::fs::remove_file(path).unwrap();
+        let PetSignal::ProjectImportSucceeded {
+            navigation,
+            plate_count,
+            pending_count,
+        } = signal
+        else {
+            panic!("drop did not produce a project import signal");
+        };
+        assert_eq!(plate_count, 2);
+        assert_eq!(pending_count, 2);
+        assert_eq!(
+            navigation.plate_id,
+            service
+                .get_project_preview(navigation.project_id)
+                .unwrap()
+                .plates[0]
+                .plate_id
+        );
+        let project_count: u32 = service
+            .database
+            .connection
+            .query_row("SELECT COUNT(*) FROM print_projects", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(project_count, 1);
+    }
+
+    #[test]
+    fn dropping_a_settled_source_requests_confirmation_without_creating_a_project() {
         let db = AppDatabase::open_in_memory().unwrap();
         let mut inventory = InventoryService::new(db);
         let basic = inventory
@@ -1405,7 +1572,8 @@ mod tests {
         let mut service =
             PrintService::with_stability_delay(inventory.into_database(), Duration::ZERO);
         let path = fixture("bambu_multicolor.3mf");
-        let settled = service.import_print_file(&path).unwrap();
+        let settled_project = service.import_print_project(&path).unwrap();
+        let settled = &settled_project.plates[0];
         service
             .confirm_job_mapping(
                 settled.job_id,
@@ -1428,19 +1596,26 @@ mod tests {
 
         let signal = handle_file_drop(&mut service, &path).unwrap();
 
-        let PetSignal::ImportSucceeded {
-            job_id,
-            pending_count,
+        let PetSignal::NewProjectConfirmationRequired {
+            project_id,
+            source_hash,
+            source_path,
+            plate_count,
         } = signal
         else {
-            panic!("drop did not produce an import-success signal");
+            panic!("drop did not request a new project confirmation");
         };
-        assert_ne!(job_id, settled.job_id);
-        assert_eq!(pending_count, 1);
-        assert_eq!(
-            service.pending_summary().unwrap().newest_job_id,
-            Some(job_id)
-        );
+        assert_eq!(project_id, settled_project.project_id);
+        assert_eq!(source_hash, settled_project.source_hash);
+        assert_eq!(source_path, path);
+        assert_eq!(plate_count, 1);
+        assert_eq!(service.pending_summary().unwrap().count, 0);
+        let project_count: u32 = service
+            .database
+            .connection
+            .query_row("SELECT COUNT(*) FROM print_projects", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(project_count, 1);
         assert_eq!(balance_rows(&service.database), balances_after_settlement);
     }
 
@@ -1498,7 +1673,7 @@ mod tests {
     }
 
     #[test]
-    fn success_ack_uses_the_same_generation_and_follows_task_persistence() {
+    fn confirmation_ack_uses_the_same_generation_without_creating_pending_work() {
         let mut core = RuntimeCore::for_test_with_mapped_fixture();
         let generation = 41;
         let event = NativeEvent::FileDropped {
@@ -1506,7 +1681,14 @@ mod tests {
             path: core.fixture.clone(),
         };
         core.handle(event);
-        assert_eq!(core.pending_summary().unwrap().count, 1);
+        assert_eq!(core.pending_summary().unwrap().count, 0);
+        let project_count: u32 = core
+            .service
+            .database
+            .connection
+            .query_row("SELECT COUNT(*) FROM print_projects", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(project_count, 1);
         assert_eq!(
             core.drop_results(),
             vec![(generation, NativeDropResult::Accepted)]

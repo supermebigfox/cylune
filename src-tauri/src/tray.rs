@@ -4,7 +4,7 @@ use crate::{
 };
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use rusqlite::{params, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::{
     collections::HashMap,
@@ -50,11 +50,11 @@ pub fn import_with_retry(
     path: &Path,
     max_attempts: u8,
     retry_delay: Duration,
-) -> Result<crate::imports::ImportPreview> {
+) -> Result<crate::history::ImportProjectPreview> {
     let mut attempt = 0;
     loop {
         attempt += 1;
-        match service.import_print_file(path) {
+        match service.import_print_project(path) {
             Err(AppError::FileNotStable) if attempt < max_attempts => {
                 std::thread::sleep(retry_delay)
             }
@@ -122,6 +122,17 @@ pub fn native_copy(locale: &str) -> NativeCopy {
     }
 }
 
+pub fn import_notification_body(locale: &str, plate_count: usize) -> String {
+    match locale {
+        "en" => format!(
+            "A project with {plate_count} {} is awaiting settlement",
+            if plate_count == 1 { "plate" } else { "plates" }
+        ),
+        "zh-TW" => format!("有一個包含 {plate_count} 個盤面的列印專案等待結算"),
+        _ => format!("有一个包含 {plate_count} 个盘面的打印项目等待结算"),
+    }
+}
+
 pub fn import_error_copy(locale: &str, code: &str) -> &'static str {
     match (locale, code) {
         ("en", "unsliced_project") => "This project has not been sliced",
@@ -157,8 +168,83 @@ pub fn import_error_copy(locale: &str, code: &str) -> &'static str {
 #[derive(Clone, Serialize)]
 struct WatchImportEvent {
     ok: bool,
+    project_id: Option<String>,
+    plate_id: Option<String>,
     job_id: Option<String>,
+    plate_count: Option<u32>,
+    state: Option<crate::imports::ImportState>,
+    source_hash: Option<String>,
+    source_path: Option<String>,
     code: Option<String>,
+}
+
+fn watch_import_event(
+    preview: &crate::history::ImportProjectPreview,
+    source_path: &Path,
+) -> WatchImportEvent {
+    let first_pending = preview.plates.iter().find(|plate| {
+        matches!(
+            plate.status,
+            crate::domain::PlateStatus::PendingMapping | crate::domain::PlateStatus::Ready
+        )
+    });
+    WatchImportEvent {
+        ok: true,
+        project_id: Some(preview.project_id.to_string()),
+        plate_id: first_pending.map(|plate| plate.plate_id.to_string()),
+        job_id: first_pending.map(|plate| plate.job_id.to_string()),
+        plate_count: Some(preview.plates.len() as u32),
+        state: Some(preview.state),
+        source_hash: Some(preview.source_hash.clone()),
+        source_path: Some(source_path.to_string_lossy().into_owned()),
+        code: None,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingNavigation {
+    pub project_id: Uuid,
+    pub plate_id: Uuid,
+    pub job_id: Uuid,
+}
+
+pub fn pending_navigation_for_job(
+    database: &crate::db::AppDatabase,
+    job_id: Uuid,
+) -> Result<Option<PendingNavigation>> {
+    database
+        .connection
+        .query_row(
+            "SELECT pending_plates.project_id, pending_plates.plate_id, pending_jobs.job_id
+             FROM print_jobs AS requested_jobs
+             JOIN print_plates AS requested_plates
+               ON requested_plates.plate_id = requested_jobs.plate_id
+             JOIN print_plates AS pending_plates
+               ON pending_plates.project_id = requested_plates.project_id
+             JOIN print_jobs AS pending_jobs
+               ON pending_jobs.plate_id = pending_plates.plate_id
+             WHERE requested_jobs.job_id = ?1
+               AND pending_jobs.outcome IS NULL
+             ORDER BY pending_plates.plate_index
+             LIMIT 1",
+            params![job_id.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()?
+        .map(|(project_id, plate_id, job_id)| {
+            Ok(PendingNavigation {
+                project_id: project_id.parse().map_err(|_| AppError::InvalidJob)?,
+                plate_id: plate_id.parse().map_err(|_| AppError::InvalidJob)?,
+                job_id: job_id.parse().map_err(|_| AppError::InvalidJob)?,
+            })
+        })
+        .transpose()
 }
 
 #[tauri::command]
@@ -207,6 +293,23 @@ pub fn set_watch_folder(
                         Ok(mut service) => {
                             import_with_retry(&mut service, &file, 3, Duration::from_millis(250))
                                 .and_then(|preview| {
+                                    if let Some(job_id) = preview
+                                        .plates
+                                        .iter()
+                                        .find(|plate| {
+                                            matches!(
+                                                plate.status,
+                                                crate::domain::PlateStatus::PendingMapping
+                                                    | crate::domain::PlateStatus::Ready
+                                            )
+                                        })
+                                        .map(|plate| plate.job_id)
+                                    {
+                                        persist_pending_job(
+                                            &service.database,
+                                            &job_id.to_string(),
+                                        )?;
+                                    }
                                     let summary = service.pending_summary()?;
                                     Ok((preview, summary))
                                 })
@@ -215,23 +318,31 @@ pub fn set_watch_folder(
                     };
                     match result {
                         Ok((preview, summary)) => {
+                            let first_pending = preview.plates.iter().find(|plate| {
+                                matches!(
+                                    plate.status,
+                                    crate::domain::PlateStatus::PendingMapping
+                                        | crate::domain::PlateStatus::Ready
+                                )
+                            });
                             app_handle
                                 .state::<crate::pet::runtime::PetRuntime>()
                                 .refresh_pending(
                                     summary,
-                                    Some(crate::pet::runtime::PetSignal::ImportSucceeded {
-                                        job_id: preview.job_id,
-                                        pending_count: summary.count,
+                                    first_pending.map(|plate| {
+                                        crate::pet::runtime::PetSignal::ProjectImportSucceeded {
+                                            navigation: PendingNavigation {
+                                                project_id: preview.project_id,
+                                                plate_id: plate.plate_id,
+                                                job_id: plate.job_id,
+                                            },
+                                            plate_count: preview.plates.len() as u32,
+                                            pending_count: summary.count,
+                                        }
                                     }),
                                 );
-                            let _ = app_handle.emit(
-                                "watch-import",
-                                WatchImportEvent {
-                                    ok: true,
-                                    job_id: Some(preview.job_id.to_string()),
-                                    code: None,
-                                },
-                            );
+                            let _ = app_handle
+                                .emit("watch-import", watch_import_event(&preview, &file));
                             let locale = app_handle
                                 .state::<NativeMenuState>()
                                 .locale
@@ -243,7 +354,7 @@ pub fn set_watch_folder(
                                 .notification()
                                 .builder()
                                 .title(copy.notification_title)
-                                .body(copy.notification_body)
+                                .body(import_notification_body(&locale, preview.plates.len()))
                                 .show();
                         }
                         Err(error) => {
@@ -252,7 +363,13 @@ pub fn set_watch_folder(
                                 "watch-import",
                                 WatchImportEvent {
                                     ok: false,
+                                    project_id: None,
+                                    plate_id: None,
                                     job_id: None,
+                                    plate_count: None,
+                                    state: None,
+                                    source_hash: None,
+                                    source_path: None,
                                     code: Some(error.code().into()),
                                 },
                             );
@@ -302,19 +419,28 @@ pub fn open_main(app: tauri::AppHandle) -> Result<()> {
 }
 
 pub fn persist_pending_job(database: &crate::db::AppDatabase, job_id: &str) -> Result<()> {
-    Uuid::parse_str(job_id).map_err(|_| AppError::InvalidJob)?;
-    let exists: bool = database.connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM print_jobs WHERE job_id=?1)",
-        params![job_id],
-        |row| row.get(0),
-    )?;
-    if !exists {
-        return Err(AppError::InvalidJob);
-    }
+    let job_id = Uuid::parse_str(job_id).map_err(|_| AppError::InvalidJob)?;
+    let pending_navigation = pending_navigation_for_job(database, job_id)?;
+    let value = if let Some(navigation) = pending_navigation {
+        serde_json::to_string(&navigation).map_err(|error| AppError::Database(error.to_string()))?
+    } else {
+        let pending_legacy_job: bool = database.connection.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM print_jobs
+                WHERE job_id = ?1 AND plate_id IS NULL AND outcome IS NULL
+             )",
+            params![job_id.to_string()],
+            |row| row.get(0),
+        )?;
+        if !pending_legacy_job {
+            return Err(AppError::InvalidJob);
+        }
+        job_id.to_string()
+    };
     database.connection.execute(
         "INSERT INTO app_settings(setting_key,setting_value) VALUES('pending_job_id',?1)
          ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value,updated_at=CURRENT_TIMESTAMP",
-        params![job_id],
+        params![value],
     )?;
     Ok(())
 }
@@ -330,16 +456,22 @@ pub fn take_pending_job_from_database(
             |row| row.get(0),
         )
         .optional()?;
-    let valid = job_id.filter(|id| {
-        Uuid::parse_str(id).is_ok()
-            && transaction
+    let valid = job_id
+        .and_then(|value| {
+            serde_json::from_str::<PendingNavigation>(&value)
+                .map(|navigation| navigation.job_id.to_string())
+                .ok()
+                .or_else(|| Uuid::parse_str(&value).ok().map(|_| value))
+        })
+        .filter(|id| {
+            transaction
                 .query_row(
                     "SELECT EXISTS(SELECT 1 FROM print_jobs WHERE job_id=?1 AND outcome IS NULL)",
                     params![id],
                     |row| row.get::<_, bool>(0),
                 )
                 .unwrap_or(false)
-    });
+        });
     transaction.execute(
         "DELETE FROM app_settings WHERE setting_key='pending_job_id'",
         [],
@@ -358,9 +490,18 @@ pub fn open_job_in_main(
         .lock()
         .map_err(|_| AppError::Database("print lock poisoned".into()))?;
     persist_pending_job(&service.database, &job_id)?;
+    let requested_job_id = Uuid::parse_str(&job_id).map_err(|_| AppError::InvalidJob)?;
+    let navigation = pending_navigation_for_job(&service.database, requested_job_id)?;
     show_main(&app);
-    app.emit_to("main", "open-job", job_id.clone())
-        .map_err(|error| AppError::Io(error.to_string()))?;
+    if let Some(navigation) = navigation {
+        app.emit_to("main", "open-project", navigation.clone())
+            .map_err(|error| AppError::Io(error.to_string()))?;
+        app.emit_to("main", "open-job", navigation.job_id.to_string())
+            .map_err(|error| AppError::Io(error.to_string()))?;
+    } else {
+        app.emit_to("main", "open-job", job_id)
+            .map_err(|error| AppError::Io(error.to_string()))?;
+    }
     Ok(())
 }
 
@@ -542,17 +683,48 @@ pub fn setup(
 #[cfg(test)]
 mod tests {
     use super::{
-        import_error_copy, import_with_retry, is_supported_print_path, native_copy,
-        persist_pending_job, take_pending_job_from_database, Debouncer,
+        import_error_copy, import_notification_body, import_with_retry, is_supported_print_path,
+        native_copy, persist_pending_job, take_pending_job_from_database, watch_import_event,
+        Debouncer,
     };
-    use crate::{db::AppDatabase, imports::PrintService};
+    use crate::{
+        db::AppDatabase,
+        imports::{ImportState, PrintService},
+    };
     use std::{
-        fs::{self, OpenOptions},
+        fs::{self, File, OpenOptions},
         io::Write,
         path::Path,
         thread,
         time::{Duration, Instant},
     };
+
+    fn two_plate_fixture() -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "cylune-tray-two-plate-{}.3mf",
+            uuid::Uuid::new_v4()
+        ));
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = zip::write::FileOptions::default();
+        archive
+            .start_file("Metadata/project_settings.config", options)
+            .unwrap();
+        archive
+            .write_all(
+                br##"{"filament_settings_id":["Bambu PLA Basic @BBL A1"],"filament_type":["PLA"],"filament_colour":["#FF0000"],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
+            )
+            .unwrap();
+        archive
+            .start_file("Metadata/plate_1.gcode", options)
+            .unwrap();
+        archive.write_all(b"M83\n; LAYER:0\nT0\nG1 E10\n").unwrap();
+        archive
+            .start_file("Metadata/plate_2.gcode", options)
+            .unwrap();
+        archive.write_all(b"M83\n; LAYER:0\nT0\nG1 E20\n").unwrap();
+        archive.finish().unwrap();
+        path
+    }
 
     #[test]
     fn watcher_accepts_only_relevant_extensions() {
@@ -605,6 +777,7 @@ mod tests {
         let imported =
             import_with_retry(&mut service, &path, 3, Duration::from_millis(15)).unwrap();
         writer.join().unwrap();
+        assert_eq!(imported.plates.len(), 1);
         assert_eq!(service.job_count(&imported.source_hash).unwrap(), 1);
         fs::remove_file(path).unwrap();
     }
@@ -633,6 +806,49 @@ mod tests {
             import_error_copy("zh-CN", "invalid_file"),
             "无法识别这个文件"
         );
+    }
+
+    #[test]
+    fn watcher_notification_reports_the_imported_plate_count() {
+        assert_eq!(
+            import_notification_body("en", 2),
+            "A project with 2 plates is awaiting settlement"
+        );
+        assert!(import_notification_body("zh-TW", 3).contains('3'));
+        assert!(import_notification_body("zh-CN", 4).contains('4'));
+    }
+
+    #[test]
+    fn settled_watcher_drop_exposes_new_project_confirmation() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let fixture = two_plate_fixture();
+        let imported = service.import_print_project(&fixture).unwrap();
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_jobs
+                 SET outcome='{\"kind\":\"success\"}', settlement_version=1
+                 WHERE plate_id IN (
+                    SELECT plate_id FROM print_plates WHERE project_id=?1
+                 )",
+                [imported.project_id.to_string()],
+            )
+            .unwrap();
+        let duplicate = service.import_print_project(&fixture).unwrap();
+
+        let event = watch_import_event(&duplicate, &fixture);
+
+        fs::remove_file(fixture).unwrap();
+        assert!(event.ok);
+        assert_eq!(event.project_id, Some(imported.project_id.to_string()));
+        assert_eq!(event.plate_count, Some(2));
+        assert_eq!(event.state, Some(ImportState::NewPrintConfirmationRequired));
+        assert_eq!(event.job_id, None);
+        assert_eq!(event.plate_id, None);
+        assert_eq!(event.source_hash, Some(imported.source_hash));
+        assert!(event.source_path.is_some());
     }
 
     #[test]
@@ -685,6 +901,58 @@ mod tests {
         assert_eq!(
             take_pending_job_from_database(&mut service.database).unwrap(),
             None
+        );
+    }
+
+    #[test]
+    fn project_navigation_selects_its_first_pending_plate() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let fixture = two_plate_fixture();
+        let project = service.import_print_project(&fixture).unwrap();
+        fs::remove_file(fixture).unwrap();
+        let first_job = project.plates[0].job_id.to_string();
+        let second_job = project.plates[1].job_id.to_string();
+
+        persist_pending_job(&service.database, &second_job).unwrap();
+
+        assert_eq!(
+            take_pending_job_from_database(&mut service.database).unwrap(),
+            Some(first_job)
+        );
+    }
+
+    #[test]
+    fn pending_navigation_persists_project_and_first_pending_plate() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let fixture = two_plate_fixture();
+        let project = service.import_print_project(&fixture).unwrap();
+        fs::remove_file(fixture).unwrap();
+
+        persist_pending_job(&service.database, &project.plates[1].job_id.to_string()).unwrap();
+
+        let saved: String = service
+            .database
+            .connection
+            .query_row(
+                "SELECT setting_value FROM app_settings WHERE setting_key='pending_job_id'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let navigation: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(
+            navigation["project_id"],
+            project.project_id.to_string().as_str()
+        );
+        assert_eq!(
+            navigation["plate_id"],
+            project.plates[0].plate_id.to_string().as_str()
+        );
+        assert_eq!(
+            navigation["job_id"],
+            project.plates[0].job_id.to_string().as_str()
         );
     }
 }
