@@ -1175,6 +1175,41 @@ mod tests {
     }
 
     #[test]
+    fn project_preview_restores_each_plates_saved_mappings() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+        let spool = inventory
+            .create_spool(new_spool("Bambu PLA Basic", "#FFFFFF"))
+            .unwrap();
+        let database = inventory.into_database();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+        let imported = service.import_print_project(&path).unwrap();
+        service
+            .confirm_job_mapping(
+                imported.plates[1].job_id,
+                vec![ToolMapping {
+                    tool: 0,
+                    spool_id: spool,
+                }],
+            )
+            .unwrap();
+
+        let reopened = service.get_project_preview(imported.project_id).unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert!(reopened.plates[0].mappings.is_empty());
+        assert_eq!(
+            reopened.plates[1].mappings,
+            vec![ToolMapping {
+                tool: 0,
+                spool_id: spool,
+            }]
+        );
+        assert_eq!(reopened.plates[1].status, crate::domain::PlateStatus::Ready);
+    }
+
+    #[test]
     fn file_stability_requires_matching_size_and_modified_time() {
         let first = FileStability {
             size: 123,
@@ -2366,6 +2401,7 @@ impl PrintService {
                 estimated_seconds: plate.estimated_seconds,
                 max_layer: plate.gcode.max_layer,
                 filaments: legacy.filaments,
+                mappings: Vec::new(),
                 status: crate::domain::PlateStatus::PendingMapping,
             });
         }
@@ -2446,6 +2482,14 @@ impl PrintService {
                 &parsed_file,
                 state,
             )?;
+            let mappings = self
+                .job_mappings(job_id)?
+                .into_iter()
+                .map(|mapping| ToolMapping {
+                    tool: mapping.tool,
+                    spool_id: mapping.spool_id,
+                })
+                .collect();
             plates.push(ImportPlatePreview {
                 plate_id: parse_uuid(&plate_id)?,
                 job_id,
@@ -2454,6 +2498,7 @@ impl PrintService {
                 estimated_seconds: plate.estimated_seconds,
                 max_layer: plate.gcode.max_layer,
                 filaments: legacy.filaments,
+                mappings,
                 status: status_for_job(outcome.as_deref(), mapping_count, plate.filaments.len())?,
             });
         }

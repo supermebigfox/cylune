@@ -156,6 +156,7 @@ export interface ImportPlatePreview {
   estimated_seconds: number | null;
   max_layer: number;
   filaments: FilamentPreview[];
+  mappings?: ToolMapping[];
   status: PlateStatus;
 }
 
@@ -346,6 +347,7 @@ function demoApi(): TauriApi {
   let projectPlates = demoProjectPlates.map((plate) => ({ ...plate }));
   let projectDiscarded = false;
   const settlementResults = new Map<string, SettlementResult>();
+  const projectMappings = new Map<string, ToolMapping[]>();
   let pet: PetSettings = {
     mode: "lite", visual_style: "gargantua", size: 220, fps: "auto", visible: false, x: null, y: null,
     display_id: null, effective_mode: "lite", permission: "unavailable",
@@ -381,9 +383,11 @@ function demoApi(): TauriApi {
     source_hash: demoProjectSourceHash,
     source_file_name: path?.split(/[\\/]/).pop() || demoPreview.source_file_name,
     imported_at: demoProjectImportedAt,
-    plates: projectPlates.map((plate, index) => ({
+    plates: projectPlates.map((plate, index) => {
+      const jobId = "demo-mask-job-" + String(index + 1);
+      return {
       plate_id: plate.plate_id,
-      job_id: "demo-mask-job-" + String(index + 1),
+      job_id: jobId,
       plate_index: plate.plate_index,
       thumbnail_url: plate.thumbnail_url,
       estimated_seconds: plate.estimated_seconds,
@@ -395,8 +399,10 @@ function demoApi(): TauriApi {
           profile: { ...filament.profile },
           candidate_spool_ids: [...filament.candidate_spool_ids],
         })),
+      mappings: projectMappings.get(jobId)?.map((mapping) => ({ ...mapping })) ?? [],
       status: plate.status,
-    })),
+      };
+    }),
     state: "new",
   });
   return {
@@ -447,7 +453,13 @@ function demoApi(): TauriApi {
     async listSpools() { return spools.map((spool) => ({ ...spool })); },
     async listSlots() { return slots.map((slot) => ({ ...slot })); },
     async importPrintFile(path) { return { ...demoPreview, source_file_name: path.split(/[\\/]/).pop() || demoPreview.source_file_name }; },
-    async confirmJobMapping() {},
+    async confirmJobMapping(jobId, mappings) {
+      projectMappings.set(jobId, mappings.map((mapping) => ({ ...mapping })));
+      const plateIndex = Number(jobId.replace("demo-mask-job-", "")) - 1;
+      projectPlates = projectPlates.map((plate, index) => index === plateIndex
+        ? { ...plate, status: "ready" }
+        : plate);
+    },
     async confirmNewPrint() { return { ...demoPreview, job_id: "demo-mask-job-2" }; },
     async discardPendingJob() {},
     async listPrintProjects(filter) {

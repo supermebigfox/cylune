@@ -111,8 +111,11 @@ describe("App localization", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows the localized prototype shell", () => {
-    render(<App />);
+  it("shows the localized prototype shell", async () => {
+    await act(async () => {
+      render(<App />);
+      await Promise.resolve();
+    });
     expect(
       screen.getByRole("img", { name: "CYLUNE 图标" }),
     ).toBeVisible();

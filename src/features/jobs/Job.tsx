@@ -5,8 +5,9 @@ import { t, useLocale } from "../../i18n";
 import type { ImportPreview, JobOutcome, SettlementResult, Spool, ToolMapping } from "../../lib/tauri";
 
 type OutcomeChoice = "success" | "failed" | "cancelled" | "estimated";
+const emptyMappings: Record<number, string> = {};
 
-export function Job({ preview, spools, initialMappings = {}, settled = false, result, busy = false, embedded = false, onConfirmMapping, onSettle, onConfirmNewPrint, onDiscard, onReverse }: {
+export function Job({ preview, spools, initialMappings = emptyMappings, settled = false, result, busy = false, embedded = false, onConfirmMapping, onSettle, onConfirmNewPrint, onDiscard, onReverse }: {
   preview: ImportPreview | null;
   spools: Spool[];
   initialMappings?: Record<number, string>;
@@ -23,7 +24,8 @@ export function Job({ preview, spools, initialMappings = {}, settled = false, re
   const locale = useLocale();
   const copy = (key: string, values: Record<string, string | number> = {}) => t(key, values, locale);
   const suggested = useMemo(() => Object.fromEntries(preview?.filaments.flatMap((filament) => filament.suggested_spool_id ? [[filament.tool, filament.suggested_spool_id]] : []) ?? []), [preview]);
-  const [mappings, setMappings] = useState<Record<number, string>>({ ...suggested, ...initialMappings });
+  const restoredMappings = useMemo(() => ({ ...suggested, ...initialMappings }), [initialMappings, suggested]);
+  const [mappings, setMappings] = useState<Record<number, string>>(restoredMappings);
   const [outcome, setOutcome] = useState<OutcomeChoice>("success");
   const [layer, setLayer] = useState("1");
   const [percent, setPercent] = useState("50");
@@ -33,12 +35,12 @@ export function Job({ preview, spools, initialMappings = {}, settled = false, re
   useEffect(() => {
     if (previousJobId.current === preview?.job_id) return;
     previousJobId.current = preview?.job_id;
-    setMappings(suggested);
-    setMapped(false);
+    setMappings(restoredMappings);
+    setMapped(Object.keys(initialMappings).length > 0);
     setOutcome("success");
     setLayer("1");
     setPercent("50");
-  }, [preview?.job_id, suggested]);
+  }, [initialMappings, preview?.job_id, restoredMappings]);
 
   if (!preview) return <section className="page jobs-empty" aria-labelledby="jobs-title"><h1 id="jobs-title">{copy("jobs.title")}</h1><div className="empty-state"><FileText size={36} weight="duotone" /><h2>{copy("jobs.empty")}</h2><p>{copy("jobs.emptyHint")}</p></div></section>;
 

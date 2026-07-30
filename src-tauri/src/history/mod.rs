@@ -4,7 +4,7 @@ use crate::{
         PrintProjectSummary,
     },
     error::{AppError, Result},
-    imports::{FilamentPreview, ImportState, PrintService, PrintState},
+    imports::{FilamentPreview, ImportState, PrintService, PrintState, ToolMapping},
     parser::ParsedPrintFile,
 };
 use rusqlite::{params, params_from_iter};
@@ -41,6 +41,7 @@ pub struct ImportPlatePreview {
     pub estimated_seconds: Option<u32>,
     pub max_layer: u32,
     pub filaments: Vec<FilamentPreview>,
+    pub mappings: Vec<ToolMapping>,
     pub status: PlateStatus,
 }
 

@@ -419,6 +419,12 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscrib
   const activeResult = selectedPlate && plateResults[selectedPlate]
     ? { plateId: selectedPlate, value: plateResults[selectedPlate] }
     : null;
+  const activeMappings = useMemo(() => Object.fromEntries(
+    activePreview?.plates
+      .find((plate) => plate.plate_id === selectedPlate)
+      ?.mappings?.map((mapping) => [mapping.tool, mapping.spool_id])
+      ?? [],
+  ), [activePreview, selectedPlate]);
   const nav = [
     ["home", House, "nav.home"], ["spools", Disc, "nav.spools"], ["jobs", Tray, "nav.jobs"], ["settings", GearSix, "nav.settings"],
   ] as const;
@@ -436,7 +442,7 @@ export function DesktopApp({ apiClient = api, pickFile = pickSliced3mf, subscrib
       {loading ? <div className="skeleton-page" aria-label={copy("common.loading")}><i /><i /><i /></div> : null}
       {page === "home" ? <Home slots={slots} spools={spools} pendingJobs={pendingPlates} busy={busy} importing={busyAction === "import"} onImport={openImport} /> : null}
       {page === "spools" ? <Spools spools={spools} slotBySpool={slotBySpool} busy={busy} onCreate={actions.create} onCalibrate={actions.calibrate} onArchive={actions.archive} onMount={actions.mount} onUnmount={actions.unmount} onMove={actions.move} /> : null}
-      {page === "jobs" ? activeProject ? <Project project={activeProject} selectedPlateId={selectedPlate} preview={activePlatePreview} result={activeResult} repeatSourceHash={repeatCandidate?.project_id === activeProject.project_id ? repeatCandidate.source_hash : null} spools={spools} busy={busy} canDiscardProject={!hasSettledPlate} onBackToHistory={() => { activeProjectRef.current = null; setActiveProject(null); setActivePreview(null); setSelectedPlate(null); setRepeatCandidate(null); }} onSelectPlate={selectPlate} onConfirmMapping={actions.map} onSettle={actions.settle} onConfirmNewPrint={actions.repeat} onDiscard={actions.discard} onSkipPlate={actions.skip} onReverse={actions.reverse} /> : <History pending={pendingProjects} history={historyProjects} onOpenProject={(projectId) => { setRepeatCandidate(null); void loadProject(projectId).catch(() => setError(copy("errors.invalid_job"))); }} /> : null}
+      {page === "jobs" ? activeProject ? <Project project={activeProject} selectedPlateId={selectedPlate} preview={activePlatePreview} initialMappings={activeMappings} result={activeResult} repeatSourceHash={repeatCandidate?.project_id === activeProject.project_id ? repeatCandidate.source_hash : null} spools={spools} busy={busy} canDiscardProject={!hasSettledPlate} onBackToHistory={() => { activeProjectRef.current = null; setActiveProject(null); setActivePreview(null); setSelectedPlate(null); setRepeatCandidate(null); }} onSelectPlate={selectPlate} onConfirmMapping={actions.map} onSettle={actions.settle} onConfirmNewPrint={actions.repeat} onDiscard={actions.discard} onSkipPlate={actions.skip} onReverse={actions.reverse} /> : <History pending={pendingProjects} history={historyProjects} onOpenProject={(projectId) => { setRepeatCandidate(null); void loadProject(projectId).catch(() => setError(copy("errors.invalid_job"))); }} /> : null}
       {page === "settings" ? <Settings apiClient={apiClient} onRestored={() => void refresh()} /> : null}
     </main>
   </div>;
