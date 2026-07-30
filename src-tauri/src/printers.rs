@@ -257,7 +257,14 @@ fn printer_available(printer: &SavedPrinter, catalog: &[PrinterProfile]) -> bool
 }
 
 pub fn load_printer_profiles(profiles_root: &Path) -> Result<Vec<PrinterProfile>> {
-    let machine_root = profiles_root.join("BBL/machine");
+    if !regular_directory(profiles_root) {
+        return Err(AppError::SlicerProfilesMissing);
+    }
+    let bbl_root = profiles_root.join("BBL");
+    if !regular_directory(&bbl_root) {
+        return Err(AppError::SlicerProfilesMissing);
+    }
+    let machine_root = bbl_root.join("machine");
     let documents = read_machine_documents(&machine_root)?;
     let official_plates = read_official_plate_keys(profiles_root)?;
     let mut resolved = HashMap::new();
@@ -392,7 +399,14 @@ fn resolve_profile(
 }
 
 fn read_official_plate_keys(profiles_root: &Path) -> Result<BTreeSet<String>> {
-    let path = profiles_root.join("BBL/filament/fdm_filament_common.json");
+    let filament_root = profiles_root.join("BBL/filament");
+    if !filament_root.exists() {
+        return Ok(BTreeSet::new());
+    }
+    if !regular_directory(&filament_root) {
+        return Err(AppError::SlicerIncompatible);
+    }
+    let path = filament_root.join("fdm_filament_common.json");
     if !path.exists() {
         return Ok(BTreeSet::new());
     }
@@ -675,6 +689,31 @@ mod tests {
         .unwrap();
 
         assert!(load_printer_profiles(&profiles.root).unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_bbl_directory_symlink_that_escapes_the_profiles_root() {
+        use std::os::unix::fs::symlink;
+
+        let profiles = ProfileTree::new();
+        let outside = std::env::temp_dir().join(format!("cylune-outside-bbl-{}", Uuid::new_v4()));
+        fs::create_dir_all(outside.join("machine")).unwrap();
+        fs::write(
+            outside.join("machine/Bambu Lab Escaped 0.4 nozzle.json"),
+            r#"{
+                "type":"machine","name":"Bambu Lab Escaped 0.4 nozzle",
+                "instantiation":"true","printer_model":"Bambu Lab Escaped",
+                "nozzle_diameter":["0.4"],"plate_keys":["Textured PEI Plate"]
+            }"#,
+        )
+        .unwrap();
+        fs::remove_dir_all(profiles.root.join("BBL")).unwrap();
+        symlink(&outside, profiles.root.join("BBL")).unwrap();
+
+        assert!(load_printer_profiles(&profiles.root).is_err());
+
+        fs::remove_dir_all(outside).unwrap();
     }
 
     fn saved_input(name: &str, model: &str, is_default: bool) -> SavePrinter {
