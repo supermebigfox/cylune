@@ -498,6 +498,119 @@ mod tests {
     }
 
     #[test]
+    fn identical_generated_output_keeps_distinct_original_project_identities() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let generated = two_plate_fixture();
+        let root = std::env::temp_dir().join(format!(
+            "cylune-distinct-generated-identities-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let first_original = root.join("first-model.3mf");
+        let second_original = root.join("second-model.3mf");
+        fs::write(&first_original, b"first original project").unwrap();
+        fs::write(&second_original, b"second original project").unwrap();
+
+        let first = service
+            .import_generated_project(&generated, &first_original)
+            .unwrap();
+        let second = service
+            .import_generated_project(&generated, &second_original)
+            .unwrap();
+
+        assert_ne!(first.project_id, second.project_id);
+        assert_eq!(first.source_file_name, "first-model.3mf");
+        assert_eq!(second.source_file_name, "second-model.3mf");
+        assert_eq!(count(&service, "print_projects"), 2);
+
+        fs::remove_file(generated).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_generated_import_removes_unreferenced_extracted_thumbnails() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "cylune-failed-generated-media-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let media_store = MediaStore::new(root.clone()).unwrap();
+        let mut service = PrintService::with_media_store_and_stability_delay(
+            database,
+            media_store,
+            Duration::ZERO,
+        );
+        let generated = two_plate_fixture_with_shared_thumbnail();
+        let original = root.join("original.3mf");
+        fs::write(&original, b"original identity").unwrap();
+        service.before_final_stability_check = Some(Box::new(|path| {
+            fs::OpenOptions::new()
+                .append(true)
+                .open(path)
+                .unwrap()
+                .write_all(b"changed")
+                .unwrap();
+        }));
+
+        let error = service
+            .import_generated_project(&generated, &original)
+            .unwrap_err();
+
+        assert_eq!(error.code(), "file_not_stable");
+        let media_files = fs::read_dir(root.join("media"))
+            .unwrap()
+            .flat_map(|prefix| fs::read_dir(prefix.unwrap().path()).unwrap())
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_type().unwrap().is_file())
+            .count();
+        assert_eq!(media_files, 0);
+
+        fs::remove_file(generated).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn database_failure_after_thumbnail_extraction_removes_unreferenced_files() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        database
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER fail_generated_project
+             BEFORE INSERT ON print_projects
+             BEGIN SELECT RAISE(ABORT, 'forced failure'); END;",
+            )
+            .unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "cylune-failed-generated-transaction-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let media_store = MediaStore::new(root.clone()).unwrap();
+        let mut service = PrintService::with_media_store_and_stability_delay(
+            database,
+            media_store,
+            Duration::ZERO,
+        );
+        let generated = two_plate_fixture_with_shared_thumbnail();
+        let original = root.join("original.3mf");
+        fs::write(&original, b"original identity").unwrap();
+
+        assert!(service
+            .import_generated_project(&generated, &original)
+            .is_err());
+        let media_files = fs::read_dir(root.join("media"))
+            .unwrap()
+            .flat_map(|prefix| fs::read_dir(prefix.unwrap().path()).unwrap())
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_type().unwrap().is_file())
+            .count();
+        assert_eq!(media_files, 0);
+
+        fs::remove_file(generated).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn reimport_backfills_missing_legacy_project_thumbnails_and_source_path() {
         let database = AppDatabase::open_in_memory().unwrap();
         let media_root =
@@ -2009,7 +2122,7 @@ impl PrintService {
     }
 
     pub fn import_print_project(&mut self, path: &Path) -> Result<ImportProjectPreview> {
-        self.import_project_with_identity(path, path)
+        self.import_project_with_identity(path, path, false)
     }
 
     pub fn import_generated_project(
@@ -2017,13 +2130,14 @@ impl PrintService {
         generated_path: &Path,
         original_path: &Path,
     ) -> Result<ImportProjectPreview> {
-        self.import_project_with_identity(generated_path, original_path)
+        self.import_project_with_identity(generated_path, original_path, true)
     }
 
     fn import_project_with_identity(
         &mut self,
         path: &Path,
         identity_path: &Path,
+        generated: bool,
     ) -> Result<ImportProjectPreview> {
         if path
             .extension()
@@ -2033,7 +2147,12 @@ impl PrintService {
             return Err(AppError::StandaloneGcodeProfilesRequired);
         }
         let stability = self.ensure_stable(path)?;
-        let source_hash = sha256(path)?;
+        let content_hash = sha256(path)?;
+        let source_hash = if generated {
+            combined_generated_source_hash(identity_path, &content_hash)?
+        } else {
+            content_hash
+        };
         if let Some(parsed) = self.persisted_project(&source_hash)? {
             if let Some(preview) = self.continue_project(&source_hash)? {
                 let (parsed, media, refreshed_json) =
@@ -2060,6 +2179,29 @@ impl PrintService {
                 #[cfg(test)]
                 self.run_before_final_stability_check(path);
                 self.ensure_unchanged(path, stability)?;
+                if generated {
+                    if let Some(parsed_json) = refreshed_json {
+                        self.database.connection.execute(
+                            "UPDATE parse_cache SET parsed_json = ?1 WHERE source_hash = ?2",
+                            params![parsed_json, &source_hash],
+                        )?;
+                    }
+                    let source_file_name = identity_path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .filter(|name| !name.is_empty())
+                        .ok_or(AppError::InvalidFile)?
+                        .to_owned();
+                    return self.create_project_from_parsed(
+                        source_hash,
+                        source_file_name,
+                        identity_path.to_string_lossy().into_owned(),
+                        &parsed,
+                        ImportState::New,
+                        None,
+                        &media,
+                    );
+                }
                 self.attach_project_media(
                     project_id,
                     &source_hash,
@@ -2116,20 +2258,26 @@ impl PrintService {
         let parsed_json = serde_json::to_string(&parsed)
             .map_err(|error| AppError::Database(error.to_string()))?;
         let media = self.extract_project_media(path, &parsed)?;
-        #[cfg(test)]
-        self.run_before_final_stability_check(path);
-        self.ensure_unchanged(path, stability)?;
+        let result = (|| {
+            #[cfg(test)]
+            self.run_before_final_stability_check(path);
+            self.ensure_unchanged(path, stability)?;
 
-        let source_path = identity_path.to_string_lossy().into_owned();
-        self.create_project_from_parsed(
-            source_hash,
-            source_file_name,
-            source_path,
-            &parsed,
-            ImportState::New,
-            Some(parsed_json),
-            &media,
-        )
+            let source_path = identity_path.to_string_lossy().into_owned();
+            self.create_project_from_parsed(
+                source_hash,
+                source_file_name,
+                source_path,
+                &parsed,
+                ImportState::New,
+                Some(parsed_json),
+                &media,
+            )
+        })();
+        if result.is_err() {
+            self.cleanup_unreferenced_media(&media);
+        }
+        result
     }
 
     pub fn continue_project(&self, source_hash: &str) -> Result<Option<ImportProjectPreview>> {
@@ -2467,7 +2615,7 @@ impl PrintService {
                     plate.display_name,
                     thumbnail_asset_id,
                     plate.estimated_seconds,
-                    plate.gcode.max_layer,
+                    plate.gcode.display_layer_count(),
                     plate_json,
                 ],
             )?;
@@ -2526,6 +2674,26 @@ impl PrintService {
                 Ok(None)
             })
             .collect()
+    }
+
+    fn cleanup_unreferenced_media(&self, media: &[Option<MediaAsset>]) {
+        let Some(store) = &self.media_store else {
+            return;
+        };
+        for asset in media.iter().flatten() {
+            let referenced = self
+                .database
+                .connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM media_assets WHERE asset_id = ?1)",
+                    [&asset.asset_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap_or(true);
+            if !referenced {
+                let _ = store.remove_asset_file(asset);
+            }
+        }
     }
 
     fn persisted_project_media(
@@ -3045,7 +3213,7 @@ impl PrintService {
             source_hash,
             source_file_name,
             filaments,
-            max_layer: parsed.gcode.max_layer,
+            max_layer: parsed.gcode.display_layer_count(),
             state,
         })
     }
@@ -3084,7 +3252,7 @@ impl PrintService {
                     .and_then(Option::as_ref)
                     .map(|asset| asset.relative_path.clone()),
                 estimated_seconds: plate.estimated_seconds,
-                max_layer: plate.gcode.max_layer,
+                max_layer: plate.gcode.display_layer_count(),
                 filaments: legacy.filaments,
                 mappings: Vec::new(),
                 status: crate::domain::PlateStatus::PendingMapping,
@@ -3181,7 +3349,7 @@ impl PrintService {
                 plate_index,
                 thumbnail_url,
                 estimated_seconds: plate.estimated_seconds,
-                max_layer: plate.gcode.max_layer,
+                max_layer: plate.gcode.display_layer_count(),
                 filaments: legacy.filaments,
                 mappings,
                 status: status_for_job(outcome.as_deref(), mapping_count, plate.filaments.len())?,
@@ -3466,6 +3634,16 @@ pub(crate) fn sha256(path: &Path) -> Result<String> {
         }
         hasher.update(&buffer[..read]);
     }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn combined_generated_source_hash(original_path: &Path, content_hash: &str) -> Result<String> {
+    let original_hash = sha256(original_path)?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"cylune-generated-project-v1\0");
+    hasher.update(original_hash.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(content_hash.as_bytes());
     Ok(format!("{:x}", hasher.finalize()))
 }
 

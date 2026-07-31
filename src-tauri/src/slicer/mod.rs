@@ -9,7 +9,10 @@ use crate::{
     printers::{PrinterState, SavedPrinter},
 };
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use uuid::Uuid;
 
 pub use catalog::{SliceFilamentPreset, SlicePresetCatalog, SlicePresetOption, SliceProcessPreset};
@@ -57,6 +60,7 @@ fn resolve_fast_request(
     request: FastSliceRequest,
 ) -> Result<SliceRequest> {
     let inspection = inspect_3mf_content(&request.input_path)?;
+    let input_path = fs::canonicalize(&request.input_path).map_err(|_| AppError::InvalidFile)?;
     if inspection.kind != ThreeMfKind::Unsliced {
         return Err(AppError::SlicerIncompatible);
     }
@@ -107,7 +111,7 @@ fn resolve_fast_request(
     Ok(SliceRequest {
         printer,
         expected_filament_count: filament_keys.len(),
-        input: request.input_path,
+        input: input_path,
         plate_selection: PlateSelection::All,
         estimate_mode: model_mismatch || nozzle_mismatch,
         preserve_project_settings: request.preserve_project_settings,

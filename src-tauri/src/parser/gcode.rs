@@ -23,6 +23,14 @@ pub struct GcodeReport {
     pub declared_total_layers: Option<u32>,
 }
 
+impl GcodeReport {
+    pub fn display_layer_count(&self) -> u32 {
+        self.declared_total_layers
+            .filter(|layers| *layers > 0)
+            .unwrap_or(self.max_layer)
+    }
+}
+
 pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
     let mut current_tool = 0;
     let mut absolute_extrusion = true;
@@ -273,6 +281,15 @@ mod tests {
         assert_eq!(report.declared_total_layers, Some(14));
         assert_eq!(report.max_layer, 1);
         assert_eq!(report.totals_mm[&0], 2.0);
+    }
+
+    #[test]
+    fn declared_total_is_the_display_count_without_layer_markers() {
+        let report = parse_gcode(&b"; total layer number: 14\nM83\nG1 E2\n"[..]).unwrap();
+
+        assert_eq!(report.max_layer, 0);
+        assert_eq!(report.layers.len(), 0);
+        assert_eq!(report.display_layer_count(), 14);
     }
 
     #[test]

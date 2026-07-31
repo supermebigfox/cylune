@@ -182,6 +182,14 @@ struct BackupGcode {
     #[serde(default)]
     declared_total_layers: Option<u32>,
 }
+
+impl BackupGcode {
+    fn display_layer_count(&self) -> u32 {
+        self.declared_total_layers
+            .filter(|layers| *layers > 0)
+            .unwrap_or(self.max_layer)
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BackupLayer {
@@ -1129,7 +1137,7 @@ fn validate(b: &Backup) -> Result<()> {
                 .thumbnail_asset_id
                 .as_deref()
                 .is_some_and(|asset| !asset_ids.contains(asset))
-            || plate.max_layer != plate.parsed.gcode.max_layer
+            || plate.max_layer != plate.parsed.gcode.display_layer_count()
             || validate_parsed(&plate.parsed).is_err()
         {
             return Err(AppError::InvalidFile);
@@ -1560,7 +1568,7 @@ fn restore(tx: &Transaction<'_>, b: &Backup) -> Result<()> {
                 .map(|job| job.created_at.as_str())
                 .min()
                 .unwrap_or(&cached.created_at);
-            let max_layer = parsed.gcode.max_layer;
+            let max_layer = parsed.gcode.display_layer_count();
             let parsed_file: ParsedPrintFile = parsed.into();
             let parsed_json =
                 serde_json::to_string(&parsed_file).map_err(|_| AppError::InvalidFile)?;

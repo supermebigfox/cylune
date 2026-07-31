@@ -84,9 +84,18 @@ function deferred<T>() {
 function fixture({
   inspected = inspection,
   cancel = async () => undefined,
+  getTask = async () => ({
+    task_id: "slice-task-1",
+    state: "cancelled" as const,
+    phase: "slicing" as const,
+    percent: null,
+    project_id: null,
+    error_code: "slicer_cancelled",
+  }),
 }: {
   inspected?: SliceInspection;
   cancel?: (taskId: string) => Promise<void>;
+  getTask?: SliceApi["getSliceTask"];
 } = {}) {
   const handlers = new Map<SliceEventName, Set<(payload: unknown) => void>>();
   const subscribeEvent: SliceEventSubscriber = vi.fn(async (name, handler) => {
@@ -110,6 +119,7 @@ function fixture({
     listSlicePresets: vi.fn(async () => presets),
     startSlice,
     cancelSlice: vi.fn(cancel),
+    getSliceTask: vi.fn(getTask),
     openInBambuStudio,
   };
   const emit = <Name extends SliceEventName>(name: Name, payload: EventPayloads[Name]) => {
@@ -391,6 +401,30 @@ it("keeps cancel available, shows stopping until the child exits, and then unloc
   stopping.resolve();
   expect(await screen.findByText("切片已取消")).toBeVisible();
   expect(screen.getByRole("combobox", { name: "目标打印机" })).toBeEnabled();
+});
+
+it("uses the authoritative completed task when cancellation loses the import race", async () => {
+  const user = userEvent.setup();
+  const onProjectComplete = vi.fn();
+  const client = fixture({
+    getTask: async () => ({
+      task_id: "slice-task-1",
+      state: "completed",
+      phase: "complete",
+      percent: 100,
+      project_id: "project-after-import",
+      error_code: null,
+    }),
+  });
+  renderSlice({ client, onProjectComplete });
+  await prepareReadyForm();
+  await user.click(screen.getByRole("button", { name: "开始后台切片" }));
+
+  await user.click(screen.getByRole("button", { name: "取消切片" }));
+
+  await waitFor(() => expect(client.api.getSliceTask).toHaveBeenCalledWith("slice-task-1"));
+  expect(onProjectComplete).toHaveBeenCalledWith("project-after-import");
+  expect(screen.queryByText("切片已取消")).not.toBeInTheDocument();
 });
 
 it("shows an indeterminate phase and only opens Bambu Studio after the user clicks the fallback", async () => {

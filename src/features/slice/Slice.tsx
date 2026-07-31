@@ -150,6 +150,7 @@ export interface SliceApi {
   listSlicePresets(printerId: string): Promise<SlicePresetCatalog>;
   startSlice(request: SliceRequest): Promise<SliceTask>;
   cancelSlice(taskId: string): Promise<void>;
+  getSliceTask(taskId: string): Promise<SliceTask>;
   openInBambuStudio(path: string): Promise<void>;
 }
 
@@ -845,13 +846,18 @@ export function Slice({
     try {
       await api.cancelSlice(current.task_id);
       if (!mounted.current || taskRef.current?.task_id !== current.task_id) return;
-      const next: SliceTask = {
-        ...taskRef.current,
-        state: "cancelled",
-        error_code: "slicer_cancelled",
-      };
+      const next = await api.getSliceTask(current.task_id);
+      if (!mounted.current || taskRef.current?.task_id !== current.task_id) return;
       publishTask(next);
-      setView("cancelled");
+      setProgress({
+        phase: next.phase,
+        percent: validPercent(next.percent) ? next.percent : null,
+      });
+      if (next.state === "completed" && next.project_id) {
+        onProjectComplete(next.project_id);
+        return;
+      }
+      setView(viewForTask(next));
     } catch (cancelError) {
       if (!mounted.current) return;
       setError(copy("failedTitle"));

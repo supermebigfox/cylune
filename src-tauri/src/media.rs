@@ -113,6 +113,21 @@ impl MediaStore {
         self.persist(&destination, bytes)
     }
 
+    pub(crate) fn remove_asset_file(&self, asset: &MediaAsset) -> Result<()> {
+        validate_entry_name(&asset.relative_path)?;
+        let path = self.app_data_root.join(&asset.relative_path);
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+            return Err(AppError::InvalidFile);
+        }
+        fs::remove_file(path)?;
+        Ok(())
+    }
+
     fn persist(&self, destination: &Path, bytes: &[u8]) -> Result<bool> {
         let media_root = self.app_data_root.join("media");
         ensure_real_directory(&media_root)?;

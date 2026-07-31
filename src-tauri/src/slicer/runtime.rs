@@ -90,6 +90,7 @@ pub(crate) trait SliceImporter: Send + Sync {
 struct RunningSlice {
     child: Mutex<Child>,
     cancel_requested: AtomicBool,
+    import_started: AtomicBool,
     finished: Mutex<bool>,
     finished_changed: Condvar,
     task_dir: PathBuf,
@@ -100,6 +101,7 @@ impl RunningSlice {
         Self {
             child: Mutex::new(child),
             cancel_requested: AtomicBool::new(false),
+            import_started: AtomicBool::new(false),
             finished: Mutex::new(false),
             finished_changed: Condvar::new(),
             task_dir,
@@ -201,6 +203,11 @@ impl SlicerService {
     }
 
     pub fn start(&self, mut request: SliceRequest) -> Result<SliceTask> {
+        if request.filament_settings.len() != request.expected_filament_count
+            || request.preserve_filament_settings.len() != request.expected_filament_count
+        {
+            return Err(AppError::SlicerIncompatible);
+        }
         let installation = self.inner.discovery.discover()?;
         let task_id = Uuid::new_v4();
         let task_dir = self
@@ -337,10 +344,12 @@ impl SlicerService {
                 .map(|_| ())
                 .ok_or(AppError::InvalidJob);
         };
-        running.cancel_requested.store(true, Ordering::Release);
-        if let Ok(mut child) = running.child.lock() {
-            if child.try_wait().ok().flatten().is_none() {
-                let _ = child.kill();
+        if !running.import_started.load(Ordering::SeqCst) {
+            running.cancel_requested.store(true, Ordering::SeqCst);
+            if let Ok(mut child) = running.child.lock() {
+                if child.try_wait().ok().flatten().is_none() {
+                    let _ = child.kill();
+                }
             }
         }
 
@@ -519,6 +528,7 @@ fn run_to_completion(
                 &request,
                 &temporary_output,
                 inner.stability_delay,
+                &running,
             ),
             _ => Err(classify_slicer_failure(&running.task_dir)),
         }
@@ -567,9 +577,17 @@ fn finish_success(
     request: &SliceRequest,
     temporary_output: &Path,
     stability_delay: Duration,
+    running: &RunningSlice,
 ) -> Result<()> {
     set_progress(inner, task_id, SlicePhase::Validating);
     validate_sliced_output(temporary_output, stability_delay)?;
+    if running.cancel_requested.load(Ordering::SeqCst) {
+        return Err(AppError::SlicerCancelled);
+    }
+    running.import_started.store(true, Ordering::SeqCst);
+    if running.cancel_requested.load(Ordering::SeqCst) {
+        return Err(AppError::SlicerCancelled);
+    }
     set_progress(inner, task_id, SlicePhase::Importing);
     let project_id = inner
         .importer
@@ -1074,6 +1092,27 @@ mod tests {
     }
 
     #[test]
+    fn malformed_direct_request_is_rejected_before_filament_materialization() {
+        let fixture = Fixture::success();
+        let service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(Some(fixture.app.clone())),
+            fixture.cache.clone(),
+            Arc::new(RecordingImporter::new(Uuid::new_v4())),
+            Arc::new(RecordingEvents::default()),
+            Duration::ZERO,
+        );
+        let mut request = fixture.request();
+        request.preserve_filament_settings.clear();
+
+        let error = service.start(request).unwrap_err();
+
+        assert_eq!(error.code(), "slicer_incompatible");
+        assert!(fs::read_dir(fixture.cache.join("slices"))
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(true));
+    }
+
+    #[test]
     fn runs_the_cli_inside_the_private_task_directory() {
         let fixture = Fixture::success();
         fixture.set_script(
@@ -1222,6 +1261,31 @@ mod tests {
             .join(started.task_id.to_string())
             .exists());
         assert_eq!(events.names().last().unwrap(), "error:slicer_cancelled");
+    }
+
+    #[test]
+    fn cancellation_during_validation_never_imports_the_project() {
+        let fixture = Fixture::success();
+        let importer = Arc::new(RecordingImporter::new(Uuid::new_v4()));
+        let service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(Some(fixture.app.clone())),
+            fixture.cache.clone(),
+            importer.clone(),
+            Arc::new(RecordingEvents::default()),
+            Duration::from_millis(400),
+        );
+
+        let started = service.start(fixture.request()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while service.get(started.task_id).unwrap().phase != SlicePhase::Validating {
+            assert!(Instant::now() < deadline, "task never entered validation");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        service.cancel(started.task_id).unwrap();
+
+        let cancelled = service.get(started.task_id).unwrap();
+        assert_eq!(cancelled.state, SliceTaskState::Cancelled);
+        assert!(importer.imported.lock().unwrap().is_empty());
     }
 
     struct FailingImporter;
