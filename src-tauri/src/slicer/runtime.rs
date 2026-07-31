@@ -1,4 +1,10 @@
-use super::{build_bambu_args, InstallationDiscovery, SliceRequest};
+use super::{
+    build_bambu_args,
+    catalog::load_slice_preset_catalog,
+    command::{materialize_filament_settings, materialize_process_settings},
+    inspect_3mf_content, resolve_fast_request, FastSliceRequest, InstallationDiscovery,
+    SlicePresetCatalog, SliceRequest,
+};
 use crate::{
     error::{AppError, Result},
     parser::parse_3mf_project,
@@ -6,8 +12,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    fs::{self, File, OpenOptions},
-    io::{self, BufRead, BufReader, Read, Write},
+    fs,
+    io::{self, BufRead, BufReader, Read},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
@@ -21,6 +27,7 @@ use tauri::{Emitter, Manager};
 use uuid::Uuid;
 
 const STDERR_LIMIT: usize = 64 * 1024;
+const RESULT_JSON_LIMIT: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,7 +84,7 @@ pub(crate) trait SliceEventSink: Send + Sync {
 }
 
 pub(crate) trait SliceImporter: Send + Sync {
-    fn import_project(&self, path: &Path) -> Result<Uuid>;
+    fn import_project(&self, generated_path: &Path, original_path: &Path) -> Result<Uuid>;
 }
 
 struct RunningSlice {
@@ -158,7 +165,41 @@ impl SlicerService {
         }
     }
 
-    pub fn start(&self, request: SliceRequest) -> Result<SliceTask> {
+    pub fn start_fast(
+        &self,
+        request: FastSliceRequest,
+        printer: crate::printers::SavedPrinter,
+    ) -> Result<SliceTask> {
+        let installation = self.inner.discovery.discover()?;
+        let request = resolve_fast_request(&installation.profiles_root, printer, request)?;
+        self.start(request)
+    }
+
+    pub fn list_presets(
+        &self,
+        printer: &crate::printers::SavedPrinter,
+    ) -> Result<SlicePresetCatalog> {
+        let installation = self.inner.discovery.discover()?;
+        load_slice_preset_catalog(&installation.profiles_root, printer)
+    }
+
+    pub fn open_in_bambu_studio(&self, path: &Path) -> Result<()> {
+        inspect_3mf_content(path)?;
+        let installation = self.inner.discovery.discover()?;
+        let mut child = Command::new(&installation.executable)
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| AppError::SlicerFailed)?;
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
+        Ok(())
+    }
+
+    pub fn start(&self, mut request: SliceRequest) -> Result<SliceTask> {
         let installation = self.inner.discovery.discover()?;
         let task_id = Uuid::new_v4();
         let task_dir = self
@@ -168,6 +209,33 @@ impl SlicerService {
             .join(task_id.to_string());
         fs::create_dir_all(&task_dir).map_err(|_| AppError::SlicerFailed)?;
         let temporary_output = task_dir.join("output.gcode.3mf");
+        if request.preserve_project_settings || !request.fast_overrides.is_empty() {
+            let effective_process = task_dir.join("effective-process.json");
+            if let Err(error) = materialize_process_settings(
+                &request.process_settings,
+                &effective_process,
+                &request.fast_overrides,
+                request.preserve_project_settings,
+            ) {
+                let _ = fs::remove_dir_all(&task_dir);
+                return Err(error);
+            }
+            request.process_settings = effective_process;
+        }
+        for index in 0..request.filament_settings.len() {
+            if !request.preserve_filament_settings[index] {
+                continue;
+            }
+            let effective_filament = task_dir.join(format!("effective-filament-{index}.json"));
+            if let Err(error) = materialize_filament_settings(
+                &request.filament_settings[index],
+                &effective_filament,
+            ) {
+                let _ = fs::remove_dir_all(&task_dir);
+                return Err(error);
+            }
+            request.filament_settings[index] = effective_filament;
+        }
         let args = match build_bambu_args(&request, &temporary_output) {
             Ok(args) => args,
             Err(error) => {
@@ -175,9 +243,17 @@ impl SlicerService {
                 return Err(error);
             }
         };
+        #[cfg(test)]
+        if std::env::var_os("CYLUNE_TEST_PRINT_SLICER_STDERR").is_some() {
+            eprintln!(
+                "bambu slicer command: {:?} {:?}",
+                installation.executable, args
+            );
+        }
 
         let mut child = match Command::new(&installation.executable)
             .args(&args)
+            .current_dir(&task_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -333,12 +409,28 @@ struct TauriSliceImporter {
 }
 
 impl SliceImporter for TauriSliceImporter {
-    fn import_project(&self, path: &Path) -> Result<Uuid> {
-        let preview = crate::imports::import_print_project(
-            path.to_string_lossy().into_owned(),
-            self.app.state::<crate::imports::PrintState>(),
-            self.app.state::<crate::pet::runtime::PetRuntime>(),
-        )?;
+    fn import_project(&self, generated_path: &Path, original_path: &Path) -> Result<Uuid> {
+        let print_state = self.app.state::<crate::imports::PrintState>();
+        let mut service = print_state
+            .lock()
+            .map_err(|_| AppError::Database("print service lock poisoned".to_owned()))?;
+        let preview = service.import_generated_project(generated_path, original_path)?;
+        let summary = service.pending_summary()?;
+        let job_id = preview
+            .plates
+            .first()
+            .map(|plate| plate.job_id)
+            .ok_or(AppError::InvalidJob)?;
+        drop(service);
+        self.app
+            .state::<crate::pet::runtime::PetRuntime>()
+            .refresh_pending(
+                summary,
+                Some(crate::pet::runtime::PetSignal::ImportSucceeded {
+                    job_id,
+                    pending_count: summary.count,
+                }),
+            );
         Ok(preview.project_id)
     }
 }
@@ -366,6 +458,23 @@ fn run_to_completion(
     };
     let _ = stdout_reader.join();
     let _stderr = stderr_reader.join().unwrap_or_default();
+    #[cfg(test)]
+    if std::env::var_os("CYLUNE_TEST_PRINT_SLICER_STDERR").is_some() && !_stderr.is_empty() {
+        eprintln!(
+            "bambu slicer stderr:\n{}",
+            String::from_utf8_lossy(&_stderr)
+        );
+    }
+    #[cfg(test)]
+    if std::env::var_os("CYLUNE_TEST_PRINT_SLICER_STDERR").is_some() {
+        eprintln!(
+            "bambu slicer status: {:?}; output: {:?}",
+            status,
+            fs::metadata(&temporary_output)
+                .ok()
+                .map(|metadata| metadata.len())
+        );
+    }
 
     let outcome = if running.cancel_requested.load(Ordering::Acquire) {
         Err(AppError::SlicerCancelled)
@@ -378,7 +487,7 @@ fn run_to_completion(
                 &temporary_output,
                 inner.stability_delay,
             ),
-            _ => Err(AppError::SlicerFailed),
+            _ => Err(classify_slicer_failure(&running.task_dir)),
         }
     };
     if let Err(error) = outcome {
@@ -392,6 +501,33 @@ fn run_to_completion(
     running.mark_finished();
 }
 
+fn classify_slicer_failure(task_dir: &Path) -> AppError {
+    let result_path = task_dir.join("result.json");
+    let Ok(metadata) = fs::symlink_metadata(&result_path) else {
+        return AppError::SlicerFailed;
+    };
+    if metadata.file_type().is_symlink()
+        || !metadata.file_type().is_file()
+        || metadata.len() > RESULT_JSON_LIMIT
+    {
+        return AppError::SlicerFailed;
+    }
+    let Ok(bytes) = fs::read(result_path) else {
+        return AppError::SlicerFailed;
+    };
+    let Ok(result) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return AppError::SlicerFailed;
+    };
+    if result
+        .get("return_code")
+        .and_then(serde_json::Value::as_i64)
+        == Some(-101)
+    {
+        return AppError::SlicerPlateConflict;
+    }
+    AppError::SlicerFailed
+}
+
 fn finish_success(
     inner: &Arc<SlicerInner>,
     task_id: Uuid,
@@ -401,21 +537,10 @@ fn finish_success(
 ) -> Result<()> {
     set_progress(inner, task_id, SlicePhase::Validating);
     validate_sliced_output(temporary_output, stability_delay)?;
-    let published = publish_output(
-        temporary_output,
-        &request.destination,
-        request.allow_overwrite,
-        task_id,
-    )?;
     set_progress(inner, task_id, SlicePhase::Importing);
-    let project_id = match inner.importer.import_project(&request.destination) {
-        Ok(project_id) => project_id,
-        Err(error) => {
-            published.rollback();
-            return Err(error);
-        }
-    };
-    published.commit();
+    let project_id = inner
+        .importer
+        .import_project(temporary_output, &request.input)?;
     set_completed(inner, task_id, project_id);
     Ok(())
 }
@@ -460,91 +585,6 @@ impl FileStamp {
             modified_nanos,
         })
     }
-}
-
-struct PublishedOutput {
-    destination: PathBuf,
-    backup: Option<PathBuf>,
-}
-
-impl PublishedOutput {
-    fn commit(self) {
-        if let Some(backup) = self.backup {
-            let _ = fs::remove_file(backup);
-        }
-    }
-
-    fn rollback(self) {
-        let _ = fs::remove_file(&self.destination);
-        if let Some(backup) = self.backup {
-            let _ = fs::rename(backup, self.destination);
-        }
-    }
-}
-
-fn publish_output(
-    source: &Path,
-    destination: &Path,
-    allow_overwrite: bool,
-    task_id: Uuid,
-) -> Result<PublishedOutput> {
-    let parent = destination
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let stage = parent.join(format!(".cylune-{task_id}.tmp"));
-    let backup = parent.join(format!(".cylune-{task_id}.backup"));
-    let _ = fs::remove_file(&stage);
-    let _ = fs::remove_file(&backup);
-    copy_new_file(source, &stage)?;
-
-    let existing = fs::symlink_metadata(destination).ok();
-    if existing.is_some() && !allow_overwrite {
-        let _ = fs::remove_file(&stage);
-        return Err(AppError::OutputExists);
-    }
-    if existing.is_some() {
-        fs::rename(destination, &backup).map_err(|_| AppError::SlicerFailed)?;
-        if fs::rename(&stage, destination).is_err() {
-            let _ = fs::rename(&backup, destination);
-            let _ = fs::remove_file(&stage);
-            return Err(AppError::SlicerFailed);
-        }
-        return Ok(PublishedOutput {
-            destination: destination.to_path_buf(),
-            backup: Some(backup),
-        });
-    }
-
-    match fs::hard_link(&stage, destination) {
-        Ok(()) => {
-            let _ = fs::remove_file(stage);
-            Ok(PublishedOutput {
-                destination: destination.to_path_buf(),
-                backup: None,
-            })
-        }
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            let _ = fs::remove_file(stage);
-            Err(AppError::OutputExists)
-        }
-        Err(_) => {
-            let _ = fs::remove_file(stage);
-            Err(AppError::SlicerFailed)
-        }
-    }
-}
-
-fn copy_new_file(source: &Path, destination: &Path) -> Result<()> {
-    let mut input = File::open(source).map_err(|_| AppError::SlicerFailed)?;
-    let mut output = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(destination)
-        .map_err(|_| AppError::SlicerFailed)?;
-    io::copy(&mut input, &mut output).map_err(|_| AppError::SlicerFailed)?;
-    output.flush().map_err(|_| AppError::SlicerFailed)?;
-    output.sync_all().map_err(|_| AppError::SlicerFailed)
 }
 
 fn read_bounded(mut reader: impl Read, limit: usize) -> io::Result<Vec<u8>> {
@@ -599,6 +639,8 @@ fn finish_error(inner: &Arc<SlicerInner>, task_id: Uuid, error: AppError) {
         (SliceTaskState::Cancelled, AppError::SlicerCancelled.code())
     } else if matches!(error, AppError::OutputExists) {
         (SliceTaskState::Failed, AppError::OutputExists.code())
+    } else if matches!(error, AppError::SlicerPlateConflict) {
+        (SliceTaskState::Failed, AppError::SlicerPlateConflict.code())
     } else {
         (SliceTaskState::Failed, AppError::SlicerFailed.code())
     };
@@ -617,14 +659,21 @@ fn finish_error(inner: &Arc<SlicerInner>, task_id: Uuid, error: AppError) {
 #[cfg(test)]
 mod tests {
     use super::{
-        SliceComplete, SliceEventSink, SliceImporter, SlicePhase, SliceProgress, SliceTaskState,
-        SlicerService,
+        classify_slicer_failure, SliceComplete, SliceEventSink, SliceImporter, SlicePhase,
+        SliceProgress, SliceTaskState, SlicerService,
     };
     use crate::{
-        error::Result,
-        parser::parse_3mf_project,
+        db::AppDatabase,
+        error::{AppError, Result},
+        history::{ImportPlatePreview, ImportProjectPreview},
+        imports::{sha256, PrintService},
+        media::MediaStore,
+        parser::{parse_3mf_project, ParsedPlate},
         printers::SavedPrinter,
-        slicer::{FastOverrides, InstallationDiscovery, PlateSelection, SliceRequest},
+        slicer::{
+            inspect_3mf_content, FastOverrides, FastSliceRequest, InstallationDiscovery,
+            PlateSelection, SliceFilamentSelection, SliceRequest, ThreeMfKind,
+        },
     };
     use std::{
         fs::{self, File},
@@ -668,7 +717,7 @@ mod tests {
     }
 
     struct RecordingImporter {
-        imported: Mutex<Vec<PathBuf>>,
+        imported: Mutex<Vec<(PathBuf, PathBuf)>>,
         project_id: Uuid,
     }
 
@@ -682,10 +731,46 @@ mod tests {
     }
 
     impl SliceImporter for RecordingImporter {
-        fn import_project(&self, path: &Path) -> Result<Uuid> {
-            assert!(!parse_3mf_project(path)?.plates.is_empty());
-            self.imported.lock().unwrap().push(path.to_path_buf());
+        fn import_project(&self, generated_path: &Path, original_path: &Path) -> Result<Uuid> {
+            assert!(!parse_3mf_project(generated_path)?.plates.is_empty());
+            self.imported
+                .lock()
+                .unwrap()
+                .push((generated_path.to_path_buf(), original_path.to_path_buf()));
             Ok(self.project_id)
+        }
+    }
+
+    struct ProjectImporter {
+        service: Mutex<PrintService>,
+        preview: Mutex<Option<ImportProjectPreview>>,
+    }
+
+    impl ProjectImporter {
+        fn new(data_root: &Path) -> Self {
+            let database = AppDatabase::open(data_root.join("cylune.sqlite")).unwrap();
+            let media_store = MediaStore::new(data_root.to_path_buf()).unwrap();
+            Self {
+                service: Mutex::new(PrintService::with_media_store_and_stability_delay(
+                    database,
+                    media_store,
+                    Duration::ZERO,
+                )),
+                preview: Mutex::new(None),
+            }
+        }
+    }
+
+    impl SliceImporter for ProjectImporter {
+        fn import_project(&self, generated_path: &Path, original_path: &Path) -> Result<Uuid> {
+            let preview = self
+                .service
+                .lock()
+                .unwrap()
+                .import_generated_project(generated_path, original_path)?;
+            let project_id = preview.project_id;
+            *self.preview.lock().unwrap() = Some(preview);
+            Ok(project_id)
         }
     }
 
@@ -759,6 +844,9 @@ mod tests {
                 input: self.input.clone(),
                 destination: self.destination.clone(),
                 plate_selection: PlateSelection::All,
+                estimate_mode: false,
+                preserve_project_settings: false,
+                preserve_filament_settings: vec![false],
                 machine_settings: self.machine.clone(),
                 process_settings: self.process.clone(),
                 filament_settings: vec![self.filament.clone()],
@@ -805,8 +893,37 @@ mod tests {
         archive.finish().unwrap();
     }
 
+    fn write_unsliced_fixture(path: &Path) {
+        let mut archive = zip::ZipWriter::new(File::create(path).unwrap());
+        let options = FileOptions::default();
+        for (name, contents) in [
+            ("[Content_Types].xml", b"<Types/>".as_slice()),
+            ("3D/3dmodel.model", b"<model/>".as_slice()),
+            (
+                "Metadata/project_settings.config",
+                br##"{"filament_settings_id":["Bambu PLA Basic"],"filament_type":["PLA"],"filament_colour":["#FFFFFF"]}"##.as_slice(),
+            ),
+            (
+                "Metadata/model_settings.config",
+                br#"<config><plate><metadata key="plater_id" value="1"/></plate></config>"#.as_slice(),
+            ),
+        ] {
+            archive.start_file(name, options).unwrap();
+            archive.write_all(contents).unwrap();
+        }
+        archive.finish().unwrap();
+    }
+
     fn wait_for_terminal(service: &SlicerService, task_id: Uuid) -> super::SliceTask {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        wait_for_terminal_until(service, task_id, Duration::from_secs(15))
+    }
+
+    fn wait_for_terminal_until(
+        service: &SlicerService,
+        task_id: Uuid,
+        timeout: Duration,
+    ) -> super::SliceTask {
+        let deadline = Instant::now() + timeout;
         loop {
             let task = service.get(task_id).unwrap();
             if task.state != SliceTaskState::Running {
@@ -818,7 +935,7 @@ mod tests {
     }
 
     #[test]
-    fn validates_publishes_and_imports_before_completing() {
+    fn validates_imports_private_output_and_removes_it() {
         let fixture = Fixture::success();
         let project_id = Uuid::new_v4();
         let importer = Arc::new(RecordingImporter::new(project_id));
@@ -836,11 +953,15 @@ mod tests {
 
         assert_eq!(completed.state, SliceTaskState::Completed);
         assert_eq!(completed.project_id, Some(project_id));
+        let task_root = fixture
+            .cache
+            .join("slices")
+            .join(started.task_id.to_string());
         assert_eq!(
             importer.imported.lock().unwrap().as_slice(),
-            [fixture.destination.clone()]
+            [(task_root.join("output.gcode.3mf"), fixture.input.clone())]
         );
-        assert!(fixture.destination.is_file());
+        assert!(!fixture.destination.exists());
         assert_eq!(
             events.names(),
             [
@@ -852,11 +973,119 @@ mod tests {
                 "complete".to_owned(),
             ]
         );
-        assert!(!fixture
-            .cache
+        assert!(!task_root.exists());
+    }
+
+    #[test]
+    fn materializes_fast_settings_into_the_single_process_profile_argument() {
+        let fixture = Fixture::success();
+        fs::write(
+            &fixture.process,
+            br#"{"type":"process","name":"0.20 Standard","layer_height":"0.2"}"#,
+        )
+        .unwrap();
+        fixture.set_script(
+            b"#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/captured-args.txt\"\nout=''\nprev=''\nfor arg in \"$@\"; do\n  if [ \"$prev\" = '--export-3mf' ]; then out=\"$arg\"; break; fi\n  prev=\"$arg\"\ndone\ncp \"$(dirname \"$0\")/fixture.gcode.3mf\" \"$out\"\n",
+        );
+        let service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(Some(fixture.app.clone())),
+            fixture.cache.clone(),
+            Arc::new(RecordingImporter::new(Uuid::new_v4())),
+            Arc::new(RecordingEvents::default()),
+            Duration::ZERO,
+        );
+        let mut request = fixture.request();
+        request.fast_overrides.infill_density = Some(18.0);
+        request.fast_overrides.support_enabled = Some(true);
+        request.fast_overrides.plate_type = Some("Supertack Plate".to_owned());
+
+        let started = service.start(request).unwrap();
+        let completed = wait_for_terminal(&service, started.task_id);
+
+        assert_eq!(completed.state, SliceTaskState::Completed);
+        let arguments = fs::read_to_string(
+            fixture
+                .executable
+                .parent()
+                .unwrap()
+                .join("captured-args.txt"),
+        )
+        .unwrap();
+        assert!(arguments.contains("effective-process.json"));
+        assert!(!arguments.contains("--sparse_infill_density"));
+        assert!(!arguments.contains("--enable_support"));
+        assert!(!arguments.contains("--curr_bed_type"));
+    }
+
+    #[test]
+    fn runs_the_cli_inside_the_private_task_directory() {
+        let fixture = Fixture::success();
+        fixture.set_script(
+            b"#!/bin/sh\npwd > \"$(dirname \"$0\")/captured-cwd.txt\"\nprintf 'bambu side effect' > result.json\nout=''\nprev=''\nfor arg in \"$@\"; do\n  if [ \"$prev\" = '--export-3mf' ]; then out=\"$arg\"; break; fi\n  prev=\"$arg\"\ndone\ncp \"$(dirname \"$0\")/fixture.gcode.3mf\" \"$out\"\n",
+        );
+        let service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(Some(fixture.app.clone())),
+            fixture.cache.clone(),
+            Arc::new(RecordingImporter::new(Uuid::new_v4())),
+            Arc::new(RecordingEvents::default()),
+            Duration::ZERO,
+        );
+
+        let started = service.start(fixture.request()).unwrap();
+        let completed = wait_for_terminal(&service, started.task_id);
+
+        assert_eq!(completed.state, SliceTaskState::Completed);
+        let task_directory = fs::canonicalize(&fixture.cache)
+            .unwrap()
             .join("slices")
-            .join(started.task_id.to_string())
-            .exists());
+            .join(started.task_id.to_string());
+        let captured = fs::read_to_string(
+            fixture
+                .executable
+                .parent()
+                .unwrap()
+                .join("captured-cwd.txt"),
+        )
+        .unwrap();
+        assert_eq!(PathBuf::from(captured.trim()), task_directory);
+        assert!(!fixture.root.join("result.json").exists());
+        assert!(!task_directory.exists());
+    }
+
+    #[test]
+    fn opens_a_valid_project_only_when_the_explicit_gui_action_is_called() {
+        let fixture = Fixture::success();
+        write_unsliced_fixture(&fixture.input);
+        fixture.set_script(
+            b"#!/bin/sh\nprintf '%s\\n' \"$#\" \"$1\" > \"$(dirname \"$0\")/opened-project.txt\"\n",
+        );
+        let service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(Some(fixture.app.clone())),
+            fixture.cache.clone(),
+            Arc::new(RecordingImporter::new(Uuid::new_v4())),
+            Arc::new(RecordingEvents::default()),
+            Duration::ZERO,
+        );
+
+        service.open_in_bambu_studio(&fixture.input).unwrap();
+
+        let capture = fixture
+            .executable
+            .parent()
+            .unwrap()
+            .join("opened-project.txt");
+        // macOS can defer a newly spawned app-bundle executable while other
+        // process-heavy tests are running, even though spawn itself succeeds.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !capture.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "open action did not launch the executable"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let opened = fs::read_to_string(capture).unwrap();
+        assert_eq!(opened, format!("1\n{}\n", fixture.input.display()));
     }
 
     #[test]
@@ -967,7 +1196,7 @@ mod tests {
     struct FailingImporter;
 
     impl SliceImporter for FailingImporter {
-        fn import_project(&self, _path: &Path) -> Result<Uuid> {
+        fn import_project(&self, _generated_path: &Path, _original_path: &Path) -> Result<Uuid> {
             Err(crate::error::AppError::Database(
                 "private /Users/robin/model path".to_owned(),
             ))
@@ -1015,5 +1244,372 @@ mod tests {
                 "code": "slicer_failed"
             })
         );
+    }
+
+    #[test]
+    fn classifies_bambu_plate_path_conflicts_from_private_result_json() {
+        let task_dir =
+            std::env::temp_dir().join(format!("cylune-slicer-conflict-result-{}", Uuid::new_v4()));
+        fs::create_dir_all(&task_dir).unwrap();
+        fs::write(
+            task_dir.join("result.json"),
+            br#"{"return_code":-101,"plate_index":4,"error_string":"untrusted details"}"#,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            classify_slicer_failure(&task_dir),
+            AppError::SlicerPlateConflict
+        ));
+
+        fs::remove_dir_all(task_dir).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires CYLUNE_SLICE_INPUT_3MF and CYLUNE_EXPECTED_PLATE_COUNT with an installed Bambu Studio"]
+    fn smoke_real_slice_validates_output_then_imports_one_project() {
+        let source = PathBuf::from(
+            std::env::var_os("CYLUNE_SLICE_INPUT_3MF").expect("CYLUNE_SLICE_INPUT_3MF is required"),
+        );
+        let expected_plate_count = std::env::var("CYLUNE_EXPECTED_PLATE_COUNT")
+            .expect("CYLUNE_EXPECTED_PLATE_COUNT is required")
+            .parse::<usize>()
+            .expect("CYLUNE_EXPECTED_PLATE_COUNT must be a positive integer");
+        assert!(expected_plate_count > 0);
+        let expected_source_hash = std::env::var("CYLUNE_EXPECTED_SOURCE_SHA256").ok();
+        let source_hash_before = sha256(&source).unwrap();
+        if let Some(expected) = expected_source_hash.as_deref() {
+            assert_eq!(source_hash_before, expected);
+        }
+        let source_metadata_before = fs::metadata(&source).unwrap();
+
+        let root =
+            std::env::temp_dir().join(format!("cylune-real-slice-import-{}", Uuid::new_v4()));
+        let cache = root.join("cache");
+        let data_root = root.join("data");
+        let output_root = root.join("output");
+        fs::create_dir_all(&cache).unwrap();
+        fs::create_dir_all(&data_root).unwrap();
+        fs::create_dir_all(&output_root).unwrap();
+        let copied_input = root.join("input.3mf");
+        fs::copy(&source, &copied_input).unwrap();
+        assert_eq!(sha256(&copied_input).unwrap(), source_hash_before);
+
+        let inspection = inspect_3mf_content(&copied_input).unwrap();
+        assert_eq!(inspection.kind, ThreeMfKind::Unsliced);
+        assert_eq!(inspection.plate_count as usize, expected_plate_count);
+        let model_key = std::env::var("CYLUNE_TARGET_MODEL_KEY")
+            .ok()
+            .or_else(|| inspection.embedded_model_key.clone())
+            .expect("the supplied project or test target must declare a printer model");
+        let nozzle_diameter = std::env::var("CYLUNE_TARGET_NOZZLE_DIAMETER")
+            .ok()
+            .map(|value| {
+                value
+                    .parse::<f64>()
+                    .expect("CYLUNE_TARGET_NOZZLE_DIAMETER must be a number")
+            })
+            .or(inspection.embedded_nozzle_diameter)
+            .expect("the supplied project or test target must declare a nozzle diameter");
+        let process_key = std::env::var("CYLUNE_TARGET_PROCESS_KEY")
+            .ok()
+            .or_else(|| inspection.embedded_process_key.clone())
+            .expect("the supplied project or test target must declare a process preset");
+        let plate_key = std::env::var("CYLUNE_TARGET_PLATE_KEY")
+            .ok()
+            .or_else(|| inspection.embedded_plate_key.clone())
+            .expect("the supplied project or test target must declare a plate type");
+        let filament_keys = std::env::var("CYLUNE_TARGET_FILAMENT_KEYS")
+            .ok()
+            .map(|value| {
+                value
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| {
+                inspection
+                    .tools
+                    .iter()
+                    .map(|tool| {
+                        tool.embedded_filament_key
+                            .clone()
+                            .expect("every tool must resolve to an installed filament preset")
+                    })
+                    .collect()
+            });
+        assert_eq!(filament_keys.len(), inspection.tools.len());
+        let filaments = inspection
+            .tools
+            .iter()
+            .zip(filament_keys)
+            .map(|(tool, preset_key)| SliceFilamentSelection {
+                tool: tool.tool,
+                preset_key,
+                override_project_settings: false,
+            })
+            .collect::<Vec<_>>();
+        let default_plate =
+            std::env::var("CYLUNE_TARGET_DEFAULT_PLATE").unwrap_or_else(|_| plate_key.clone());
+        let printer_mismatch = inspection
+            .embedded_model_key
+            .as_deref()
+            .is_some_and(|embedded| embedded != model_key)
+            || inspection
+                .embedded_nozzle_diameter
+                .is_some_and(|embedded| (embedded - nozzle_diameter).abs() > 0.001);
+        let printer = SavedPrinter {
+            printer_id: Uuid::new_v4().to_string(),
+            display_name: model_key.clone(),
+            model_key,
+            nozzle_diameter,
+            default_plate,
+            ams_kind: "none".to_owned(),
+            is_default: true,
+            is_available: true,
+        };
+        let destination = output_root.join("sliced.gcode.3mf");
+        let plate_override = inspection.embedded_plate_key.as_deref() != Some(plate_key.as_str());
+        let request = FastSliceRequest {
+            input_path: copied_input.clone(),
+            output_path: destination.clone(),
+            printer_id: printer.printer_id.clone(),
+            process_key,
+            plate_key,
+            plate_override,
+            infill_density: None,
+            support_enabled: None,
+            filaments,
+            confirm_printer_mismatch: printer_mismatch,
+            preserve_project_settings: true,
+        };
+        let app = std::env::var_os("BAMBU_STUDIO_APP")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/Applications/BambuStudio.app"));
+        let importer = Arc::new(ProjectImporter::new(&data_root));
+        let events = Arc::new(RecordingEvents::default());
+        let service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(Some(app)),
+            cache.clone(),
+            importer.clone(),
+            events.clone(),
+            Duration::from_millis(150),
+        );
+
+        let started = service.start_fast(request, printer).unwrap();
+        let completed =
+            wait_for_terminal_until(&service, started.task_id, Duration::from_secs(1800));
+        if let Ok(expected_error_code) = std::env::var("CYLUNE_EXPECTED_SLICE_ERROR_CODE") {
+            assert_eq!(completed.state, SliceTaskState::Failed);
+            assert_eq!(
+                completed.error_code.as_deref(),
+                Some(expected_error_code.as_str())
+            );
+            assert!(!destination.exists());
+            assert!(importer.preview.lock().unwrap().is_none());
+            let task_root = cache.join("slices").join(started.task_id.to_string());
+            assert!(!task_root.exists());
+            fs::remove_dir_all(&root).unwrap();
+            let source_metadata_after = fs::metadata(&source).unwrap();
+            assert_eq!(source_metadata_after.len(), source_metadata_before.len());
+            assert_eq!(
+                source_metadata_after.modified().unwrap(),
+                source_metadata_before.modified().unwrap()
+            );
+            assert_eq!(sha256(&source).unwrap(), source_hash_before);
+            return;
+        }
+        assert_eq!(completed.state, SliceTaskState::Completed);
+        assert!(destination.is_file());
+
+        let parsed_output = parse_3mf_project(&destination).unwrap();
+        assert_eq!(parsed_output.plates.len(), expected_plate_count);
+        let preview = importer
+            .preview
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("validated output must be imported before completion");
+        assert_eq!(completed.project_id, Some(preview.project_id));
+        assert_eq!(preview.plates.len(), expected_plate_count);
+        for (plate, imported) in parsed_output.plates.iter().zip(&preview.plates) {
+            assert_plate_is_imported_from_output(plate, imported, &data_root);
+        }
+        if let Ok(expected_total_grams) = std::env::var("CYLUNE_EXPECTED_TOTAL_GRAMS") {
+            let expected_total_grams = expected_total_grams
+                .parse::<f64>()
+                .expect("CYLUNE_EXPECTED_TOTAL_GRAMS must be a number");
+            let tolerance = std::env::var("CYLUNE_EXPECTED_TOTAL_GRAMS_TOLERANCE")
+                .ok()
+                .map(|value| {
+                    value
+                        .parse::<f64>()
+                        .expect("CYLUNE_EXPECTED_TOTAL_GRAMS_TOLERANCE must be a number")
+                })
+                .unwrap_or(0.001);
+            let imported_total_grams = preview
+                .plates
+                .iter()
+                .flat_map(|plate| &plate.filaments)
+                .map(|filament| filament.total_grams)
+                .sum::<f64>();
+            assert!(
+                (imported_total_grams - expected_total_grams).abs() <= tolerance,
+                "expected {expected_total_grams}g ± {tolerance}g, got {imported_total_grams}g"
+            );
+        }
+        let imported_total_seconds = preview
+            .plates
+            .iter()
+            .map(|plate| plate.estimated_seconds.unwrap_or(0))
+            .sum::<u32>();
+        if let Ok(minimum) = std::env::var("CYLUNE_EXPECTED_TOTAL_SECONDS_MIN") {
+            let minimum = minimum
+                .parse::<u32>()
+                .expect("CYLUNE_EXPECTED_TOTAL_SECONDS_MIN must be an integer");
+            assert!(imported_total_seconds >= minimum);
+        }
+        if let Ok(maximum) = std::env::var("CYLUNE_EXPECTED_TOTAL_SECONDS_MAX") {
+            let maximum = maximum
+                .parse::<u32>()
+                .expect("CYLUNE_EXPECTED_TOTAL_SECONDS_MAX must be an integer");
+            assert!(imported_total_seconds <= maximum);
+        }
+
+        let print_service = importer.service.lock().unwrap();
+        let project_count: u32 = print_service
+            .database
+            .connection
+            .query_row("SELECT COUNT(*) FROM print_projects", [], |row| row.get(0))
+            .unwrap();
+        let distinct_project_count: u32 = print_service
+            .database
+            .connection
+            .query_row(
+                "SELECT COUNT(DISTINCT project_id) FROM print_plates",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let plate_count: u32 = print_service
+            .database
+            .connection
+            .query_row("SELECT COUNT(*) FROM print_plates", [], |row| row.get(0))
+            .unwrap();
+        let job_count: u32 = print_service
+            .database
+            .connection
+            .query_row("SELECT COUNT(*) FROM print_jobs", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(project_count, 1);
+        assert_eq!(distinct_project_count, 1);
+        assert_eq!(plate_count as usize, expected_plate_count);
+        assert_eq!(job_count as usize, expected_plate_count);
+        drop(print_service);
+
+        assert_eq!(
+            events.names(),
+            [
+                format!("progress:{:?}", SlicePhase::Preparing),
+                format!("progress:{:?}", SlicePhase::Slicing),
+                format!("progress:{:?}", SlicePhase::Validating),
+                format!("progress:{:?}", SlicePhase::Importing),
+                format!("progress:{:?}", SlicePhase::Complete),
+                "complete".to_owned(),
+            ]
+        );
+        println!(
+            "real_slice project_id={} plates={} output_hash={} metrics={:?}",
+            preview.project_id,
+            preview.plates.len(),
+            sha256(&destination).unwrap(),
+            preview
+                .plates
+                .iter()
+                .map(|plate| (
+                    plate.plate_index,
+                    plate.estimated_seconds,
+                    plate.max_layer,
+                    plate
+                        .filaments
+                        .iter()
+                        .map(|filament| (
+                            filament.tool,
+                            filament.profile.color_hex.clone(),
+                            filament.total_grams
+                        ))
+                        .collect::<Vec<_>>()
+                ))
+                .collect::<Vec<_>>()
+        );
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(5);
+        let task_root = cache.join("slices").join(started.task_id.to_string());
+        while task_root.exists() && Instant::now() < cleanup_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!task_root.exists());
+        fs::remove_dir_all(&root).unwrap();
+
+        let source_metadata_after = fs::metadata(&source).unwrap();
+        assert_eq!(source_metadata_after.len(), source_metadata_before.len());
+        assert_eq!(
+            source_metadata_after.modified().unwrap(),
+            source_metadata_before.modified().unwrap()
+        );
+        assert_eq!(sha256(&source).unwrap(), source_hash_before);
+    }
+
+    fn assert_plate_is_imported_from_output(
+        output: &ParsedPlate,
+        imported: &ImportPlatePreview,
+        data_root: &Path,
+    ) {
+        assert_eq!(imported.plate_index, output.plate_index);
+        assert_eq!(imported.estimated_seconds, output.estimated_seconds);
+        assert!(imported
+            .estimated_seconds
+            .is_some_and(|seconds| seconds > 0));
+        assert_eq!(imported.max_layer, output.gcode.max_layer);
+        assert!(imported.max_layer > 0);
+        assert_eq!(imported.filaments.len(), output.filaments.len());
+        assert!(imported
+            .filaments
+            .iter()
+            .any(|filament| filament.total_grams > 0.0));
+        for profile in &output.filaments {
+            let imported_filament = imported
+                .filaments
+                .iter()
+                .find(|filament| filament.tool == profile.tool)
+                .unwrap();
+            let expected_mm = output
+                .gcode
+                .totals_mm
+                .get(&profile.tool)
+                .copied()
+                .unwrap_or(0.0);
+            let expected_grams = profile.grams_for_length_mm(expected_mm);
+            assert_eq!(imported_filament.profile.preset_id, profile.preset_id);
+            assert_eq!(imported_filament.profile.color_hex, profile.color_hex);
+            assert!((imported_filament.total_grams - expected_grams).abs() < 1e-9);
+        }
+        let relative_thumbnail = imported
+            .thumbnail_url
+            .as_deref()
+            .expect("every sliced plate must import a thumbnail");
+        let thumbnail = data_root.join(relative_thumbnail);
+        assert!(thumbnail.is_file());
+        let pixels = image::open(thumbnail).unwrap().to_rgb8();
+        assert!(pixels.width() > 1 && pixels.height() > 1);
+        let background = pixels.get_pixel(0, 0).0;
+        assert!(pixels.pixels().any(|pixel| {
+            let [red, green, blue] = pixel.0;
+            red.abs_diff(background[0]) > 3
+                || green.abs_diff(background[1]) > 3
+                || blue.abs_diff(background[2]) > 3
+        }));
     }
 }

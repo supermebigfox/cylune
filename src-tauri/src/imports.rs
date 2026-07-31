@@ -43,8 +43,12 @@ mod tests {
     }
 
     fn two_plate_fixture() -> PathBuf {
+        project_fixture_with_plate_count(2)
+    }
+
+    fn project_fixture_with_plate_count(plate_count: u32) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "cylune-two-plate-import-{}.3mf",
+            "cylune-{plate_count}-plate-import-{}.3mf",
             uuid::Uuid::new_v4()
         ));
         let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
@@ -57,7 +61,7 @@ mod tests {
                 br##"{"filament_settings_id":["Bambu PLA Basic"],"filament_type":["PLA"],"filament_colour":["#FFFFFF"],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
             )
             .unwrap();
-        for plate_index in [1, 2] {
+        for plate_index in 1..=plate_count {
             archive
                 .start_file(format!("Metadata/plate_{plate_index}.gcode"), options)
                 .unwrap();
@@ -165,6 +169,108 @@ mod tests {
         assert_eq!(count(&service, "print_jobs"), 2);
         assert_eq!(count(&service, "parse_cache"), 1);
         assert_eq!(count(&service, "ledger_events"), ledger_before);
+    }
+
+    #[test]
+    fn eight_plate_import_creates_one_project_id_and_eight_plate_jobs() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = project_fixture_with_plate_count(8);
+
+        let preview = service.import_print_project(&path).unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(preview.plates.len(), 8);
+        assert_eq!(count(&service, "print_projects"), 1);
+        assert_eq!(count(&service, "print_plates"), 8);
+        assert_eq!(count(&service, "print_jobs"), 8);
+        let distinct_project_ids: u32 = service
+            .database
+            .connection
+            .query_row(
+                "SELECT COUNT(DISTINCT project_id) FROM print_plates",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(distinct_project_ids, 1);
+    }
+
+    #[test]
+    #[ignore = "requires CYLUNE_REAL_MULTI_PLATE_GCODE_3MF and CYLUNE_EXPECTED_PLATE_COUNT"]
+    fn real_multi_plate_gcode_import_keeps_one_project_and_one_job_per_plate() {
+        let path = PathBuf::from(
+            std::env::var_os("CYLUNE_REAL_MULTI_PLATE_GCODE_3MF")
+                .expect("CYLUNE_REAL_MULTI_PLATE_GCODE_3MF is required"),
+        );
+        let expected_plate_count = std::env::var("CYLUNE_EXPECTED_PLATE_COUNT")
+            .expect("CYLUNE_EXPECTED_PLATE_COUNT is required")
+            .parse::<usize>()
+            .expect("CYLUNE_EXPECTED_PLATE_COUNT must be a positive integer");
+        let database = AppDatabase::open_in_memory().unwrap();
+        let media_root = std::env::temp_dir().join(format!(
+            "cylune-real-multi-plate-media-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let media_store = MediaStore::new(media_root.clone()).unwrap();
+        let mut service = PrintService::with_media_store_and_stability_delay(
+            database,
+            media_store,
+            Duration::ZERO,
+        );
+
+        let preview = service.import_print_project(&path).unwrap();
+
+        assert_eq!(preview.plates.len(), expected_plate_count);
+        assert_eq!(count(&service, "print_projects"), 1);
+        assert_eq!(
+            count(&service, "print_plates") as usize,
+            expected_plate_count
+        );
+        assert_eq!(count(&service, "print_jobs") as usize, expected_plate_count);
+        assert!(preview.plates.iter().all(|plate| {
+            plate.estimated_seconds.is_some_and(|seconds| seconds > 0)
+                && plate.max_layer > 0
+                && plate.thumbnail_url.is_some()
+                && plate
+                    .filaments
+                    .iter()
+                    .any(|filament| filament.total_grams > 0.0)
+        }));
+        let distinct_project_ids: u32 = service
+            .database
+            .connection
+            .query_row(
+                "SELECT COUNT(DISTINCT project_id) FROM print_plates",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(distinct_project_ids, 1);
+        println!(
+            "real_multi_plate project_id={} metrics={:?}",
+            preview.project_id,
+            preview
+                .plates
+                .iter()
+                .map(|plate| (
+                    plate.plate_index,
+                    plate.estimated_seconds,
+                    plate.max_layer,
+                    plate
+                        .filaments
+                        .iter()
+                        .map(|filament| (
+                            filament.tool,
+                            filament.profile.color_hex.clone(),
+                            filament.total_grams
+                        ))
+                        .collect::<Vec<_>>()
+                ))
+                .collect::<Vec<_>>()
+        );
+
+        fs::remove_dir_all(media_root).unwrap();
     }
 
     #[test]
@@ -345,6 +451,50 @@ mod tests {
         );
         assert_eq!(count(&service, "media_assets"), 2);
         fs::remove_dir_all(media_root).unwrap();
+    }
+
+    #[test]
+    fn generated_project_uses_original_identity_and_persists_its_thumbnail() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "cylune-generated-identity-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let media_store = MediaStore::new(root.clone()).unwrap();
+        let mut service = PrintService::with_media_store_and_stability_delay(
+            database,
+            media_store,
+            Duration::ZERO,
+        );
+        let generated = two_plate_fixture_with_shared_thumbnail();
+        let original = root.join("original-model.3mf");
+        fs::write(&original, b"original project identity").unwrap();
+
+        let preview = service
+            .import_generated_project(&generated, &original)
+            .unwrap();
+
+        assert_eq!(preview.source_file_name, "original-model.3mf");
+        let (source_file_name, source_path): (String, String) = service
+            .database
+            .connection
+            .query_row(
+                "SELECT source_file_name, source_path FROM print_projects WHERE project_id = ?1",
+                [preview.project_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(source_file_name, "original-model.3mf");
+        assert_eq!(source_path, original.to_string_lossy());
+        assert!(preview
+            .plates
+            .iter()
+            .all(|plate| plate.thumbnail_url.is_some()));
+        assert_eq!(count(&service, "media_assets"), 2);
+
+        fs::remove_file(generated).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1859,6 +2009,22 @@ impl PrintService {
     }
 
     pub fn import_print_project(&mut self, path: &Path) -> Result<ImportProjectPreview> {
+        self.import_project_with_identity(path, path)
+    }
+
+    pub fn import_generated_project(
+        &mut self,
+        generated_path: &Path,
+        original_path: &Path,
+    ) -> Result<ImportProjectPreview> {
+        self.import_project_with_identity(generated_path, original_path)
+    }
+
+    fn import_project_with_identity(
+        &mut self,
+        path: &Path,
+        identity_path: &Path,
+    ) -> Result<ImportProjectPreview> {
         if path
             .extension()
             .and_then(|extension| extension.to_str())
@@ -1878,7 +2044,7 @@ impl PrintService {
                 self.attach_project_media(
                     preview.project_id,
                     &source_hash,
-                    path,
+                    identity_path,
                     &parsed,
                     &media,
                     refreshed_json.as_deref(),
@@ -1897,7 +2063,7 @@ impl PrintService {
                 self.attach_project_media(
                     project_id,
                     &source_hash,
-                    path,
+                    identity_path,
                     &parsed,
                     &media,
                     refreshed_json.as_deref(),
@@ -1930,14 +2096,14 @@ impl PrintService {
             return self.create_project_from_parsed(
                 source_hash,
                 source_file_name,
-                path.to_string_lossy().into_owned(),
+                identity_path.to_string_lossy().into_owned(),
                 &parsed,
                 ImportState::New,
                 None,
                 &media,
             );
         }
-        let source_file_name = path
+        let source_file_name = identity_path
             .file_name()
             .and_then(|name| name.to_str())
             .filter(|name| !name.is_empty())
@@ -1954,7 +2120,7 @@ impl PrintService {
         self.run_before_final_stability_check(path);
         self.ensure_unchanged(path, stability)?;
 
-        let source_path = path.to_string_lossy().into_owned();
+        let source_path = identity_path.to_string_lossy().into_owned();
         self.create_project_from_parsed(
             source_hash,
             source_file_name,
