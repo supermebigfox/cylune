@@ -46,7 +46,7 @@ CYLUNE 负责读取普通 3MF、调用本机 Bambu Studio CLI 完成后台切片
 
 ## 进度
 
-- 为 Bambu Studio CLI 创建每任务独立的进度管道，并通过官方 `--pipe` 参数接收进度消息。
+- Linux 可通过 Bambu Studio CLI 官方 `--pipe` 参数接收进度；Bambu Studio 2.8 的该实现未在 macOS 编译，因此 macOS 实时解析同一官方切片回调输出的 `default_status_callback: percent=…`，并按 Bambu 的多盘总进度公式计算百分比。
 - 后端解析有效的数值进度，限制在 `0–100`，保证同一任务只向前推进。
 - 前端始终显示确定型进度条和整数百分比，不再以“部署环境、正在验证”等阶段文字充当主要进度。
 - 启动时显示 `0%`，完成导入打印记录后显示 `100%`。
