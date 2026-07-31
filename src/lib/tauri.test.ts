@@ -111,6 +111,33 @@ it("demo history keeps a two-plate project tied to existing spool identities", a
     .candidate_spool_ids).toContain("white-01");
 });
 
+it("demo settlement deducts each mapped spool and reversal restores it", async () => {
+  const api = createTauriApi(undefined, {});
+  const before = await api.listSpools();
+  const blueBefore = before.find((spool) => spool.spool_id === "blue-01")!;
+  const yellowBefore = before.find((spool) => spool.spool_id === "yellow-01")!;
+
+  const settled = await api.settleJob("demo-mask-job-2", { kind: "success" });
+
+  expect(settled.consumption).toEqual([
+    expect.objectContaining({ spool_id: "blue-01", grams: 11.2, slot_number: 3 }),
+    expect.objectContaining({ spool_id: "yellow-01", grams: 4.3, slot_number: null }),
+  ]);
+  const after = await api.listSpools();
+  expect(after.find((spool) => spool.spool_id === "blue-01")!.remaining_grams)
+    .toBeCloseTo(blueBefore.remaining_grams - 11.2);
+  expect(after.find((spool) => spool.spool_id === "yellow-01")!.remaining_grams)
+    .toBeCloseTo(yellowBefore.remaining_grams - 4.3);
+
+  const reversal = await api.reverseSettlement("demo-mask-job-2");
+  expect(reversal.restored).toEqual(settled.consumption);
+  const restored = await api.listSpools();
+  expect(restored.find((spool) => spool.spool_id === "blue-01")!.remaining_grams)
+    .toBeCloseTo(blueBefore.remaining_grams);
+  expect(restored.find((spool) => spool.spool_id === "yellow-01")!.remaining_grams)
+    .toBeCloseTo(yellowBefore.remaining_grams);
+});
+
 it("demo getPrintProject returns only its active project and keeps confirmation available", async () => {
   const api = createTauriApi(undefined, {});
   const [project] = await api.listPrintProjects("pending");
@@ -233,4 +260,52 @@ it("forwards printer library commands with complete typed payloads", async () =>
   expect(invoke).toHaveBeenNthCalledWith(5, "delete_printer", {
     printerId: "printer-p2s",
   });
+});
+
+it("starts private metadata slicing without exposing output or profile paths", async () => {
+  const invoke = vi.fn(async () => ({}));
+  const api = createTauriApi(invoke);
+  const request = {
+    input_path: "/Users/robin/Desktop/月球灯.3mf",
+    printer_id: "printer-p2s",
+    process_key: "standard-020",
+    plate_key: "supertack",
+    plate_override: false,
+    infill_density: null,
+    support_enabled: null,
+    filaments: [
+      { tool: 0, preset_key: "pla-basic-white", override_project_settings: false },
+      { tool: 1, preset_key: "pla-basic-black", override_project_settings: true },
+    ],
+    confirm_printer_mismatch: false,
+    preserve_project_settings: true,
+  };
+
+  await api.inspect3mf("/Users/robin/Desktop/月球灯.3mf");
+  await api.listSlicePresets("printer-p2s");
+  await api.startSlice(request);
+  await api.getSliceTask("slice-task-1");
+  await api.cancelSlice("slice-task-1");
+  await api.openInBambuStudio("/Users/robin/Desktop/月球灯.3mf");
+
+  expect(invoke).toHaveBeenNthCalledWith(1, "inspect_3mf", {
+    path: "/Users/robin/Desktop/月球灯.3mf",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(2, "list_slice_presets", {
+    printerId: "printer-p2s",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(3, "start_slice", { request });
+  expect(invoke).toHaveBeenNthCalledWith(4, "get_slice_task", {
+    taskId: "slice-task-1",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(5, "cancel_slice", {
+    taskId: "slice-task-1",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(6, "open_in_bambu_studio", {
+    path: "/Users/robin/Desktop/月球灯.3mf",
+  });
+  expect(JSON.stringify(request)).not.toContain("/profiles/");
+  expect(request).not.toHaveProperty("output_path");
+  expect(request).not.toHaveProperty("destination");
+  expect(request).not.toHaveProperty("allow_overwrite");
 });

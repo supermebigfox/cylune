@@ -85,6 +85,81 @@ export interface SavePrinter {
   is_default: boolean;
 }
 
+export type ThreeMfKind = "unsliced" | "sliced";
+
+export interface SliceTool {
+  tool: number;
+  label: string;
+  material: string | null;
+  color_hex: string | null;
+  embedded_filament_key: string | null;
+}
+
+export interface SliceInspection {
+  kind: ThreeMfKind;
+  file_name: string;
+  plate_count: number;
+  embedded_model_key: string | null;
+  embedded_nozzle_diameter: number | null;
+  embedded_process_key?: string | null;
+  embedded_plate_key?: string | null;
+  embedded_infill_density?: number | null;
+  embedded_support_enabled?: boolean | null;
+  tools: SliceTool[];
+}
+
+export interface SlicePresetOption {
+  key: string;
+  label: string;
+  is_default?: boolean;
+}
+
+export interface SliceProcessPreset extends SlicePresetOption {
+  layer_height_mm: number;
+}
+
+export interface SliceFilamentPreset extends SlicePresetOption {
+  material: string;
+  color_hex: string | null;
+}
+
+export interface SlicePresetCatalog {
+  processes: SliceProcessPreset[];
+  plates: SlicePresetOption[];
+  filaments: SliceFilamentPreset[];
+}
+
+export interface SliceFilamentSelection {
+  tool: number;
+  preset_key: string;
+  override_project_settings: boolean;
+}
+
+export interface SliceStartRequest {
+  input_path: string;
+  printer_id: string;
+  process_key: string;
+  plate_key: string;
+  plate_override: boolean;
+  infill_density: number | null;
+  support_enabled: boolean | null;
+  filaments: SliceFilamentSelection[];
+  confirm_printer_mismatch: boolean;
+  preserve_project_settings: boolean;
+}
+
+export type SlicePhase = "preparing" | "slicing" | "validating" | "importing" | "complete";
+export type SliceTaskState = "running" | "completed" | "failed" | "cancelled";
+
+export interface SliceTask {
+  task_id: string;
+  state: SliceTaskState;
+  phase: SlicePhase;
+  percent: number | null;
+  project_id: string | null;
+  error_code: string | null;
+}
+
 export interface SlotView {
   slot_number: 1 | 2 | 3 | 4;
   spool_id: string | null;
@@ -256,6 +331,12 @@ export interface TauriApi {
   savePrinter(printer: SavePrinter): Promise<SavedPrinter>;
   deletePrinter(printerId: string): Promise<void>;
   setDefaultPrinter(printerId: string): Promise<void>;
+  inspect3mf(path: string): Promise<SliceInspection>;
+  listSlicePresets(printerId: string): Promise<SlicePresetCatalog>;
+  startSlice(request: SliceStartRequest): Promise<SliceTask>;
+  cancelSlice(taskId: string): Promise<void>;
+  getSliceTask(taskId: string): Promise<SliceTask>;
+  openInBambuStudio(path: string): Promise<void>;
   importPrintFile(path: string): Promise<ImportPreview>;
   confirmJobMapping(jobId: string, mappings: ToolMapping[]): Promise<void>;
   confirmNewPrint(sourceHash: string): Promise<ImportPreview>;
@@ -396,6 +477,22 @@ function demoApi(): TauriApi {
     is_default: true,
     is_available: true,
   }];
+  const slicePresets: SlicePresetCatalog = {
+    processes: [
+      { key: "standard-020", label: "0.20mm Standard", layer_height_mm: 0.2, is_default: true },
+      { key: "fine-012", label: "0.12mm Fine", layer_height_mm: 0.12 },
+    ],
+    plates: [
+      { key: "Supertack Plate", label: "Supertack Plate", is_default: true },
+      { key: "Textured PEI Plate", label: "Textured PEI Plate" },
+    ],
+    filaments: [
+      { key: "bambu-pla-basic-white", label: "Bambu PLA Basic · Jade White", material: "PLA", color_hex: "#FFFEFC" },
+      { key: "bambu-pla-basic-black", label: "Bambu PLA Basic · Black", material: "PLA", color_hex: "#252733" },
+      { key: "bambu-pla-basic-red", label: "Bambu PLA Basic · Red", material: "PLA", color_hex: "#FE3D36" },
+      { key: "bambu-pla-basic-blue", label: "Bambu PLA Basic · Blue", material: "PLA", color_hex: "#1C4EBB" },
+    ],
+  };
   const settlementResults = new Map<string, SettlementResult>();
   const projectMappings = new Map<string, ToolMapping[]>([
     ["demo-mask-job-2", [
@@ -547,6 +644,48 @@ function demoApi(): TauriApi {
         is_default: printer.printer_id === printerId,
       }));
     },
+    async inspect3mf(path) {
+      const fileName = path.split(/[\\/]/).pop() || "project.3mf";
+      return {
+        kind: fileName.toLowerCase().endsWith(".gcode.3mf") ? "sliced" : "unsliced",
+        file_name: fileName,
+        plate_count: fileName.toLowerCase().endsWith(".gcode.3mf") ? 2 : 1,
+        embedded_model_key: "Bambu Lab P2S",
+        embedded_nozzle_diameter: 0.4,
+        tools: [
+          { tool: 0, label: "Color 1", material: "PLA", color_hex: "#FFFEFC", embedded_filament_key: "bambu-pla-basic-white" },
+        ],
+      };
+    },
+    async listSlicePresets() {
+      return {
+        processes: slicePresets.processes.map((item) => ({ ...item })),
+        plates: slicePresets.plates.map((item) => ({ ...item })),
+        filaments: slicePresets.filaments.map((item) => ({ ...item })),
+      };
+    },
+    async startSlice() {
+      return {
+        task_id: "demo-slice-task",
+        state: "running",
+        phase: "preparing",
+        percent: null,
+        project_id: null,
+        error_code: null,
+      };
+    },
+    async cancelSlice() {},
+    async getSliceTask(taskId) {
+      return {
+        task_id: taskId,
+        state: "running",
+        phase: "slicing",
+        percent: null,
+        project_id: null,
+        error_code: null,
+      };
+    },
+    async openInBambuStudio() {},
     async importPrintFile(path) { return { ...demoPreview, source_file_name: path.split(/[\\/]/).pop() || demoPreview.source_file_name }; },
     async confirmJobMapping(jobId, mappings) {
       projectMappings.set(jobId, mappings.map((mapping) => ({ ...mapping })));
@@ -587,10 +726,44 @@ function demoApi(): TauriApi {
       } : null;
     },
     async settleJob(jobId, outcome) {
+      const existing = settlementResults.get(jobId);
+      if (existing) return { ...existing, consumption: existing.consumption.map((item) => ({ ...item })) };
       const plateIndex = Number(jobId.replace("demo-mask-job-", "")) - 1;
       const plate = projectPlates[plateIndex];
-      const result = { job_id: jobId, outcome, settlement_version: 1, reversed: false, selected_layer: null, confidence: outcome.kind === "estimated" ? "estimated" : "exact", consumption: [] } as SettlementResult;
+      const factor = !plate || outcome.kind === "success"
+        ? 1
+        : outcome.kind === "estimated"
+          ? Math.max(0, Math.min(100, outcome.progress_percent)) / 100
+          : Math.max(0, Math.min(plate.max_layer, outcome.stop_layer)) / plate.max_layer;
+      const confidence: Confidence = outcome.kind === "estimated" ? "estimated" : "exact";
+      const mappings = projectMappings.get(jobId) ?? [];
+      const consumption = plate?.filaments.flatMap((filament) => {
+        const mapping = mappings.find((item) => item.tool === filament.profile.tool);
+        if (!mapping) return [];
+        return [{
+          spool_id: mapping.spool_id,
+          grams: Number((filament.total_grams * factor).toFixed(3)),
+          confidence,
+          slot_number: slots.find((slot) => slot.spool_id === mapping.spool_id)?.slot_number ?? null,
+        }];
+      }) ?? [];
+      const result: SettlementResult = {
+        job_id: jobId,
+        outcome,
+        settlement_version: 1,
+        reversed: false,
+        selected_layer: outcome.kind === "failed" || outcome.kind === "cancelled"
+          ? outcome.stop_layer
+          : null,
+        confidence,
+        consumption,
+      };
       if (plate) {
+        spools = spools.map((spool) => {
+          const used = consumption.find((item) => item.spool_id === spool.spool_id)?.grams ?? 0;
+          return used ? { ...spool, remaining_grams: Math.max(0, spool.remaining_grams - used) } : spool;
+        });
+        refreshDemoStatuses();
         projectPlates = projectPlates.map((item, index) => index === plateIndex
           ? { ...item, status: outcome.kind === "success" ? "success" : outcome.kind }
           : item);
@@ -606,7 +779,16 @@ function demoApi(): TauriApi {
     async reverseSettlement(jobId) {
       const settled = settlementResults.get(jobId);
       const alreadyReversed = settled?.reversed ?? false;
-      if (settled) settlementResults.set(jobId, { ...settled, reversed: true });
+      if (settled && !alreadyReversed) {
+        spools = spools.map((spool) => {
+          const restored = settled.consumption
+            .filter((item) => item.spool_id === spool.spool_id)
+            .reduce((sum, item) => sum + item.grams, 0);
+          return restored ? { ...spool, remaining_grams: spool.remaining_grams + restored } : spool;
+        });
+        refreshDemoStatuses();
+        settlementResults.set(jobId, { ...settled, reversed: true });
+      }
       return {
         job_id: jobId,
         settlement_version: settled?.settlement_version ?? 1,
@@ -640,6 +822,13 @@ function commandApi(invoke: Invoke): TauriApi {
     savePrinter: (printer) => call<SavedPrinter>("save_printer", { printer }),
     deletePrinter: (printerId) => call<void>("delete_printer", { printerId }),
     setDefaultPrinter: (printerId) => call<void>("set_default_printer", { printerId }),
+    inspect3mf: (path) => call<SliceInspection>("inspect_3mf", { path }),
+    listSlicePresets: (printerId) =>
+      call<SlicePresetCatalog>("list_slice_presets", { printerId }),
+    startSlice: (request) => call<SliceTask>("start_slice", { request }),
+    cancelSlice: (taskId) => call<void>("cancel_slice", { taskId }),
+    getSliceTask: (taskId) => call<SliceTask>("get_slice_task", { taskId }),
+    openInBambuStudio: (path) => call<void>("open_in_bambu_studio", { path }),
     importPrintFile: (path) => call<ImportPreview>("import_print_file", { path }),
     confirmJobMapping: (jobId, mappings) => call<void>("confirm_job_mapping", { jobId, mappings }),
     confirmNewPrint: (sourceHash) => call<ImportPreview>("confirm_new_print", { sourceHash }),

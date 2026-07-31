@@ -665,10 +665,10 @@ mod tests {
     use crate::{
         db::AppDatabase,
         error::{AppError, Result},
-        history::{ImportPlatePreview, ImportProjectPreview},
+        history::ImportProjectPreview,
         imports::{sha256, PrintService},
         media::MediaStore,
-        parser::{parse_3mf_project, ParsedPlate},
+        parser::parse_3mf_project,
         printers::SavedPrinter,
         slicer::{
             inspect_3mf_content, FastOverrides, FastSliceRequest, InstallationDiscovery,
@@ -783,7 +783,6 @@ mod tests {
         machine: PathBuf,
         process: PathBuf,
         filament: PathBuf,
-        destination: PathBuf,
     }
 
     impl Fixture {
@@ -815,7 +814,6 @@ mod tests {
             fs::write(&filament, b"filament").unwrap();
 
             Self {
-                destination: root.join("chosen output.gcode.3mf"),
                 root,
                 app,
                 executable,
@@ -840,9 +838,7 @@ mod tests {
                     is_available: true,
                 },
                 expected_filament_count: 1,
-                allow_overwrite: false,
                 input: self.input.clone(),
-                destination: self.destination.clone(),
                 plate_selection: PlateSelection::All,
                 estimate_mode: false,
                 preserve_project_settings: false,
@@ -961,7 +957,6 @@ mod tests {
             importer.imported.lock().unwrap().as_slice(),
             [(task_root.join("output.gcode.3mf"), fixture.input.clone())]
         );
-        assert!(!fixture.destination.exists());
         assert_eq!(
             events.names(),
             [
@@ -1108,7 +1103,6 @@ mod tests {
         assert_eq!(failed.state, SliceTaskState::Failed);
         assert_eq!(failed.error_code.as_deref(), Some("slicer_failed"));
         assert!(importer.imported.lock().unwrap().is_empty());
-        assert!(!fixture.destination.exists());
         assert_eq!(events.names().last().unwrap(), "error:slicer_failed");
     }
 
@@ -1133,7 +1127,6 @@ mod tests {
 
         assert_eq!(failed.state, SliceTaskState::Failed);
         assert!(importer.imported.lock().unwrap().is_empty());
-        assert!(!fixture.destination.exists());
         assert!(!fixture
             .cache
             .join("slices")
@@ -1162,35 +1155,12 @@ mod tests {
         assert_eq!(cancelled.state, SliceTaskState::Cancelled);
         assert_eq!(cancelled.error_code.as_deref(), Some("slicer_cancelled"));
         assert!(importer.imported.lock().unwrap().is_empty());
-        assert!(!fixture.destination.exists());
         assert!(!fixture
             .cache
             .join("slices")
             .join(started.task_id.to_string())
             .exists());
         assert_eq!(events.names().last().unwrap(), "error:slicer_cancelled");
-    }
-
-    #[test]
-    fn destination_collision_stops_before_process_or_import() {
-        let fixture = Fixture::success();
-        fs::write(&fixture.destination, b"keep me").unwrap();
-        let importer = Arc::new(RecordingImporter::new(Uuid::new_v4()));
-        let events = Arc::new(RecordingEvents::default());
-        let service = SlicerService::with_dependencies(
-            InstallationDiscovery::new(Some(fixture.app.clone())),
-            fixture.cache.clone(),
-            importer.clone(),
-            events.clone(),
-            Duration::ZERO,
-        );
-
-        let error = service.start(fixture.request()).unwrap_err();
-
-        assert_eq!(error.code(), "output_exists");
-        assert_eq!(fs::read(&fixture.destination).unwrap(), b"keep me");
-        assert!(importer.imported.lock().unwrap().is_empty());
-        assert!(events.names().is_empty());
     }
 
     struct FailingImporter;
@@ -1204,9 +1174,8 @@ mod tests {
     }
 
     #[test]
-    fn import_failure_restores_an_explicitly_overwritten_destination() {
+    fn import_failure_removes_private_slice_artifacts() {
         let fixture = Fixture::success();
-        fs::write(&fixture.destination, b"original output").unwrap();
         let events = Arc::new(RecordingEvents::default());
         let service = SlicerService::with_dependencies(
             InstallationDiscovery::new(Some(fixture.app.clone())),
@@ -1215,14 +1184,15 @@ mod tests {
             events.clone(),
             Duration::ZERO,
         );
-        let mut request = fixture.request();
-        request.allow_overwrite = true;
-
-        let started = service.start(request).unwrap();
+        let started = service.start(fixture.request()).unwrap();
         let failed = wait_for_terminal(&service, started.task_id);
 
         assert_eq!(failed.state, SliceTaskState::Failed);
-        assert_eq!(fs::read(&fixture.destination).unwrap(), b"original output");
+        assert!(!fixture
+            .cache
+            .join("slices")
+            .join(started.task_id.to_string())
+            .exists());
         assert_eq!(events.names().last().unwrap(), "error:slicer_failed");
     }
 
@@ -1287,10 +1257,8 @@ mod tests {
             std::env::temp_dir().join(format!("cylune-real-slice-import-{}", Uuid::new_v4()));
         let cache = root.join("cache");
         let data_root = root.join("data");
-        let output_root = root.join("output");
         fs::create_dir_all(&cache).unwrap();
         fs::create_dir_all(&data_root).unwrap();
-        fs::create_dir_all(&output_root).unwrap();
         let copied_input = root.join("input.3mf");
         fs::copy(&source, &copied_input).unwrap();
         assert_eq!(sha256(&copied_input).unwrap(), source_hash_before);
@@ -1370,11 +1338,9 @@ mod tests {
             is_default: true,
             is_available: true,
         };
-        let destination = output_root.join("sliced.gcode.3mf");
         let plate_override = inspection.embedded_plate_key.as_deref() != Some(plate_key.as_str());
         let request = FastSliceRequest {
             input_path: copied_input.clone(),
-            output_path: destination.clone(),
             printer_id: printer.printer_id.clone(),
             process_key,
             plate_key,
@@ -1407,7 +1373,6 @@ mod tests {
                 completed.error_code.as_deref(),
                 Some(expected_error_code.as_str())
             );
-            assert!(!destination.exists());
             assert!(importer.preview.lock().unwrap().is_none());
             let task_root = cache.join("slices").join(started.task_id.to_string());
             assert!(!task_root.exists());
@@ -1422,10 +1387,6 @@ mod tests {
             return;
         }
         assert_eq!(completed.state, SliceTaskState::Completed);
-        assert!(destination.is_file());
-
-        let parsed_output = parse_3mf_project(&destination).unwrap();
-        assert_eq!(parsed_output.plates.len(), expected_plate_count);
         let preview = importer
             .preview
             .lock()
@@ -1434,8 +1395,8 @@ mod tests {
             .expect("validated output must be imported before completion");
         assert_eq!(completed.project_id, Some(preview.project_id));
         assert_eq!(preview.plates.len(), expected_plate_count);
-        for (plate, imported) in parsed_output.plates.iter().zip(&preview.plates) {
-            assert_plate_is_imported_from_output(plate, imported, &data_root);
+        for imported in &preview.plates {
+            assert_imported_plate_has_metrics_and_thumbnail(imported, &data_root);
         }
         if let Ok(expected_total_grams) = std::env::var("CYLUNE_EXPECTED_TOTAL_GRAMS") {
             let expected_total_grams = expected_total_grams
@@ -1521,10 +1482,9 @@ mod tests {
             ]
         );
         println!(
-            "real_slice project_id={} plates={} output_hash={} metrics={:?}",
+            "real_slice project_id={} plates={} metrics={:?}",
             preview.project_id,
             preview.plates.len(),
-            sha256(&destination).unwrap(),
             preview
                 .plates
                 .iter()
@@ -1562,40 +1522,18 @@ mod tests {
         assert_eq!(sha256(&source).unwrap(), source_hash_before);
     }
 
-    fn assert_plate_is_imported_from_output(
-        output: &ParsedPlate,
-        imported: &ImportPlatePreview,
+    fn assert_imported_plate_has_metrics_and_thumbnail(
+        imported: &crate::history::ImportPlatePreview,
         data_root: &Path,
     ) {
-        assert_eq!(imported.plate_index, output.plate_index);
-        assert_eq!(imported.estimated_seconds, output.estimated_seconds);
         assert!(imported
             .estimated_seconds
             .is_some_and(|seconds| seconds > 0));
-        assert_eq!(imported.max_layer, output.gcode.max_layer);
         assert!(imported.max_layer > 0);
-        assert_eq!(imported.filaments.len(), output.filaments.len());
         assert!(imported
             .filaments
             .iter()
             .any(|filament| filament.total_grams > 0.0));
-        for profile in &output.filaments {
-            let imported_filament = imported
-                .filaments
-                .iter()
-                .find(|filament| filament.tool == profile.tool)
-                .unwrap();
-            let expected_mm = output
-                .gcode
-                .totals_mm
-                .get(&profile.tool)
-                .copied()
-                .unwrap_or(0.0);
-            let expected_grams = profile.grams_for_length_mm(expected_mm);
-            assert_eq!(imported_filament.profile.preset_id, profile.preset_id);
-            assert_eq!(imported_filament.profile.color_hex, profile.color_hex);
-            assert!((imported_filament.total_grams - expected_grams).abs() < 1e-9);
-        }
         let relative_thumbnail = imported
             .thumbnail_url
             .as_deref()
