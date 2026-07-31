@@ -510,6 +510,7 @@ select { appearance: auto; }
 .plate-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--blue) 36%, var(--border)); }
 .plate-card.selected { border-color: var(--blue); box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 16%, transparent), 0 12px 28px rgb(49 107 255 / 10%); }
 .plate-media { min-height: 102px; aspect-ratio: 2.1 / 1; border-bottom: 1px solid var(--border); }
+.plate-media .project-media-image { object-fit: contain; padding: 8px; }
 .plate-card-body { display: block; padding: 12px; }
 .plate-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .plate-card-heading > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
@@ -524,7 +525,11 @@ select { appearance: auto; }
 .plate-filament { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 9px; }
 .plate-color-swatch { display: inline-flex; border-radius: 50%; }
 .plate-total { margin-left: auto; color: var(--text); font-size: 9px; }
-.plate-detail { margin-top: 25px; padding-top: 21px; border-top: 1px solid var(--border); }
+.plate-detail { margin-top: 25px; padding-top: 21px; border-top: 1px solid var(--border); scroll-margin-top: 24px; }
+.plate-detail-hero { display: grid; grid-template-columns: minmax(210px, 280px) minmax(0, 1fr); gap: 18px; margin-bottom: 16px; }
+.plate-detail-media { display: block; min-height: 210px; aspect-ratio: 1; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-muted); }
+.plate-detail-media .project-media-image { object-fit: contain; padding: 10px; }
+.plate-detail-overview { min-width: 0; align-self: center; }
 .plate-detail-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .plate-detail-heading > div { display: flex; align-items: center; gap: 10px; }
 .plate-detail-heading h2 { margin: 0; font-size: 21px; }
@@ -535,13 +540,21 @@ select { appearance: auto; }
 .plate-filament-summary small { margin-top: 2px; color: var(--text-muted); font-size: 8px; text-transform: uppercase; }
 .job-workspace .job-columns { margin-top: 0; }
 .plate-detail-empty { min-height: 112px; display: flex; align-items: center; justify-content: center; gap: 9px; border: 1px dashed var(--border); border-radius: 16px; color: var(--text-muted); font-size: 12px; }
-.plate-result-layout { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.plate-result-layout { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .plate-result { flex: 1; display: flex; align-items: flex-start; gap: 10px; min-height: 72px; padding: 14px; border-radius: 16px; background: var(--mint-soft); color: var(--success-text); }
 .plate-result.estimated { background: var(--yellow-soft); color: var(--warning-text); }
 .plate-result.reversed { background: var(--surface-muted); color: var(--text-muted); }
 .plate-result.skipped { background: var(--surface-muted); color: var(--text-muted); }
 .plate-result strong { font-size: 12px; }
 .plate-result p { margin: 4px 0 0; color: var(--text-muted); font-size: 10px; }
+.plate-consumption { flex: 0 0 100%; display: grid; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+.plate-consumption h3 { margin: 0 0 2px; font-size: 12px; }
+.plate-consumption-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; min-height: 44px; padding-top: 8px; border-top: 1px solid var(--border); }
+.plate-consumption-item > span { min-width: 0; }
+.plate-consumption-item strong, .plate-consumption-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plate-consumption-item strong { font-size: 10px; }
+.plate-consumption-item small { margin-top: 2px; color: var(--text-muted); font-size: 8px; }
+.plate-consumption-item b { font-size: 11px; }
 
 /* Printer library */
 .printer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -662,6 +675,8 @@ select { appearance: auto; }
   .history-card-button { grid-template-columns: minmax(118px, .7fr) minmax(0, 1.3fr); }
   .project-media { min-height: 138px; }
   .project-header { gap: 16px; }
+  .plate-detail-hero { grid-template-columns: 1fr; }
+  .plate-detail-media { min-height: 0; width: min(100%, 360px); justify-self: center; }
   .plate-result-layout { align-items: stretch; flex-direction: column; }
   .plate-result-layout > button { width: 100%; }
   .pet-controls { grid-template-columns: 1fr; }

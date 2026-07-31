@@ -29,8 +29,12 @@
     "home": "Overview",
     "spools": "Spool library",
     "printers": "Printers",
+    "slice": "Slice",
+    "sliceActive": "{{status}} in progress",
     "jobs": "Print jobs",
-    "settings": "Settings"
+    "settings": "Settings",
+    "openMenu": "Open navigation",
+    "closeMenu": "Close navigation"
   },
   "printers": {
     "title": "My printers",
@@ -60,7 +64,7 @@
   },
   "home": {
     "greeting": "What will you print today?",
-    "importHint": "Read colors and planned usage from a sliced 3MF",
+    "importHint": "Slice project 3MF files or import sliced files straight into print jobs",
     "summary": "Inventory summary",
     "inventoryCount": "{{count}} spools in library",
     "lowCount": "{{count}} low-stock spools",
@@ -198,6 +202,10 @@
     "reversedResult": "Deduction reversed",
     "deducted": "{{grams}} grams deducted",
     "restored": "{{grams}} grams restored",
+    "actualDeductions": "Actual deduction details",
+    "unknownSpool": "Unnamed spool",
+    "slotSnapshot": "In slot {{number}} at settlement",
+    "unmountedSpool": "Not mounted at settlement",
     "resultRecorded": "Filament usage has been recorded for this plate",
     "skippedTitle": "Plate skipped",
     "skippedNoDeduction": "Skipped with no filament deduction",
@@ -214,13 +222,14 @@
     }
   },
   "import": {
-    "title": "Import sliced file",
-    "filterName": "Sliced 3MF file",
-    "drop": "Drop a sliced .gcode.3mf here",
+    "title": "Import 3MF",
+    "filterName": "3MF files",
+    "outputFilterName": "Sliced 3MF",
+    "drop": "Drop a .3mf or .gcode.3mf here",
     "browse": "Choose file",
-    "reading": "Reading colors and expected usage…",
+    "reading": "Inspecting 3MF contents…",
     "ready": "File is ready. Check the assigned spools.",
-    "unsliced": "This 3MF has not been sliced. Export G-code from Bambu Studio first.",
+    "unsliced": "This is a project 3MF. Opening the slicing workspace.",
     "mapping": "Choose the spool actually used for each color",
     "duplicate": "This print job was already imported"
   },
@@ -329,6 +338,7 @@
     "slicer_cancelled": "Slicing was cancelled",
     "slicer_failed": "Bambu Studio could not slice this project",
     "slicer_incompatible": "This Bambu Studio installation is incompatible with slicing",
+    "slicer_plate_conflict": "Model paths conflict on a plate. Fix the project in Bambu Studio first.",
     "slicer_profiles_missing": "Bambu Studio's official profiles could not be found",
     "slot_conflict": "That slot or spool is already in use",
     "unsliced_project": "This project has not been sliced",

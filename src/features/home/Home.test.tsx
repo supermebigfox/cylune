@@ -86,7 +86,7 @@ describe("Home", () => {
     expect(screen.getByText("耗材库 2 卷")).toBeVisible();
     expect(screen.getByText("低库存 1 卷")).toBeVisible();
     expect(screen.getByText("待处理 2 个")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "导入切片文件" }));
+    fireEvent.click(screen.getByRole("button", { name: "导入 3MF" }));
     expect(onImport).toHaveBeenCalledTimes(1);
   });
 

@@ -1,0 +1,706 @@
+.cylune-nav {
+  --nav-width: 218px;
+  --nav-rail-width: 68px;
+  --nav-glass-solid: #eef2ff;
+  --nav-glass-border: rgb(255 255 255 / 72%);
+  --nav-glass-highlight: rgb(255 255 255 / 82%);
+  --nav-glass-shadow: 0 12px 28px rgb(51 76 160 / 14%), inset 0 1px 0 rgb(255 255 255 / 82%);
+  --nav-glass-layer: linear-gradient(135deg, rgb(255 255 255 / 70%), rgb(174 196 255 / 26%) 52%, rgb(184 151 255 / 20%));
+  --nav-hover: color-mix(in srgb, var(--blue, #316bff) 5%, transparent);
+  --nav-focus: color-mix(in srgb, var(--focus, #316bff) 62%, transparent);
+  --nav-drawer: color-mix(in srgb, var(--sidebar, #f3f0ec) 84%, transparent);
+}
+
+:root[data-theme="dark"] .cylune-nav {
+  --nav-glass-solid: #313852;
+  --nav-glass-border: rgb(176 194 255 / 27%);
+  --nav-glass-highlight: rgb(255 255 255 / 22%);
+  --nav-glass-shadow: 0 14px 34px rgb(0 0 0 / 34%), inset 0 1px 0 rgb(255 255 255 / 18%);
+  --nav-glass-layer: linear-gradient(135deg, rgb(112 128 180 / 32%), rgb(73 91 148 / 24%) 49%, rgb(120 82 174 / 22%));
+  --nav-hover: color-mix(in srgb, var(--blue, #8dacff) 8%, transparent);
+  --nav-drawer: color-mix(in srgb, var(--sidebar, #1d1e25) 88%, transparent);
+}
+
+.app-shell:has(> .cylune-nav) {
+  grid-template-columns: var(--nav-width, 218px) minmax(0, 1fr);
+}
+
+.cylune-nav.sidebar {
+  position: relative;
+  z-index: 20;
+  width: var(--nav-width);
+  height: 100dvh;
+  min-width: 0;
+  padding: 22px 15px 17px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  border-bottom: 0;
+  background: var(--sidebar);
+  overflow: visible;
+}
+
+.cylune-nav__header {
+  position: relative;
+  z-index: 45;
+  flex: 0 0 auto;
+}
+
+.cylune-nav__brand {
+  min-width: 0;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 8px;
+}
+
+.cylune-nav__brand-mark {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+}
+
+.cylune-nav__brand-mark > :is(img, svg) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.cylune-nav__brand-copy {
+  min-width: 0;
+  display: block;
+}
+
+.cylune-nav__brand-copy h1,
+.cylune-nav__brand-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cylune-nav__brand-copy h1 {
+  margin: 0;
+  color: var(--text);
+  font-family: "Smiley Sans", "PingFang SC", "PingFang TC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.1;
+}
+
+.cylune-nav__brand-copy small {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 560;
+}
+
+.cylune-nav__menu {
+  display: none;
+}
+
+.cylune-nav__drawer {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  padding-top: 23px;
+}
+
+.cylune-nav .cylune-nav__navigation {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.cylune-nav__primary {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 5px;
+}
+
+.cylune-nav__destination {
+  position: relative;
+  z-index: 1;
+  display: block;
+  min-width: 0;
+}
+
+.cylune-nav .cylune-nav__item {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  text-align: left;
+  font-size: 13px;
+  font-weight: 680;
+  line-height: 1;
+  isolation: isolate;
+}
+
+.cylune-nav .cylune-nav__item:hover:not(:disabled) {
+  background: var(--nav-hover);
+  color: var(--text);
+  box-shadow: none;
+  transform: translateX(1px);
+}
+
+.cylune-nav .cylune-nav__item[aria-current="page"] {
+  background: transparent;
+  color: var(--text);
+  box-shadow: none;
+}
+
+.cylune-nav .cylune-nav__item[aria-current="page"] .cylune-nav__icon {
+  color: var(--blue);
+  filter: drop-shadow(0 2px 5px color-mix(in srgb, var(--blue) 22%, transparent));
+}
+
+.cylune-nav .cylune-nav__item:focus-visible,
+.cylune-nav .cylune-nav__import:focus-visible,
+.cylune-nav__menu:focus-visible {
+  outline: 3px solid var(--nav-focus);
+  outline-offset: 3px;
+}
+
+.cylune-nav__icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
+  color: currentColor;
+  transition: color 190ms ease, filter 240ms ease, transform 300ms cubic-bezier(.16, 1, .3, 1);
+}
+
+.cylune-nav__icon > svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cylune-nav__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cylune-nav__badge {
+  min-width: 23px;
+  min-height: 19px;
+  margin-left: auto;
+  padding: 3px 7px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--blue) 20%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--blue-soft) 78%, transparent);
+  color: var(--blue-text);
+  font-size: 9px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.cylune-nav__tooltip {
+  display: none;
+}
+
+.cylune-nav__indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  display: block;
+  overflow: hidden;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--blue) 25%, var(--nav-glass-border));
+  border-radius: 14px;
+  background: var(--nav-glass-solid);
+  box-shadow: var(--nav-glass-shadow);
+  will-change: transform, width, height;
+  transition:
+    transform 540ms cubic-bezier(.2, 1.42, .34, 1),
+    width 360ms cubic-bezier(.16, 1, .3, 1),
+    height 360ms cubic-bezier(.16, 1, .3, 1),
+    opacity 130ms ease;
+}
+
+.cylune-nav__indicator::before,
+.cylune-nav__indicator::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.cylune-nav__indicator::before {
+  background:
+    radial-gradient(circle at 18% 2%, var(--nav-glass-highlight), transparent 43%),
+    radial-gradient(circle at 88% 100%, color-mix(in srgb, var(--blue) 22%, transparent), transparent 45%);
+  opacity: .84;
+}
+
+.cylune-nav__indicator::after {
+  inset: 1px;
+  border: 1px solid color-mix(in srgb, var(--nav-glass-highlight) 72%, transparent);
+  box-shadow: inset 0 -8px 16px color-mix(in srgb, var(--blue) 7%, transparent);
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .cylune-nav__indicator {
+    background: var(--nav-glass-layer);
+    -webkit-backdrop-filter: blur(18px) saturate(168%);
+    backdrop-filter: blur(18px) saturate(168%);
+  }
+}
+
+.cylune-nav .cylune-nav__import {
+  width: 100%;
+  min-height: 42px;
+  margin-top: 18px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--text) 13%, transparent);
+  font-size: 12px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.cylune-nav .cylune-nav__import:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 13px 29px color-mix(in srgb, var(--blue) 17%, transparent);
+}
+
+.cylune-nav__import > span:first-child,
+.cylune-nav__import > span:first-child svg {
+  width: 18px;
+  height: 18px;
+}
+
+.cylune-nav__footer {
+  position: relative;
+  z-index: 1;
+  margin-top: auto;
+  display: grid;
+  gap: 10px;
+}
+
+.cylune-nav__privacy {
+  min-width: 0;
+  padding: 12px 10px 2px;
+  border-top: 1px solid var(--border);
+}
+
+.cylune-nav__privacy strong,
+.cylune-nav__privacy small {
+  display: block;
+}
+
+.cylune-nav__privacy strong {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.cylune-nav__privacy small {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.cylune-nav__scrim {
+  display: none;
+}
+
+@media (min-width: 561px) and (max-width: 1020px) {
+  .app-shell:has(> .cylune-nav) {
+    min-height: 100dvh;
+    height: 100dvh;
+    grid-template-columns: var(--nav-rail-width, 68px) minmax(0, 1fr);
+  }
+
+  .app-shell:has(> .cylune-nav) > .content {
+    height: 100dvh;
+    overflow: auto;
+  }
+
+  .cylune-nav.sidebar {
+    position: relative;
+    top: auto;
+    width: var(--nav-rail-width);
+    height: 100dvh;
+    padding: 18px 9px 14px;
+    display: flex;
+    border-right: 1px solid var(--border);
+    border-bottom: 0;
+  }
+
+  .cylune-nav__brand {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .cylune-nav__brand-mark {
+    width: 38px;
+    height: 38px;
+  }
+
+  .cylune-nav__brand-copy,
+  .cylune-nav__label,
+  .cylune-nav__privacy,
+  .cylune-nav__import > span:last-child {
+    display: none;
+  }
+
+  .cylune-nav__drawer {
+    width: 100%;
+    padding-top: 23px;
+    overflow: visible;
+  }
+
+  .cylune-nav .cylune-nav__navigation {
+    display: flex;
+    grid-template-columns: none;
+    overflow: visible;
+  }
+
+  .cylune-nav__primary {
+    gap: 5px;
+  }
+
+  .cylune-nav .cylune-nav__item {
+    width: 50px;
+    min-height: 44px;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+  }
+
+  .cylune-nav .cylune-nav__item:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .cylune-nav__badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 19px;
+    min-height: 17px;
+    padding: 3px 5px;
+    border-width: 2px;
+    border-color: var(--sidebar);
+    box-shadow: 0 3px 8px rgb(0 0 0 / 12%);
+  }
+
+  .cylune-nav .cylune-nav__import {
+    width: 50px;
+    height: 42px;
+    padding: 0;
+  }
+
+  .cylune-nav__destination:hover .cylune-nav__tooltip,
+  .cylune-nav__destination:focus-within .cylune-nav__tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(0, -50%);
+  }
+
+  .cylune-nav__tooltip {
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 11px);
+    z-index: 80;
+    width: max-content;
+    max-width: 180px;
+    padding: 7px 10px;
+    display: block;
+    border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+    color: var(--text);
+    box-shadow: 0 9px 24px rgb(0 0 0 / 13%);
+    font-size: 11px;
+    font-weight: 680;
+    line-height: 1;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translate(-4px, -50%);
+    transition: opacity 130ms ease, transform 180ms cubic-bezier(.16, 1, .3, 1), visibility 130ms ease;
+  }
+}
+
+@media (max-width: 560px) {
+  body {
+    overflow: auto;
+  }
+
+  .app-shell:has(> .cylune-nav) {
+    min-height: 100dvh;
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell:has(> .cylune-nav) > .content {
+    height: auto;
+    overflow: visible;
+  }
+
+  .cylune-nav.sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    width: 100%;
+    height: 64px;
+    padding: 0;
+    display: block;
+    border: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+    background: color-mix(in srgb, var(--sidebar) 90%, transparent);
+    overflow: visible;
+  }
+
+  .cylune-nav__header {
+    height: 64px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: inherit;
+  }
+
+  .cylune-nav__brand {
+    min-height: 0;
+    gap: 9px;
+    padding: 0;
+  }
+
+  .cylune-nav__brand-mark {
+    width: 35px;
+    height: 35px;
+    flex-basis: 35px;
+  }
+
+  .cylune-nav__brand-copy h1 {
+    font-size: 15px;
+  }
+
+  .cylune-nav__brand-copy small {
+    display: none;
+  }
+
+  .cylune-nav__menu {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--surface-raised) 72%, transparent);
+    color: var(--text);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 22%);
+  }
+
+  .cylune-nav__menu svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+  }
+
+  .cylune-nav__scrim {
+    position: fixed;
+    inset: 64px 0 0;
+    z-index: 41;
+    display: block;
+    width: 100%;
+    height: calc(100dvh - 64px);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgb(13 18 33 / 24%);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    animation: cylune-nav-scrim-in 180ms ease both;
+  }
+
+  .cylune-nav__drawer {
+    position: fixed;
+    top: 74px;
+    bottom: 10px;
+    left: 10px;
+    z-index: 42;
+    width: min(332px, calc(100vw - 42px));
+    min-height: 0;
+    padding: 12px;
+    display: flex;
+    border: 1px solid color-mix(in srgb, var(--border) 78%, var(--nav-glass-border));
+    border-radius: 22px;
+    background: var(--nav-drawer);
+    box-shadow: 0 24px 70px rgb(20 28 50 / 24%), inset 0 1px 0 var(--nav-glass-highlight);
+    overflow-x: visible;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translate3d(calc(-100% - 22px), 0, 0) scale(.98);
+    transform-origin: left center;
+    transition:
+      transform 430ms cubic-bezier(.16, 1, .3, 1),
+      opacity 170ms ease,
+      visibility 430ms;
+  }
+
+  .cylune-nav__drawer::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cylune-nav__drawer[data-state="open"] {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translate3d(0, 0, 0) scale(1);
+    transition:
+      transform 430ms cubic-bezier(.16, 1, .3, 1),
+      opacity 170ms ease,
+      visibility 0ms;
+  }
+
+  .cylune-nav .cylune-nav__navigation {
+    display: flex;
+    grid-template-columns: none;
+    overflow: visible;
+  }
+
+  .cylune-nav__primary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .cylune-nav .cylune-nav__item {
+    width: 100%;
+    min-height: 45px;
+    justify-content: flex-start;
+    padding: 0 14px;
+  }
+
+  .cylune-nav .cylune-nav__item .cylune-nav__label {
+    display: block;
+  }
+
+  .cylune-nav .cylune-nav__item .cylune-nav__icon {
+    display: grid;
+  }
+
+  .cylune-nav .cylune-nav__item .cylune-nav__badge {
+    display: inline-grid;
+  }
+
+  .cylune-nav__tooltip {
+    display: none;
+  }
+
+  .cylune-nav .cylune-nav__import {
+    min-height: 43px;
+    margin-top: 14px;
+  }
+
+  .cylune-nav .cylune-nav__import > span {
+    display: inline-flex;
+  }
+
+  .cylune-nav__footer {
+    margin-top: auto;
+    gap: 8px;
+  }
+
+  .cylune-nav__privacy {
+    display: block;
+    padding: 11px 13px 1px;
+  }
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  @media (max-width: 560px) {
+    .cylune-nav__header,
+    .cylune-nav__drawer {
+      -webkit-backdrop-filter: blur(24px) saturate(155%);
+      backdrop-filter: blur(24px) saturate(155%);
+    }
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .cylune-nav__indicator,
+  .cylune-nav__drawer,
+  .cylune-nav.sidebar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .cylune-nav__indicator {
+    background: var(--nav-glass-solid);
+  }
+
+  .cylune-nav__drawer,
+  .cylune-nav.sidebar {
+    background: var(--sidebar);
+  }
+
+  .cylune-nav__scrim {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cylune-nav__indicator,
+  .cylune-nav__drawer,
+  .cylune-nav__tooltip,
+  .cylune-nav__icon {
+    transition: none !important;
+  }
+
+  .cylune-nav__scrim {
+    animation: none;
+  }
+}
+
+@keyframes cylune-nav-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

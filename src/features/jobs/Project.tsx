@@ -8,7 +8,7 @@ import {
   StackSimple,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Mark } from "../../brand/Mark";
 import { Swatch } from "../../components/Swatch";
 import { t, useLocale, type SupportedLocale } from "../../i18n";
@@ -166,6 +166,12 @@ export function Project({
   const selectedResult = result?.plateId === selectedPlateId
     ? result.value
     : null;
+  const detailRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!selectedPlateId) return;
+    detailRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [selectedPlateId]);
 
   return (
     <section className="page project-page" aria-labelledby="project-title">
@@ -302,32 +308,45 @@ export function Project({
             number: selectedPlate.plate_index,
           })}
           className="plate-detail"
+          ref={detailRef}
         >
-          <div className="plate-detail-heading">
-            <div>
-              <h2>{selectedPlate.display_name ?? copy("project.plateLabel", {
-                number: selectedPlate.plate_index,
-              })}</h2>
-              <PlateStatusLabel status={selectedPlate.status} />
+          <div className="plate-detail-hero">
+            <span className="plate-detail-media">
+              <ProjectMedia
+                alt={copy("project.plateImage", { number: selectedPlate.plate_index })}
+                errorCopy={copy("history.mediaError")}
+                missingCopy={copy("history.mediaMissing")}
+                src={selectedPlate.thumbnail_url}
+              />
+            </span>
+            <div className="plate-detail-overview">
+              <div className="plate-detail-heading">
+                <div>
+                  <h2>{selectedPlate.display_name ?? copy("project.plateLabel", {
+                    number: selectedPlate.plate_index,
+                  })}</h2>
+                  <PlateStatusLabel status={selectedPlate.status} />
+                </div>
+              </div>
+              <div className="plate-filament-summary" aria-label={copy("project.filamentSummary")}>
+                {selectedPlate.filaments.map((filament) => (
+                  <span key={filament.profile.tool}>
+                    <Swatch colors={[filament.profile.color_hex]} />
+                    <span>
+                      <strong className="data">
+                        {filament.total_grams.toFixed(1)} {copy("common.grams")}
+                      </strong>
+                      <small className="data">{filament.profile.color_hex}</small>
+                    </span>
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
 
           {pendingStatuses.has(selectedPlate.status) ? (
             selectedPreview ? (
               <>
-                <div className="plate-filament-summary" aria-label={copy("project.filamentSummary")}>
-                  {selectedPreview.filaments.map((filament) => (
-                    <span key={filament.tool}>
-                      <Swatch colors={[filament.profile.color_hex]} />
-                      <span>
-                        <strong className="data">
-                          {filament.total_grams.toFixed(1)} {copy("common.grams")}
-                        </strong>
-                        <small className="data">{filament.profile.color_hex}</small>
-                      </span>
-                    </span>
-                  ))}
-                </div>
                 <Job
                   busy={busy}
                   embedded
@@ -411,6 +430,26 @@ export function Project({
                 <ArrowCounterClockwise aria-hidden="true" size={17} />
                 {copy("jobs.reverse")}
               </button> : null}
+              <div className="plate-consumption" aria-label={copy("project.actualDeductions")}>
+                <h3>{copy("project.actualDeductions")}</h3>
+                {selectedResult.consumption.map((item, index) => {
+                  const spool = spools.find((candidate) => candidate.spool_id === item.spool_id);
+                  return (
+                    <div className="plate-consumption-item" key={`${item.spool_id}-${item.slot_number ?? "none"}-${index}`}>
+                      <Swatch colors={spool?.color_hexes?.length
+                        ? spool.color_hexes
+                        : [spool?.color_hex ?? "#8B8E99"]} />
+                      <span>
+                        <strong>{spool?.display_name ?? copy("project.unknownSpool")}</strong>
+                        <small>{item.slot_number == null
+                          ? copy("project.unmountedSpool")
+                          : copy("project.slotSnapshot", { number: item.slot_number })}</small>
+                      </span>
+                      <b className="data">{item.grams.toFixed(1)} {copy("common.grams")}</b>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </section>

@@ -253,10 +253,33 @@ describe("Project", () => {
     const detail = screen.getByRole("region", { name: "第 2 盘详情" });
     expect(within(detail).getByText("估算结果")).toBeVisible();
     expect(within(detail).getByText("已扣减 18.4 克")).toBeVisible();
+    const deductions = within(detail).getByLabelText("实际扣减明细");
+    expect(within(deductions).getByText("钴蓝 PLA")).toBeVisible();
+    expect(within(deductions).getByText("结算时位于槽位 1")).toBeVisible();
+    expect(within(deductions).getByText("18.4 克")).toBeVisible();
     fireEvent.click(
       within(detail).getByRole("button", { name: "撤销本次扣减" }),
     );
     expect(onReverse).toHaveBeenCalledWith("job-body");
+  });
+
+  it("shows the complete plate preview again in the selected plate detail", () => {
+    const withThumbnail: PrintProjectDetail = {
+      ...project,
+      plates: project.plates.map((plate, index) => index === 0
+        ? { ...plate, thumbnail_url: "asset://localhost/plate-head.png" }
+        : plate),
+    };
+    render(
+      <Project
+        {...baseActions}
+        project={withThumbnail}
+        selectedPlateId="plate-head"
+        onSelectPlate={() => undefined}
+      />,
+    );
+
+    expect(screen.getAllByRole("img", { name: "第 1 盘预览" })).toHaveLength(2);
   });
 
   it("shows a reversed settlement as restored and removes the reversal action", () => {

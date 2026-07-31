@@ -29,8 +29,12 @@
     "home": "總覽",
     "spools": "耗材庫",
     "printers": "印表機",
+    "slice": "切片",
+    "sliceActive": "{{status}} 進行中",
     "jobs": "列印任務",
-    "settings": "設定"
+    "settings": "設定",
+    "openMenu": "開啟導覽",
+    "closeMenu": "關閉導覽"
   },
   "printers": {
     "title": "我的印表機",
@@ -60,7 +64,7 @@
   },
   "home": {
     "greeting": "今天想列印點什麼？",
-    "importHint": "讀取已切片 3MF 的顏色與預計用量",
+    "importHint": "普通 3MF 自動進入切片，已切片檔案直接建立列印任務",
     "summary": "庫存摘要",
     "inventoryCount": "耗材庫 {{count}} 卷",
     "lowCount": "低庫存 {{count}} 卷",
@@ -198,6 +202,10 @@
     "reversedResult": "扣減已撤銷",
     "deducted": "已扣減 {{grams}} 克",
     "restored": "已返還 {{grams}} 克",
+    "actualDeductions": "實際扣減明細",
+    "unknownSpool": "未命名耗材卷",
+    "slotSnapshot": "結算時位於槽位 {{number}}",
+    "unmountedSpool": "結算時未裝入槽位",
     "resultRecorded": "本盤的耗材用量已記錄",
     "skippedTitle": "本盤已跳過",
     "skippedNoDeduction": "已跳過，沒有扣減耗材",
@@ -214,13 +222,14 @@
     }
   },
   "import": {
-    "title": "匯入切片檔案",
-    "filterName": "已切片 3MF 檔案",
-    "drop": "把已切片的 .gcode.3mf 拖到這裡",
+    "title": "匯入 3MF",
+    "filterName": "3MF 檔案",
+    "outputFilterName": "切片後的 3MF",
+    "drop": "把 .3mf 或 .gcode.3mf 拖到這裡",
     "browse": "選擇檔案",
-    "reading": "正在讀取顏色與預計用量…",
+    "reading": "正在檢查 3MF 內容…",
     "ready": "檔案已讀取，可以核對耗材卷",
-    "unsliced": "這個 3MF 還沒有切片，請先在 Bambu Studio 中匯出 G-code。",
+    "unsliced": "這是普通 3MF，正在開啟切片頁面。",
     "mapping": "為每種顏色選擇實際使用的耗材卷",
     "duplicate": "這個列印任務已經匯入過了"
   },
@@ -329,6 +338,7 @@
     "slicer_cancelled": "切片已取消",
     "slicer_failed": "Bambu Studio 無法切片此專案",
     "slicer_incompatible": "此 Bambu Studio 安裝版本不相容切片功能",
+    "slicer_plate_conflict": "列印盤中的模型路徑發生衝突，請先在 Bambu Studio 中修正",
     "slicer_profiles_missing": "找不到 Bambu Studio 官方預設",
     "slot_conflict": "這個槽位或耗材卷已被佔用",
     "unsliced_project": "這個專案尚未切片",
