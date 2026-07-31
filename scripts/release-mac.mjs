@@ -2,6 +2,11 @@ import { spawnSync } from "node:child_process";
 import { cp, copyFile, mkdir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rustTargetDir } from "./rust.mjs";
+
+export function releaseBundleRoot(options = {}) {
+  return join(rustTargetDir(options), "release", "bundle");
+}
 
 export async function publishMacBundles({ sourceApp, sourceDmg, releaseApp, releaseDmg }) {
   await mkdir(dirname(releaseApp), { recursive: true });
@@ -13,13 +18,15 @@ export async function publishMacBundles({ sourceApp, sourceDmg, releaseApp, rele
 
 async function main() {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const target = rustTargetDir();
   const build = spawnSync("npm", ["run", "tauri", "build", "--", "--bundles", "app"], {
     cwd: root,
+    env: { ...process.env, CARGO_TARGET_DIR: target },
     stdio: "inherit",
   });
   if (build.status !== 0) process.exit(build.status ?? 1);
 
-  const bundle = join(root, "src-tauri", "target", "release", "bundle");
+  const bundle = releaseBundleRoot();
   const sourceApp = join(bundle, "macos", "CYLUNE.app");
   const release = join(root, "发布");
   await publishMacBundles({

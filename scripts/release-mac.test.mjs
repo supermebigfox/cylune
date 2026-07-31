@@ -9,7 +9,21 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { publishMacBundles } from "./release-mac.mjs";
+import { publishMacBundles, releaseBundleRoot } from "./release-mac.mjs";
+
+test("reads release bundles from the shared Rust cache directory", () => {
+  expect(releaseBundleRoot({
+    platform: "darwin",
+    home: "/Users/robin",
+    env: {},
+  })).toBe("/Users/robin/Library/Caches/CYLUNE/rust/release/bundle");
+
+  expect(releaseBundleRoot({
+    platform: "darwin",
+    home: "/Users/robin",
+    env: { CARGO_TARGET_DIR: "/Volumes/Build/CYLUNE" },
+  })).toBe("/Volumes/Build/CYLUNE/release/bundle");
+});
 
 test("publishes one formal app and removes the temporary Spotlight app", async () => {
   const workspace = mkdtempSync(join(tmpdir(), "cylune-release-"));

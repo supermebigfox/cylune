@@ -69,13 +69,14 @@ npm run tauri build
 
 构建成功后：
 
-- `.app` 位于 `src-tauri/target/release/bundle/macos/CYLUNE.app`；
-- `.dmg` 位于 `src-tauri/target/release/bundle/dmg/CYLUNE_0.1.0_aarch64.dmg`。
+- macOS 的 Rust 编译缓存位于 `$HOME/Library/Caches/CYLUNE/rust`，不会再堆积在项目文件夹中；
+- `.app` 位于 `$HOME/Library/Caches/CYLUNE/rust/release/bundle/macos/CYLUNE.app`；
+- `.dmg` 位于 `$HOME/Library/Caches/CYLUNE/rust/release/bundle/dmg/CYLUNE_0.1.0_aarch64.dmg`。
 
 若本机的 Finder AppleScript 长时间停在 `Running bundle_dmg.sh`，先确认 release `.app` 已成功生成并中止卡住的 DMG 美化步骤，再使用同一个 Tauri 生成脚本的无 GUI 模式：
 
 ```bash
-cd src-tauri/target/release/bundle/macos
+cd "$HOME/Library/Caches/CYLUNE/rust/release/bundle/macos"
 ../dmg/bundle_dmg.sh \
   --skip-jenkins \
   --volname 'CYLUNE' \
