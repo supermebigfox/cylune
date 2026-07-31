@@ -1,7 +1,7 @@
 use super::{
     build_bambu_args, catalog::load_slice_preset_catalog, inspect_3mf_content,
-    resolve_fast_request, FastSliceRequest, InstallationDiscovery, SlicePresetCatalog,
-    SliceRequest,
+    progress::BambuProgressParser, resolve_fast_request, FastSliceRequest, InstallationDiscovery,
+    SlicePresetCatalog, SliceRequest,
 };
 use crate::{
     error::{AppError, Result},
@@ -251,7 +251,7 @@ impl SlicerService {
             task_id,
             state: SliceTaskState::Running,
             phase: SlicePhase::Preparing,
-            percent: None,
+            percent: Some(0.0),
             project_id: None,
             error_code: None,
         };
@@ -261,13 +261,20 @@ impl SlicerService {
             .map_err(|_| AppError::SlicerFailed)?
             .insert(task_id, task.clone());
         emit_progress(&self.inner, task_id, SlicePhase::Preparing);
+        set_progress(&self.inner, task_id, SlicePhase::Preparing);
         set_progress(&self.inner, task_id, SlicePhase::Slicing);
 
+        let stdout_inner = self.inner.clone();
+        let stdout_running = running.clone();
         let stdout_reader = thread::spawn(move || {
             if let Some(stdout) = stdout {
+                let mut parser = BambuProgressParser::default();
                 for line in BufReader::new(stdout).lines() {
-                    if line.is_err() {
+                    let Ok(line) = line else {
                         break;
+                    };
+                    if let Some(percent) = parser.observe(&line) {
+                        set_slicing_progress(&stdout_inner, &stdout_running, task_id, percent);
                     }
                 }
             }
@@ -622,17 +629,61 @@ fn set_progress(inner: &Arc<SlicerInner>, task_id: Uuid, phase: SlicePhase) {
     if let Ok(mut tasks) = inner.tasks.lock() {
         if let Some(task) = tasks.get_mut(&task_id) {
             task.phase = phase;
+            task.percent = Some(match phase {
+                SlicePhase::Preparing => 1.0,
+                SlicePhase::Slicing => 3.0,
+                SlicePhase::Validating => 98.0,
+                SlicePhase::Importing => 99.0,
+                SlicePhase::Complete => 100.0,
+            });
         }
     }
     emit_progress(inner, task_id, phase);
 }
 
 fn emit_progress(inner: &Arc<SlicerInner>, task_id: Uuid, phase: SlicePhase) {
+    let percent = inner
+        .tasks
+        .lock()
+        .ok()
+        .and_then(|tasks| tasks.get(&task_id).and_then(|task| task.percent));
     inner.events.progress(SliceProgress {
         task_id,
         phase,
-        percent: None,
+        percent,
     });
+}
+
+fn set_slicing_progress(
+    inner: &Arc<SlicerInner>,
+    running: &RunningSlice,
+    task_id: Uuid,
+    percent: f64,
+) {
+    if running.cancel_requested.load(Ordering::Acquire) {
+        return;
+    }
+    let updated = if let Ok(mut tasks) = inner.tasks.lock() {
+        if let Some(task) = tasks.get_mut(&task_id) {
+            if task.state == SliceTaskState::Running
+                && percent > task.percent.unwrap_or_default()
+                && !running.cancel_requested.load(Ordering::Acquire)
+            {
+                task.phase = SlicePhase::Slicing;
+                task.percent = Some(percent);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    if updated && !running.cancel_requested.load(Ordering::Acquire) {
+        emit_progress(inner, task_id, SlicePhase::Slicing);
+    }
 }
 
 fn set_completed(inner: &Arc<SlicerInner>, task_id: Uuid, project_id: Uuid) {
@@ -640,6 +691,7 @@ fn set_completed(inner: &Arc<SlicerInner>, task_id: Uuid, project_id: Uuid) {
         if let Some(task) = tasks.get_mut(&task_id) {
             task.state = SliceTaskState::Completed;
             task.phase = SlicePhase::Complete;
+            task.percent = Some(100.0);
             task.project_id = Some(project_id);
             task.error_code = None;
         }
@@ -705,12 +757,17 @@ mod tests {
     #[derive(Default)]
     struct RecordingEvents {
         names: Mutex<Vec<String>>,
+        progresses: Mutex<Vec<SliceProgress>>,
         changed: Condvar,
     }
 
     impl RecordingEvents {
         fn names(&self) -> Vec<String> {
             self.names.lock().unwrap().clone()
+        }
+
+        fn progresses(&self) -> Vec<SliceProgress> {
+            self.progresses.lock().unwrap().clone()
         }
 
         fn push(&self, name: String) {
@@ -721,6 +778,7 @@ mod tests {
 
     impl SliceEventSink for RecordingEvents {
         fn progress(&self, event: SliceProgress) {
+            self.progresses.lock().unwrap().push(event.clone());
             self.push(format!("progress:{:?}", event.phase));
         }
 
@@ -992,6 +1050,7 @@ mod tests {
             events.names(),
             [
                 format!("progress:{:?}", SlicePhase::Preparing),
+                format!("progress:{:?}", SlicePhase::Preparing),
                 format!("progress:{:?}", SlicePhase::Slicing),
                 format!("progress:{:?}", SlicePhase::Validating),
                 format!("progress:{:?}", SlicePhase::Importing),
@@ -1000,6 +1059,86 @@ mod tests {
             ]
         );
         assert!(!task_root.exists());
+    }
+
+    #[test]
+    fn streams_monotonic_bambu_progress_and_publishes_determinate_lifecycle_values() {
+        let fixture = Fixture::success();
+        fixture.set_script(
+            b"#!/bin/sh\nout=''\nprev=''\nfor arg in \"$@\"; do\n  if [ \"$prev\" = '--export-3mf' ]; then out=\"$arg\"; break; fi\n  prev=\"$arg\"\ndone\nprintf '%s\\n' 'Need to slice for plate 0, total plate count 2 partplates!'\nsleep 0.02\nprintf '%s\\n' 'start Print::process for partplate 1'\nprintf '%s\\n' 'default_status_callback: percent=50, warning_step=-1, message=Generating infill, message_type=0'\nsleep 0.02\nprintf '%s\\n' 'start Print::process for partplate 2'\nprintf '%s\\n' 'default_status_callback: percent=50, warning_step=-1, message=Generating infill, message_type=0'\nprintf '%s\\n' 'will export 3mf'\ncp \"$(dirname \"$0\")/fixture.gcode.3mf\" \"$out\"\n",
+        );
+        let events = Arc::new(RecordingEvents::default());
+        let service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(Some(fixture.app.clone())),
+            fixture.cache.clone(),
+            Arc::new(RecordingImporter::new(Uuid::new_v4())),
+            events.clone(),
+            Duration::ZERO,
+        );
+
+        let started = service.start(fixture.request()).unwrap();
+        assert_eq!(started.percent, Some(0.0));
+        let completed = wait_for_terminal(&service, started.task_id);
+        let progress = events.progresses();
+        let numeric = progress
+            .iter()
+            .map(|event| event.percent.expect("every progress event is determinate"))
+            .collect::<Vec<_>>();
+
+        assert!(numeric.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(progress
+            .iter()
+            .any(|event| { event.phase == SlicePhase::Preparing && event.percent == Some(1.0) }));
+        assert!(progress
+            .iter()
+            .any(|event| { event.phase == SlicePhase::Slicing && event.percent == Some(25.5) }));
+        assert!(progress
+            .iter()
+            .any(|event| { event.phase == SlicePhase::Slicing && event.percent == Some(70.5) }));
+        assert!(progress
+            .iter()
+            .any(|event| { event.phase == SlicePhase::Validating && event.percent == Some(98.0) }));
+        assert!(progress
+            .iter()
+            .any(|event| { event.phase == SlicePhase::Importing && event.percent == Some(99.0) }));
+        assert_eq!(progress.last().unwrap().percent, Some(100.0));
+        assert_eq!(completed.percent, Some(100.0));
+    }
+
+    #[test]
+    fn cancellation_prevents_later_stdout_progress_updates() {
+        let fixture = Fixture::success();
+        fixture.set_script(
+            b"#!/bin/sh\nprintf '%s\\n' 'default_status_callback: percent=50, warning_step=-1, message=Generating infill, message_type=0'\nsleep 2\nprintf '%s\\n' 'default_status_callback: percent=90, warning_step=-1, message=Generating infill, message_type=0'\n",
+        );
+        let events = Arc::new(RecordingEvents::default());
+        let service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(Some(fixture.app.clone())),
+            fixture.cache.clone(),
+            Arc::new(RecordingImporter::new(Uuid::new_v4())),
+            events.clone(),
+            Duration::ZERO,
+        );
+
+        let started = service.start(fixture.request()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !events
+            .progresses()
+            .iter()
+            .any(|event| event.percent == Some(48.0))
+        {
+            assert!(
+                Instant::now() < deadline,
+                "first stdout progress was not emitted"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        service.cancel(started.task_id).unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+
+        let progress = events.progresses();
+        assert!(progress.iter().any(|event| event.percent == Some(48.0)));
+        assert!(progress.iter().all(|event| event.percent != Some(84.0)));
     }
 
     #[test]
@@ -1117,11 +1256,15 @@ mod tests {
 
         assert_eq!(failed.state, SliceTaskState::Failed);
         assert!(importer.imported.lock().unwrap().is_empty());
-        assert!(!fixture
+        let task_root = fixture
             .cache
             .join("slices")
-            .join(started.task_id.to_string())
-            .exists());
+            .join(started.task_id.to_string());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while task_root.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!task_root.exists());
     }
 
     #[test]
@@ -1442,6 +1585,7 @@ mod tests {
         assert_eq!(
             events.names(),
             [
+                format!("progress:{:?}", SlicePhase::Preparing),
                 format!("progress:{:?}", SlicePhase::Preparing),
                 format!("progress:{:?}", SlicePhase::Slicing),
                 format!("progress:{:?}", SlicePhase::Validating),

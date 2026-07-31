@@ -50,7 +50,7 @@ pub fn build_bambu_args(request: &SliceRequest, temporary_output: &Path) -> Resu
         OsString::from("--slice"),
         OsString::from(request.plate_selection.bambu_value()),
         OsString::from("--debug"),
-        OsString::from("2"),
+        OsString::from("4"),
     ];
     if request.estimate_mode {
         args.push(OsString::from("--estimate-mode"));
@@ -214,7 +214,7 @@ mod tests {
                 OsString::from("--slice"),
                 OsString::from("0"),
                 OsString::from("--debug"),
-                OsString::from("2"),
+                OsString::from("4"),
                 OsString::from("--load-settings"),
                 OsString::from(fixture.machine.as_os_str()),
                 OsString::from("--export-3mf"),

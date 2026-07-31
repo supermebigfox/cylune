@@ -2,6 +2,7 @@ mod catalog;
 mod command;
 mod discovery;
 mod inspect;
+mod progress;
 mod runtime;
 
 use crate::{
