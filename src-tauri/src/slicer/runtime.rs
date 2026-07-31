@@ -152,6 +152,7 @@ impl SlicerService {
         events: Arc<dyn SliceEventSink>,
         stability_delay: Duration,
     ) -> Self {
+        cleanup_orphaned_slice_tasks(&cache_root);
         Self {
             inner: Arc::new(SlicerInner {
                 discovery,
@@ -383,6 +384,38 @@ impl SlicerService {
         for task_id in task_ids {
             let _ = self.cancel(task_id);
         }
+    }
+}
+
+fn cleanup_orphaned_slice_tasks(cache_root: &Path) {
+    let slices_root = cache_root.join("slices");
+    let Ok(root_metadata) = fs::symlink_metadata(&slices_root) else {
+        return;
+    };
+    if root_metadata.file_type().is_symlink() || !root_metadata.file_type().is_dir() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(&slices_root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let Ok(task_id) = Uuid::parse_str(&name) else {
+            continue;
+        };
+        if task_id.to_string() != name {
+            continue;
+        }
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if metadata.file_type().is_symlink() || !metadata.file_type().is_dir() {
+            continue;
+        }
+        let _ = fs::remove_dir_all(path);
     }
 }
 
@@ -928,6 +961,34 @@ mod tests {
             assert!(Instant::now() < deadline, "slice task timed out");
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    #[test]
+    fn startup_removes_only_orphaned_slice_tasks() {
+        let root = std::env::temp_dir().join(format!("cylune-orphan-cleanup-{}", Uuid::new_v4()));
+        let cache = root.join("cache");
+        let slices = cache.join("slices");
+        let orphan = slices.join(Uuid::new_v4().to_string());
+        let unrelated_dir = slices.join("keep-me");
+        let uuid_file = slices.join(Uuid::new_v4().to_string());
+        fs::create_dir_all(&orphan).unwrap();
+        fs::create_dir_all(&unrelated_dir).unwrap();
+        fs::write(orphan.join("output.gcode.3mf"), b"stale").unwrap();
+        fs::write(&uuid_file, b"not a task directory").unwrap();
+
+        let _service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(None),
+            cache,
+            Arc::new(RecordingImporter::new(Uuid::new_v4())),
+            Arc::new(RecordingEvents::default()),
+            Duration::ZERO,
+        );
+
+        assert!(!orphan.exists());
+        assert!(unrelated_dir.is_dir());
+        assert!(uuid_file.is_file());
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
