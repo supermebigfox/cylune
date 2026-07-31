@@ -561,7 +561,9 @@ describe("App localization", () => {
       outcome,
       settlement_version: 1,
       reversed: false,
-      selected_layer: "stop_layer" in outcome ? outcome.stop_layer : null,
+      selected_layer: outcome.kind === "failed" || outcome.kind === "cancelled"
+        ? outcome.stop_layer
+        : null,
       confidence,
       consumption: [],
     }));
@@ -580,7 +582,7 @@ describe("App localization", () => {
     await user.click(screen.getByRole("button", { name: "确认耗材映射" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "耗材映射已确认" })).toBeVisible());
     await user.click(screen.getByRole("radio", { name: label }));
-    if ("stop_layer" in outcome) {
+    if (outcome.kind === "failed" || outcome.kind === "cancelled") {
       await user.clear(screen.getByLabelText("最后完成的层数"));
       await user.type(screen.getByLabelText("最后完成的层数"), String(outcome.stop_layer + 1));
     }
