@@ -64,6 +64,39 @@ function fakeTauriApi(overrides: Partial<TauriApi> = {}): TauriApi {
     savePrinter: async () => { throw new Error("unused"); },
     deletePrinter: async () => undefined,
     setDefaultPrinter: async () => undefined,
+    inspect3mf: async (path) => ({
+      kind: path.toLowerCase().endsWith(".gcode.3mf") ? "sliced" : "unsliced",
+      file_name: path.split(/[\\/]/).pop() || "project.3mf",
+      plate_count: 1,
+      embedded_model_key: null,
+      embedded_nozzle_diameter: null,
+      tools: [{
+        tool: 0,
+        label: "颜色 1",
+        material: "PLA",
+        color_hex: "#FFFFFF",
+        embedded_filament_key: null,
+      }],
+    }),
+    listSlicePresets: async () => ({ processes: [], plates: [], filaments: [] }),
+    startSlice: async () => ({
+      task_id: "slice-1",
+      state: "running",
+      phase: "preparing",
+      percent: null,
+      project_id: null,
+      error_code: null,
+    }),
+    cancelSlice: async () => undefined,
+    getSliceTask: async (taskId) => ({
+      task_id: taskId,
+      state: "running",
+      phase: "slicing",
+      percent: null,
+      project_id: null,
+      error_code: null,
+    }),
+    openInBambuStudio: async () => undefined,
     ...overrides,
   };
 }
@@ -79,6 +112,28 @@ it("opens printer management as an independent top-level destination", async () 
   expect(await screen.findByText("还没有保存打印机")).toBeVisible();
   expect(screen.getByRole("button", { name: "添加打印机" })).toBeVisible();
   expect(screen.getByRole("button", { name: "设置" })).toBeVisible();
+});
+
+it("opens slicing with the selected saved printer from its printer card", async () => {
+  const p2s = {
+    printer_id: "printer-p2s",
+    display_name: "1",
+    model_key: "Bambu Lab P2S",
+    nozzle_diameter: 0.4,
+    default_plate: "Supertack Plate",
+    ams_kind: "ams",
+    is_default: true,
+    is_available: true,
+  };
+  render(<DesktopApp apiClient={fakeTauriApi({
+    listSavedPrinters: async () => [p2s],
+  })} pickFile={async () => null} />);
+  await screen.findByText("持久化蓝色 PLA");
+
+  fireEvent.click(screen.getByRole("button", { name: "打印机" }));
+  fireEvent.click(await screen.findByRole("button", { name: "使用此打印机切片" }));
+
+  expect(await screen.findByRole("heading", { name: "快速切片" })).toBeVisible();
 });
 
 function projectFixture(name = "two-plates.gcode.3mf", projectId = "project-1") {
@@ -407,7 +462,7 @@ describe("App localization", () => {
     render(<DesktopApp apiClient={fakeTauriApi({ listPrintProjects, getPrintProject: async () => fixture.detail, getProjectPreview: async () => fixture.preview, importPrintProject, confirmJobMapping, settleJob })} pickFile={pickFile} />);
     await screen.findByText("持久化蓝色 PLA");
 
-    await user.click(screen.getAllByRole("button", { name: "导入切片文件" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "导入 3MF" })[0]);
     expect(await screen.findByRole("heading", { name: "two-plates.gcode.3mf" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: /后盘/ }));
     await user.click(screen.getByRole("button", { name: "确认耗材映射" }));
@@ -426,6 +481,167 @@ describe("App localization", () => {
     expect(screen.getAllByText("等待映射").length).toBeGreaterThan(0);
     expect(pickFile).toHaveBeenCalledTimes(1);
     expect(importPrintProject).toHaveBeenCalledWith("/tmp/two-plates.gcode.3mf");
+  });
+
+  it("inspects an ordinary 3MF and carries it into the independent slicing page", async () => {
+    const user = userEvent.setup();
+    const inspect3mf = vi.fn(async () => ({
+      kind: "unsliced" as const,
+      file_name: "月球灯.3mf",
+      plate_count: 2,
+      embedded_model_key: "Bambu Lab P2S",
+      embedded_nozzle_diameter: 0.4,
+      tools: [{
+        tool: 0,
+        label: "颜色 1",
+        material: "PLA",
+        color_hex: "#FFFEFC",
+        embedded_filament_key: "bambu-pla-basic-white",
+      }],
+    }));
+    const importPrintProject = vi.fn(async () => { throw new Error("must not import unsliced input"); });
+    render(<DesktopApp
+      apiClient={fakeTauriApi({
+        inspect3mf,
+        importPrintProject,
+        listSavedPrinters: async () => [{
+          printer_id: "printer-p2s",
+          display_name: "我的 P2S",
+          model_key: "Bambu Lab P2S",
+          nozzle_diameter: 0.4,
+          default_plate: "Supertack Plate",
+          ams_kind: "ams",
+          is_default: true,
+          is_available: true,
+        }],
+        listSlicePresets: async () => ({
+          processes: [{ key: "standard-020", label: "标准", layer_height_mm: 0.2, is_default: true }],
+          plates: [{ key: "Supertack Plate", label: "Supertack Plate", is_default: true }],
+          filaments: [{ key: "bambu-pla-basic-white", label: "Bambu PLA Basic · 玉白", material: "PLA", color_hex: "#FFFEFC" }],
+        }),
+      })}
+      pickFile={async () => "/Users/robin/Desktop/月球灯.3mf"}
+    />);
+    await screen.findByText("持久化蓝色 PLA");
+
+    await user.click(screen.getAllByRole("button", { name: "导入 3MF" })[0]);
+
+    expect(await screen.findByRole("heading", { name: "月球灯.3mf" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "切片" })).toHaveAttribute("aria-current", "page");
+    expect(inspect3mf).toHaveBeenCalledWith("/Users/robin/Desktop/月球灯.3mf");
+    expect(importPrintProject).not.toHaveBeenCalled();
+  });
+
+  it("routes an unsliced black-hole drop into slicing without showing an import error", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const subscribeEvent = vi.fn(async (name: string, handler: (payload: unknown) => void) => {
+      handlers.set(name, handler);
+      return () => { handlers.delete(name); };
+    });
+    const inspect3mf = vi.fn(async (path: string) => ({
+      kind: "unsliced" as const,
+      file_name: path.split("/").pop() || "project.3mf",
+      plate_count: 1,
+      embedded_model_key: null,
+      embedded_nozzle_diameter: null,
+      tools: [{
+        tool: 0,
+        label: "颜色 1",
+        material: "PLA",
+        color_hex: "#FFFFFF",
+        embedded_filament_key: null,
+      }],
+    }));
+    render(<DesktopApp
+      apiClient={fakeTauriApi({ inspect3mf })}
+      pickFile={async () => null}
+      subscribeEvent={subscribeEvent}
+    />);
+    await screen.findByText("持久化蓝色 PLA");
+    await waitFor(() => expect(handlers.has("open-slice")).toBe(true));
+
+    await act(async () => handlers.get("open-slice")?.("/tmp/project.3mf"));
+
+    expect(await screen.findByRole("heading", { name: "project.3mf" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "切片" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByText("这个项目尚未切片")).not.toBeInTheDocument();
+  });
+
+  it("keeps global navigation live and restores slicing progress after leaving the page", async () => {
+    const user = userEvent.setup();
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const subscribeEvent = vi.fn(async (name: string, handler: (payload: unknown) => void) => {
+      handlers.set(name, handler);
+      return () => { handlers.delete(name); };
+    });
+    const client = fakeTauriApi({
+      listSavedPrinters: async () => [{
+        printer_id: "printer-p2s",
+        display_name: "我的 P2S",
+        model_key: "Bambu Lab P2S",
+        nozzle_diameter: 0.4,
+        default_plate: "Supertack Plate",
+        ams_kind: "ams",
+        is_default: true,
+        is_available: true,
+      }],
+      inspect3mf: async () => ({
+        kind: "unsliced",
+        file_name: "月球灯.3mf",
+        plate_count: 1,
+        embedded_model_key: "Bambu Lab P2S",
+        embedded_nozzle_diameter: 0.4,
+        tools: [{
+          tool: 0,
+          label: "颜色 1",
+          material: "PLA",
+          color_hex: "#FFFEFC",
+          embedded_filament_key: "bambu-pla-basic-white",
+        }],
+      }),
+      listSlicePresets: async () => ({
+        processes: [{ key: "standard-020", label: "标准", layer_height_mm: 0.2, is_default: true }],
+        plates: [{ key: "Supertack Plate", label: "Supertack Plate", is_default: true }],
+        filaments: [{ key: "bambu-pla-basic-white", label: "Bambu PLA Basic · 玉白", material: "PLA", color_hex: "#FFFEFC" }],
+      }),
+      startSlice: async () => ({
+        task_id: "slice-live",
+        state: "running",
+        phase: "slicing",
+        percent: null,
+        project_id: null,
+        error_code: null,
+      }),
+    });
+    render(<DesktopApp
+      apiClient={client}
+      pickFile={async () => "/Users/robin/Desktop/月球灯.3mf"}
+      pickSliceOutput={async () => "/Users/robin/Desktop/月球灯.gcode.3mf"}
+      subscribeEvent={subscribeEvent}
+    />);
+    await screen.findByText("持久化蓝色 PLA");
+
+    await user.click(screen.getByRole("button", { name: "切片" }));
+    await user.click(await screen.findByRole("button", { name: "选择 3MF" }));
+    await screen.findByRole("heading", { name: "月球灯.3mf" });
+    await user.click(screen.getByRole("button", { name: "选择输出位置" }));
+    await user.click(screen.getByRole("button", { name: "开始后台切片" }));
+    expect(await screen.findByRole("button", { name: "取消切片" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "耗材库" }));
+    expect(await screen.findByRole("heading", { name: "我的耗材库" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "切片 1 进行中" })).toBeEnabled();
+
+    await act(async () => handlers.get("slice-progress")?.({
+      task_id: "slice-live",
+      phase: "slicing",
+      percent: 46,
+    }));
+    await user.click(screen.getByRole("button", { name: "切片 46% 进行中" }));
+
+    expect(await screen.findByRole("progressbar")).toHaveAttribute("value", "46");
+    expect(screen.getByRole("combobox", { name: "目标打印机" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "耗材库" })).toBeEnabled();
   });
 
   it("confirms a repeated print with the newly selected source path", async () => {
@@ -452,7 +668,7 @@ describe("App localization", () => {
     />);
     await screen.findByText("持久化蓝色 PLA");
 
-    await user.click(screen.getAllByRole("button", { name: "导入切片文件" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "导入 3MF" })[0]);
     expect(await screen.findByText("这个打印任务已经导入过了")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "确认这是一次新打印" }));
 
@@ -472,7 +688,7 @@ describe("App localization", () => {
     render(<DesktopApp apiClient={fakeTauriApi({ listPrintProjects, getPrintProject: async () => fixture.detail, getProjectPreview: async () => fixture.preview, importPrintProject: async () => fixture.preview, discardProject })} pickFile={async () => "/tmp/discard-me.gcode.3mf"} />);
     await screen.findByText("持久化蓝色 PLA");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "导入切片文件" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "导入 3MF" })[0]);
     expect(await screen.findByText("discard-me.gcode.3mf")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "取消此次导入" }));
 
@@ -486,32 +702,32 @@ describe("App localization", () => {
     render(<DesktopApp apiClient={fakeTauriApi()} pickFile={pickFile} />);
     await screen.findByText("持久化蓝色 PLA");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "匯入切片檔案" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "匯入 3MF" })[0]);
 
-    await waitFor(() => expect(pickFile).toHaveBeenCalledWith("已切片 3MF 檔案"));
+    await waitFor(() => expect(pickFile).toHaveBeenCalledWith("3MF 檔案"));
   });
 
   it("prevents duplicate imports while busy and translates a stable rejected error", async () => {
     let rejectImport: (reason: unknown) => void = () => undefined;
     const importPrintProject = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectImport = reject; }));
-    render(<DesktopApp apiClient={fakeTauriApi({ importPrintProject })} pickFile={async () => "/tmp/bad.3mf"} />);
+    render(<DesktopApp apiClient={fakeTauriApi({ importPrintProject })} pickFile={async () => "/tmp/bad.gcode.3mf"} />);
     await screen.findByText("持久化蓝色 PLA");
-    const importButton = screen.getAllByRole("button", { name: "导入切片文件" })[0];
+    const importButton = screen.getAllByRole("button", { name: "导入 3MF" })[0];
 
     fireEvent.click(importButton);
     fireEvent.click(importButton);
     await waitFor(() => expect(importPrintProject).toHaveBeenCalledTimes(1));
-    expect(screen.getAllByRole("button", { name: "正在读取颜色与预计用量…" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: "正在检查 3MF 内容…" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
 
     await act(() => rejectImport({ code: "invalid_file" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("无法识别这个文件");
-    expect(screen.getAllByRole("button", { name: "导入切片文件" })[0]).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: "导入 3MF" })[0]).toBeEnabled();
   });
 
   it("queues a watched print instead of replacing an unsettled preview", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const subscribeEvent = vi.fn(async (
-      name: "open-job" | "open-project" | "confirm-new-project" | "watch-import" | "open-overview" | "pet-import-error",
+      name: string,
       handler: (payload: unknown) => void,
     ) => {
       handlers.set(name, handler);
@@ -547,7 +763,7 @@ describe("App localization", () => {
   it("handles pet overview navigation and stable import errors", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const subscribeEvent = vi.fn(async (
-      name: "open-job" | "open-project" | "confirm-new-project" | "watch-import" | "open-overview" | "pet-import-error",
+      name: string,
       handler: (payload: unknown) => void,
     ) => {
       handlers.set(name, handler);

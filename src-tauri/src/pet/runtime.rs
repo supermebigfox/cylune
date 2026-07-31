@@ -7,6 +7,7 @@ use crate::{
         NativeShutdownState, PetCallbackKind, PetNativeConfig,
     },
     pet::{CapturePermission, PetMode, PetSettings, PetSettingsPatch, PetStatus, PetStore},
+    slicer::{inspect_3mf_content, ThreeMfKind},
     tray::{pending_navigation_for_job, persist_pending_job, PendingNavigation},
 };
 use std::{
@@ -238,6 +239,9 @@ pub enum NativeEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PetSignal {
+    SliceRequested {
+        path: PathBuf,
+    },
     ImportSucceeded {
         job_id: Uuid,
         pending_count: u32,
@@ -1115,6 +1119,10 @@ fn import_from_pet(
         }
     };
     match outcome {
+        Ok(PetSignal::SliceRequested { path }) => {
+            crate::tray::show_main(app);
+            let _ = app.emit_to("main", "open-slice", path.to_string_lossy().into_owned());
+        }
         Ok(PetSignal::ProjectImportSucceeded { navigation, .. }) => {
             crate::tray::show_main(app);
             let _ = app.emit_to("main", "open-project", navigation.clone());
@@ -1158,6 +1166,10 @@ fn process_pet_drop(
     path: &Path,
 ) -> Result<PetSignal> {
     match handle_file_drop(service, path) {
+        Ok(signal @ PetSignal::SliceRequested { .. }) => {
+            finish_native_drop(state, generation, NativeDropResult::Accepted);
+            Ok(signal)
+        }
         Ok(PetSignal::ProjectImportSucceeded {
             navigation,
             plate_count,
@@ -1238,7 +1250,8 @@ fn refresh_pending_state(
     state.apply(false);
     if let (Some(signal), Some(pet)) = (signal, state.pet.as_ref()) {
         pet.signal(match signal {
-            PetSignal::ImportSucceeded { .. }
+            PetSignal::SliceRequested { .. }
+            | PetSignal::ImportSucceeded { .. }
             | PetSignal::ProjectImportSucceeded { .. }
             | PetSignal::NewProjectConfirmationRequired { .. } => SIGNAL_IMPORT_SUCCEEDED,
             PetSignal::ImportFailed { .. } => SIGNAL_IMPORT_FAILED,
@@ -1269,6 +1282,20 @@ extern "C" fn native_callback(kind: u32, payload: *const c_char, x: f64, y: f64,
 
 pub fn handle_file_drop(service: &mut PrintService, path: &Path) -> Result<PetSignal> {
     let validation = DropValidation::read(path).map_err(|_| AppError::InvalidFile)?;
+    if validation
+        .canonical_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("3mf"))
+    {
+        if inspect_3mf_content(&validation.canonical_path)
+            .is_ok_and(|inspection| inspection.kind == ThreeMfKind::Unsliced)
+        {
+            return Ok(PetSignal::SliceRequested {
+                path: validation.canonical_path,
+            });
+        }
+    }
     let preview = service.import_print_project(&validation.canonical_path)?;
     if preview.state == ImportState::NewPrintConfirmationRequired {
         return Ok(PetSignal::NewProjectConfirmationRequired {
@@ -1459,6 +1486,32 @@ mod tests {
         path
     }
 
+    fn unsliced_fixture() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "cylune-pet-unsliced-{}.3mf",
+            uuid::Uuid::new_v4()
+        ));
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = zip::write::FileOptions::default();
+        for (name, contents) in [
+            ("[Content_Types].xml", b"<Types/>".as_slice()),
+            ("3D/3dmodel.model", b"<model/>".as_slice()),
+            (
+                "Metadata/project_settings.config",
+                br##"{"printer_model":"Bambu Lab P2S","nozzle_diameter":["0.4"],"filament_settings_id":["Bambu PLA Basic @BBL P2S"],"filament_type":["PLA"],"filament_colour":["#FFFFFF"]}"##.as_slice(),
+            ),
+            (
+                "Metadata/model_settings.config",
+                br#"<config><plate><metadata key="plater_id" value="1"/></plate></config>"#.as_slice(),
+            ),
+        ] {
+            archive.start_file(name, options).unwrap();
+            archive.write_all(contents).unwrap();
+        }
+        archive.finish().unwrap();
+        path
+    }
+
     fn balance_rows(db: &AppDatabase) -> Vec<(String, f64)> {
         let mut statement = db
             .connection
@@ -1492,6 +1545,25 @@ mod tests {
             }
         ));
         assert_eq!(balance_rows(&service.database), before);
+    }
+
+    #[test]
+    fn unsliced_black_hole_drop_requests_slicing_without_creating_a_project() {
+        let db = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(db, Duration::ZERO);
+        let path = unsliced_fixture();
+        let canonical = std::fs::canonicalize(&path).unwrap();
+
+        let signal = handle_file_drop(&mut service, &path).unwrap();
+
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(signal, PetSignal::SliceRequested { path: canonical });
+        let project_count: u32 = service
+            .database
+            .connection
+            .query_row("SELECT COUNT(*) FROM print_projects", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(project_count, 0);
     }
 
     #[test]
