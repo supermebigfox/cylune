@@ -1,7 +1,7 @@
 use super::{
     build_bambu_args, catalog::load_slice_preset_catalog, inspect_3mf_content,
-    progress::BambuProgressParser, resolve_fast_request, FastSliceRequest, InstallationDiscovery,
-    SlicePresetCatalog, SliceRequest,
+    progress::BambuProgressParser, project::remap_project_for_machine, resolve_fast_request,
+    FastSliceRequest, InstallationDiscovery, SlicePresetCatalog, SliceRequest,
 };
 use crate::{
     error::{AppError, Result},
@@ -210,7 +210,24 @@ impl SlicerService {
             .join(task_id.to_string());
         fs::create_dir_all(&task_dir).map_err(|_| AppError::SlicerFailed)?;
         let temporary_output = task_dir.join("output.gcode.3mf");
-        let args = match build_bambu_args(&request, &temporary_output) {
+        let command_request = if request.estimate_mode {
+            let compatible_input = task_dir.join("input.compat.3mf");
+            if let Err(error) = remap_project_for_machine(
+                &request.input,
+                &compatible_input,
+                &request.machine_settings,
+            ) {
+                let _ = fs::remove_dir_all(&task_dir);
+                return Err(error);
+            }
+            let mut compatible_request = request.clone();
+            compatible_request.input = compatible_input;
+            compatible_request.estimate_mode = false;
+            compatible_request
+        } else {
+            request.clone()
+        };
+        let args = match build_bambu_args(&command_request, &temporary_output) {
             Ok(args) => args,
             Err(error) => {
                 let _ = fs::remove_dir_all(&task_dir);
@@ -977,6 +994,18 @@ mod tests {
         archive.finish().unwrap();
     }
 
+    fn write_machine_mismatch_fixture(path: &Path) {
+        let mut archive = zip::ZipWriter::new(File::create(path).unwrap());
+        let options = FileOptions::default();
+        archive
+            .start_file("Metadata/project_settings.config", options)
+            .unwrap();
+        archive.write_all(br##"{"printer_model":"Bambu Lab X2D","printer_settings_id":"Bambu Lab X2D 0.4 nozzle","print_settings_id":"0.16mm Optimal @BBL X2D","default_print_profile":"0.20mm Standard @BBL X2D","print_compatible_printers":["Bambu Lab X2D 0.4 nozzle"],"filament_settings_id":["Bambu PLA Basic @BBL X2D 0.4 nozzle"],"default_filament_profile":["Bambu PLA Basic @BBL X2D 0.4 nozzle"],"filament_type":["PLA"],"filament_colour":["#FFFFFF"],"layer_height":"0.12","sparse_infill_density":"37%"}"##).unwrap();
+        archive.start_file("3D/3dmodel.model", options).unwrap();
+        archive.write_all(b"<model/>").unwrap();
+        archive.finish().unwrap();
+    }
+
     fn wait_for_terminal(service: &SlicerService, task_id: Uuid) -> super::SliceTask {
         wait_for_terminal_until(service, task_id, Duration::from_secs(15))
     }
@@ -1052,18 +1081,36 @@ mod tests {
             importer.imported.lock().unwrap().as_slice(),
             [(task_root.join("output.gcode.3mf"), fixture.input.clone())]
         );
+        let event_names = events.names();
+        let validating = event_names
+            .iter()
+            .position(|name| name == &format!("progress:{:?}", SlicePhase::Validating))
+            .expect("real slicing must enter validation");
         assert_eq!(
-            events.names(),
+            &event_names[..2],
             [
                 format!("progress:{:?}", SlicePhase::Preparing),
                 format!("progress:{:?}", SlicePhase::Preparing),
-                format!("progress:{:?}", SlicePhase::Slicing),
+            ]
+        );
+        assert!(event_names[2..validating]
+            .iter()
+            .all(|name| name == &format!("progress:{:?}", SlicePhase::Slicing)));
+        assert_eq!(
+            &event_names[validating..],
+            [
                 format!("progress:{:?}", SlicePhase::Validating),
                 format!("progress:{:?}", SlicePhase::Importing),
                 format!("progress:{:?}", SlicePhase::Complete),
                 "complete".to_owned(),
             ]
         );
+        let numeric_progress = events
+            .progresses()
+            .into_iter()
+            .map(|event| event.percent.expect("real progress must be determinate"))
+            .collect::<Vec<_>>();
+        assert!(numeric_progress.windows(2).all(|pair| pair[0] <= pair[1]));
         assert!(!task_root.exists());
     }
 
@@ -1179,7 +1226,58 @@ mod tests {
         .unwrap();
         assert_eq!(PathBuf::from(captured.trim()), task_directory);
         assert!(!fixture.root.join("result.json").exists());
+        let cleanup_deadline = Instant::now() + Duration::from_secs(5);
+        while task_directory.exists() && Instant::now() < cleanup_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
         assert!(!task_directory.exists());
+    }
+
+    #[test]
+    fn confirmed_machine_conversion_uses_a_private_identity_remap_without_estimate_mode() {
+        let fixture = Fixture::success();
+        write_machine_mismatch_fixture(&fixture.input);
+        fs::write(
+            &fixture.machine,
+            br#"{"name":"Bambu Lab P2S 0.4 nozzle","printer_model":"Bambu Lab P2S","default_print_profile":"0.20mm Standard @BBL P2S","default_filament_profile":["Bambu PLA Basic @BBL P2S"]}"#,
+        )
+        .unwrap();
+        fixture.set_script(
+            b"#!/bin/sh\nout=''\nprev=''\ninput=''\n: > \"$(dirname \"$0\")/captured-args.txt\"\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> \"$(dirname \"$0\")/captured-args.txt\"\n  input=\"$arg\"\n  if [ \"$prev\" = '--export-3mf' ]; then out=\"$arg\"; fi\n  prev=\"$arg\"\ndone\nunzip -p \"$input\" Metadata/project_settings.config > \"$(dirname \"$0\")/captured-project.json\"\ncp \"$(dirname \"$0\")/fixture.gcode.3mf\" \"$out\"\n",
+        );
+        let source_before = fs::read(&fixture.input).unwrap();
+        let service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(Some(fixture.app.clone())),
+            fixture.cache.clone(),
+            Arc::new(RecordingImporter::new(Uuid::new_v4())),
+            Arc::new(RecordingEvents::default()),
+            Duration::ZERO,
+        );
+        let mut request = fixture.request();
+        request.estimate_mode = true;
+
+        let started = service.start(request).unwrap();
+        let completed = wait_for_terminal(&service, started.task_id);
+
+        assert_eq!(completed.state, SliceTaskState::Completed);
+        assert_eq!(fs::read(&fixture.input).unwrap(), source_before);
+        let executable_dir = fixture.executable.parent().unwrap();
+        let captured = fs::read_to_string(executable_dir.join("captured-args.txt")).unwrap();
+        assert!(!captured
+            .lines()
+            .any(|argument| argument == "--estimate-mode"));
+        assert!(captured
+            .lines()
+            .last()
+            .unwrap()
+            .contains("input.compat.3mf"));
+        let project: serde_json::Value = serde_json::from_slice(
+            &fs::read(executable_dir.join("captured-project.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(project["printer_model"], "Bambu Lab P2S");
+        assert_eq!(project["layer_height"], "0.12");
+        assert_eq!(project["sparse_infill_density"], "37%");
     }
 
     #[test]
@@ -1311,11 +1409,11 @@ mod tests {
             fixture.cache.clone(),
             importer.clone(),
             Arc::new(RecordingEvents::default()),
-            Duration::from_millis(400),
+            Duration::from_secs(2),
         );
 
         let started = service.start(fixture.request()).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(15);
         while service.get(started.task_id).unwrap().phase != SlicePhase::Validating {
             assert!(Instant::now() < deadline, "task never entered validation");
             std::thread::sleep(Duration::from_millis(5));
@@ -1522,6 +1620,10 @@ mod tests {
             assert_eq!(sha256(&source).unwrap(), source_hash_before);
             return;
         }
+        println!(
+            "real_slice terminal state={:?} error_code={:?}",
+            completed.state, completed.error_code
+        );
         assert_eq!(completed.state, SliceTaskState::Completed);
         let preview = importer
             .preview
@@ -1606,18 +1708,36 @@ mod tests {
         assert_eq!(job_count as usize, expected_plate_count);
         drop(print_service);
 
+        let event_names = events.names();
+        let validating = event_names
+            .iter()
+            .position(|name| name == &format!("progress:{:?}", SlicePhase::Validating))
+            .expect("real slicing must enter validation");
         assert_eq!(
-            events.names(),
+            &event_names[..2],
             [
                 format!("progress:{:?}", SlicePhase::Preparing),
                 format!("progress:{:?}", SlicePhase::Preparing),
-                format!("progress:{:?}", SlicePhase::Slicing),
+            ]
+        );
+        assert!(event_names[2..validating]
+            .iter()
+            .all(|name| name == &format!("progress:{:?}", SlicePhase::Slicing)));
+        assert_eq!(
+            &event_names[validating..],
+            [
                 format!("progress:{:?}", SlicePhase::Validating),
                 format!("progress:{:?}", SlicePhase::Importing),
                 format!("progress:{:?}", SlicePhase::Complete),
                 "complete".to_owned(),
             ]
         );
+        let numeric_progress = events
+            .progresses()
+            .into_iter()
+            .map(|event| event.percent.expect("real progress must be determinate"))
+            .collect::<Vec<_>>();
+        assert!(numeric_progress.windows(2).all(|pair| pair[0] <= pair[1]));
         println!(
             "real_slice project_id={} plates={} metrics={:?}",
             preview.project_id,

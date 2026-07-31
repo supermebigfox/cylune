@@ -81,6 +81,16 @@ pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
             continue;
         }
 
+        if instruction == "M1020" {
+            if let Some(tool) = words
+                .filter_map(|word| word.strip_prefix('S'))
+                .find_map(|value| value.parse().ok())
+            {
+                current_tool = tool;
+            }
+            continue;
+        }
+
         if instruction == "G92" {
             if let Some(position) = extrusion_value(words) {
                 positions.insert(current_tool, position);
@@ -226,6 +236,17 @@ mod tests {
         let report = parse_gcode(&src[..]).unwrap();
 
         assert_eq!(report.totals_mm[&0], 7.0);
+    }
+
+    #[test]
+    fn tracks_bambu_2_8_m1020_filament_switches() {
+        let src = b"M83\nM1020 S0 H0\nG1 E2\nM1020 S2 H0\nG1 E3\nM1020 S1 H0\nG1 E4\n";
+
+        let report = parse_gcode(&src[..]).unwrap();
+
+        assert_eq!(report.totals_mm[&0], 2.0);
+        assert_eq!(report.totals_mm[&1], 4.0);
+        assert_eq!(report.totals_mm[&2], 3.0);
     }
 
     #[test]
