@@ -628,12 +628,17 @@ describe("App localization", () => {
 
     await user.click(screen.getByRole("button", { name: "耗材库" }));
     expect(await screen.findByRole("heading", { name: "我的耗材库" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "切片 1 进行中" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "切片 0% 进行中" })).toBeEnabled();
 
     await act(async () => handlers.get("slice-progress")?.({
       task_id: "slice-live",
       phase: "slicing",
       percent: 46,
+    }));
+    await act(async () => handlers.get("slice-progress")?.({
+      task_id: "slice-live",
+      phase: "validating",
+      percent: 12,
     }));
     await user.click(screen.getByRole("button", { name: "切片 46% 进行中" }));
 

@@ -475,13 +475,13 @@ export function DesktopApp({
       ?.mappings?.map((mapping) => [mapping.tool, mapping.spool_id])
       ?? [],
   ), [activePreview, selectedPlate]);
-  const displayedSlicePercent = sliceTask?.state === "running"
-    && typeof sliceTask.percent === "number"
-    && Number.isFinite(sliceTask.percent)
-      ? Math.round(sliceTask.percent)
-      : null;
+  const displayedSlicePercent = sliceFormLocked
+    ? typeof sliceTask?.percent === "number" && Number.isFinite(sliceTask.percent)
+      ? Math.round(Math.min(100, Math.max(0, sliceTask.percent)))
+      : 0
+    : null;
   const sliceBadge = sliceFormLocked
-    ? displayedSlicePercent === null ? "1" : `${displayedSlicePercent}%`
+    ? `${displayedSlicePercent}%`
     : undefined;
   const navItems: readonly MainNavItem<Page>[] = [
     { id: "home", label: copy("nav.home"), icon: <House size={20} weight={page === "home" ? "fill" : "regular"} /> },

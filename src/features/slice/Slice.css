@@ -288,15 +288,6 @@
   background: linear-gradient(90deg, var(--blue), var(--slice-violet));
 }
 
-.slice-progress-card progress:indeterminate {
-  background: linear-gradient(90deg, transparent 0 18%, var(--blue) 42%, transparent 65%) 0 0 / 210% 100%;
-  animation: slice-indeterminate 1.25s linear infinite;
-}
-
-@keyframes slice-indeterminate {
-  to { background-position: -210% 0; }
-}
-
 .slice-form {
   overflow: hidden;
   border: 1px solid var(--border);

@@ -385,8 +385,9 @@ function phaseKey(phase: SlicePhase): CopyKey {
   return phase;
 }
 
-function validPercent(value: number | null): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
+function normalizedPercent(value: number | null | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.min(100, Math.max(0, value));
 }
 
 function viewForTask(task: SliceTask): ViewState {
@@ -453,13 +454,10 @@ export function Slice({
   const [error, setError] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [openingStudio, setOpeningStudio] = useState(false);
-  const [progress, setProgress] = useState<{ phase: SlicePhase; percent: number | null }>(() => {
-    const initialPercent = activeTask?.percent ?? null;
-    return {
-      phase: activeTask?.phase ?? "preparing",
-      percent: validPercent(initialPercent) ? initialPercent : null,
-    };
-  });
+  const [progress, setProgress] = useState<{ phase: SlicePhase; percent: number }>(() => ({
+    phase: activeTask?.phase ?? "preparing",
+    percent: normalizedPercent(activeTask?.percent),
+  }));
   const mounted = useRef(true);
   const taskRef = useRef<SliceTask | null>(activeTask);
   const completedProjects = useRef(new Set<string>());
@@ -570,10 +568,13 @@ export function Slice({
 
   useEffect(() => {
     if (!activeTask) return;
-    taskRef.current = activeTask;
+    const percent = taskRef.current?.task_id === activeTask.task_id
+      ? Math.max(normalizedPercent(taskRef.current.percent), normalizedPercent(activeTask.percent))
+      : normalizedPercent(activeTask.percent);
+    taskRef.current = { ...activeTask, percent };
     setProgress({
       phase: activeTask.phase,
-      percent: validPercent(activeTask.percent) ? activeTask.percent : null,
+      percent,
     });
     setView(viewForTask(activeTask));
     if (activeTask.state === "failed") setError(copy("failedTitle"));
@@ -607,7 +608,10 @@ export function Slice({
         const event = payload as Partial<SliceProgressEvent>;
         if (!taskRef.current || event.task_id !== taskRef.current.task_id) return;
         if (!event.phase) return;
-        const percent = validPercent(event.percent ?? null) ? event.percent! : null;
+        const percent = Math.max(
+          normalizedPercent(taskRef.current.percent),
+          normalizedPercent(event.percent),
+        );
         setProgress({ phase: event.phase, percent });
         const next = { ...taskRef.current, phase: event.phase, percent };
         publishTask(next);
@@ -672,6 +676,7 @@ export function Slice({
     if (!formValid || locked || !inputPath) return;
     setError(null);
     setErrorDetail(null);
+    setProgress({ phase: "preparing", percent: 0 });
     setView("starting");
     try {
       const next = await api.startSlice({
@@ -680,10 +685,11 @@ export function Slice({
         confirm_printer_mismatch: printerMismatch && mismatchConfirmed,
       });
       if (!mounted.current) return;
-      publishTask(next);
+      const normalizedTask = { ...next, percent: normalizedPercent(next.percent) };
+      publishTask(normalizedTask);
       setProgress({
-        phase: next.phase,
-        percent: validPercent(next.percent) ? next.percent : null,
+        phase: normalizedTask.phase,
+        percent: normalizedTask.percent,
       });
       setView("running");
     } catch (startError) {
@@ -703,10 +709,17 @@ export function Slice({
       if (!mounted.current || taskRef.current?.task_id !== current.task_id) return;
       const next = await api.getSliceTask(current.task_id);
       if (!mounted.current || taskRef.current?.task_id !== current.task_id) return;
-      publishTask(next);
+      const normalizedTask = {
+        ...next,
+        percent: Math.max(
+          normalizedPercent(taskRef.current?.percent),
+          normalizedPercent(next.percent),
+        ),
+      };
+      publishTask(normalizedTask);
       setProgress({
-        phase: next.phase,
-        percent: validPercent(next.percent) ? next.percent : null,
+        phase: normalizedTask.phase,
+        percent: normalizedTask.percent,
       });
       if (next.state === "completed" && next.project_id) {
         onProjectComplete(next.project_id);
@@ -759,7 +772,7 @@ export function Slice({
     setError(null);
     setErrorDetail(null);
     setMismatchConfirmed(false);
-    setProgress({ phase: "preparing", percent: null });
+    setProgress({ phase: "preparing", percent: 0 });
   };
 
   const projectMeta = inspection
@@ -825,9 +838,9 @@ export function Slice({
         <div className="slice-progress-copy">
           <span className="slice-pulse" aria-hidden="true" />
           <div><strong>{copy(phaseKey(progress.phase))}</strong><small>{copy("progressLabel")}</small></div>
-          {validPercent(progress.percent) ? <b className="data">{copy("percent", { percent: Math.round(progress.percent) })}</b> : null}
+          <b className="data">{copy("percent", { percent: Math.round(progress.percent) })}</b>
         </div>
-        <progress aria-label={copy("progressLabel")} max={100} {...(validPercent(progress.percent) ? { value: progress.percent } : {})} />
+        <progress aria-label={copy("progressLabel")} max={100} value={progress.percent} />
         <button type="button" className="ghost small" disabled={view !== "running"} onClick={() => void cancel()}>
           <StopCircle size={16} weight="bold" />{view === "stopping" ? copy("stopping") : copy("cancel")}
         </button>

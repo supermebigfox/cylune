@@ -191,6 +191,8 @@ it("uses the preferred machine, keeps the embedded project read-only, reports pr
   expect(screen.getByRole("button", { name: "更换 3MF" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "取消切片" })).toBeEnabled();
   await waitFor(() => expect(onFormLockChange).toHaveBeenLastCalledWith(true));
+  expect(screen.getByText("0%")).toBeVisible();
+  expect(screen.getByRole("progressbar")).toHaveAttribute("value", "0");
 
   act(() => client.emit("slice-progress", {
     task_id: "slice-task-1",
@@ -379,7 +381,7 @@ it("uses the authoritative completed task when cancellation loses the import rac
   expect(screen.queryByText("切片已取消")).not.toBeInTheDocument();
 });
 
-it("shows an indeterminate phase and only opens Bambu Studio after the user clicks the fallback", async () => {
+it("keeps progress determinate and monotonic across lifecycle events before opening the fallback", async () => {
   const client = fixture();
   renderSlice({ client });
   const user = await prepareReadyForm();
@@ -387,11 +389,22 @@ it("shows an indeterminate phase and only opens Bambu Studio after the user clic
 
   act(() => client.emit("slice-progress", {
     task_id: "slice-task-1",
+    phase: "slicing",
+    percent: 46,
+  }));
+  act(() => client.emit("slice-progress", {
+    task_id: "slice-task-1",
     phase: "validating",
     percent: null,
   }));
+  act(() => client.emit("slice-progress", {
+    task_id: "slice-task-1",
+    phase: "validating",
+    percent: 21,
+  }));
   expect(await screen.findByText("正在验证切片结果")).toBeVisible();
-  expect(screen.getByRole("progressbar")).not.toHaveAttribute("value");
+  expect(screen.getByText("46%")).toBeVisible();
+  expect(screen.getByRole("progressbar")).toHaveAttribute("value", "46");
 
   act(() => client.emit("slice-error", {
     task_id: "slice-task-1",
