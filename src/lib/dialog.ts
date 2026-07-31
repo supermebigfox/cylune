@@ -15,7 +15,7 @@ type SaveDialog = (options: {
   filters: Array<{ name: string; extensions: string[] }>;
 }) => Promise<string | null>;
 
-export async function pickSliced3mf(filterName: string, openDialog: OpenDialog = open): Promise<string | null> {
+export async function pickThreeMf(filterName: string, openDialog: OpenDialog = open): Promise<string | null> {
   const selected = await openDialog({
     multiple: false,
     directory: false,
@@ -23,6 +23,9 @@ export async function pickSliced3mf(filterName: string, openDialog: OpenDialog =
   });
   return typeof selected === "string" ? selected : null;
 }
+
+/** @deprecated Use pickThreeMf; sliced/project state is inspected by Rust. */
+export const pickSliced3mf = pickThreeMf;
 
 export async function pickWatchFolder(): Promise<string | null> {
   const selected=await open({multiple:false,directory:true});

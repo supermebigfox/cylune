@@ -616,7 +616,6 @@ describe("App localization", () => {
     render(<DesktopApp
       apiClient={client}
       pickFile={async () => "/Users/robin/Desktop/月球灯.3mf"}
-      pickSliceOutput={async () => "/Users/robin/Desktop/月球灯.gcode.3mf"}
       subscribeEvent={subscribeEvent}
     />);
     await screen.findByText("持久化蓝色 PLA");
@@ -624,7 +623,6 @@ describe("App localization", () => {
     await user.click(screen.getByRole("button", { name: "切片" }));
     await user.click(await screen.findByRole("button", { name: "选择 3MF" }));
     await screen.findByRole("heading", { name: "月球灯.3mf" });
-    await user.click(screen.getByRole("button", { name: "选择输出位置" }));
     await user.click(screen.getByRole("button", { name: "开始后台切片" }));
     expect(await screen.findByRole("button", { name: "取消切片" })).toBeEnabled();
 

@@ -16,7 +16,7 @@ import { Settings } from "./features/settings/Settings";
 import { Spools } from "./features/spools/Spools";
 import type { CreateSpoolResult } from "./features/spools/Add";
 import { t, useLocale } from "./i18n";
-import { pickSliceDestination, pickThreeMf } from "./lib/dialog";
+import { pickThreeMf } from "./lib/dialog";
 import {
   api,
   demoSlots,
@@ -133,12 +133,10 @@ function selectedPlateId(
 export function DesktopApp({
   apiClient = api,
   pickFile = pickThreeMf,
-  pickSliceOutput = pickSliceDestination,
   subscribeEvent = subscribeDesktopEvent,
 }: {
   apiClient?: TauriApi;
   pickFile?: (filterName: string) => Promise<string | null>;
-  pickSliceOutput?: (filterName: string, defaultPath: string) => Promise<string | null>;
   subscribeEvent?: DesktopEventSubscriber;
 }) {
   const locale = useLocale();
@@ -545,7 +543,6 @@ export function DesktopApp({
         <Slice
           api={apiClient}
           pickInput={() => pickFile(copy("import.filterName"))}
-          pickOutput={(suggested) => pickSliceOutput(copy("import.outputFilterName"), suggested)}
           subscribeEvent={subscribeEvent}
           onProjectComplete={openCompletedSliceProject}
           onSlicedFile={importFromSlice}

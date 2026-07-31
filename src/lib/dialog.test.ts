@@ -1,22 +1,26 @@
 import { expect, it, vi } from "vitest";
-import { pickBackupDestination, pickBackupToImport, pickSliced3mf } from "./dialog";
+import {
+  pickBackupDestination,
+  pickBackupToImport,
+  pickThreeMf,
+} from "./dialog";
 
-it("opens a single sliced 3MF picker and returns the selected native path", async () => {
-  const openDialog = vi.fn(async () => "/Users/robin/model.gcode.3mf");
+it("opens one 3MF picker for projects and sliced archives", async () => {
+  const openDialog = vi.fn(async () => "/Users/robin/model.3mf");
 
-  const path = await pickSliced3mf("已切片 3MF", openDialog);
+  const path = await pickThreeMf("3MF 文件", openDialog);
 
-  expect(path).toBe("/Users/robin/model.gcode.3mf");
+  expect(path).toBe("/Users/robin/model.3mf");
   expect(openDialog).toHaveBeenCalledWith({
     multiple: false,
     directory: false,
-    filters: [{ name: "已切片 3MF", extensions: ["3mf"] }],
+    filters: [{ name: "3MF 文件", extensions: ["3mf"] }],
   });
 });
 
 it("treats cancel and unexpected multiple selection as no file", async () => {
-  expect(await pickSliced3mf("已切片 3MF", async () => null)).toBeNull();
-  expect(await pickSliced3mf("已切片 3MF", async () => ["a.3mf", "b.3mf"])).toBeNull();
+  expect(await pickThreeMf("3MF 文件", async () => null)).toBeNull();
+  expect(await pickThreeMf("3MF 文件", async () => ["a.3mf", "b.3mf"])).toBeNull();
 });
 
 it("uses localized backup labels and filenames", async () => {
