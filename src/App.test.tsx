@@ -56,6 +56,7 @@ function fakeTauriApi(overrides: Partial<TauriApi> = {}): TauriApi {
     discardProject: async () => undefined,
     skipPlate: async () => undefined,
     confirmNewProject: async () => { throw new Error("unused"); },
+    retryPrintJob: async () => { throw new Error("unused"); },
     takePendingNavigation: async () => null,
     settleJob: async () => { throw new Error("unused"); },
     reverseSettlement: async () => ({ job_id: "job", settlement_version: 1, already_reversed: false, restored: [] }),

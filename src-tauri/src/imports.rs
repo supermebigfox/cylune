@@ -377,6 +377,39 @@ mod tests {
     }
 
     #[test]
+    fn failed_plate_retry_creates_one_idempotent_pending_plate_from_cache() {
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
+        let path = two_plate_fixture();
+        let imported = service.import_print_project(&path).unwrap();
+        let source = &imported.plates[1];
+        service
+            .database
+            .connection
+            .execute(
+                "UPDATE print_jobs SET outcome='{\"kind\":\"failed\",\"stop_layer\":0}', settlement_version=1 WHERE job_id=?1",
+                [source.job_id.to_string()],
+            )
+            .unwrap();
+
+        let retry = service.retry_print_job(source.job_id).unwrap();
+        let repeated = service.retry_print_job(source.job_id).unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(retry.project_id, repeated.project_id);
+        assert_ne!(retry.project_id, imported.project_id);
+        assert_eq!(retry.plates.len(), 1);
+        assert_eq!(retry.plates[0].plate_index, source.plate_index);
+        assert_eq!(
+            retry.plates[0].status,
+            crate::domain::PlateStatus::PendingMapping
+        );
+        assert_eq!(count(&service, "print_projects"), 2);
+        assert_eq!(count(&service, "print_plates"), 3);
+        assert_eq!(count(&service, "print_jobs"), 3);
+    }
+
+    #[test]
     fn confirm_new_project_rejects_a_path_with_a_different_source_hash() {
         let database = AppDatabase::open_in_memory().unwrap();
         let mut service = PrintService::with_stability_delay(database, Duration::ZERO);
@@ -1362,6 +1395,67 @@ mod tests {
                 "project color {project_color} should map to its loaded physical spool"
             );
         }
+    }
+
+    #[test]
+    fn sliced_display_yellow_resolves_to_unmounted_official_pla_basic_10400() {
+        let parsed = crate::parser::parse_3mf(&fixture("bambu_multicolor.3mf")).unwrap();
+        let mut profile = parsed.filaments.first().unwrap().clone();
+        profile.preset_id = "Bambu PLA Basic @BBL P2S".to_owned();
+        profile.material = "PLA".to_owned();
+        profile.series = "Basic".to_owned();
+        profile.color_hex = "#FFFF00".to_owned();
+
+        let database = AppDatabase::open_in_memory().unwrap();
+        let mut inventory = InventoryService::new(database);
+        let yellow = inventory
+            .create_spool(NewSpool {
+                display_name: "黄色 · PLA Basic".to_owned(),
+                preset_id: Some("Bambu PLA Basic".to_owned()),
+                catalog_id: Some("bambu:GFA00:10400".to_owned()),
+                color_name: Some("黄色".to_owned()),
+                color_code: Some("10400".to_owned()),
+                color_hexes: vec!["#F4EE2A".to_owned()],
+                preset_base: Some("Bambu PLA Basic".to_owned()),
+                brand: "Bambu Lab".to_owned(),
+                material: "PLA".to_owned(),
+                series: "Basic".to_owned(),
+                color_hex: "#F4EE2A".to_owned(),
+                remaining_grams: 1000.0,
+            })
+            .unwrap();
+        let service = PrintService::with_stability_delay(inventory.into_database(), Duration::ZERO);
+
+        assert_eq!(service.matching_spools(&profile).unwrap(), vec![yellow]);
+    }
+
+    #[test]
+    fn preview_omits_configured_filaments_with_no_positive_sliced_usage() {
+        let mut parsed = crate::parser::parse_3mf(&fixture("bambu_multicolor.3mf")).unwrap();
+        let used_tool = parsed.filaments[0].tool;
+        let unused_tool = parsed.filaments[1].tool;
+        parsed.gcode.totals_mm.remove(&unused_tool);
+        for layer in &mut parsed.gcode.layers {
+            layer.cumulative_mm.remove(&unused_tool);
+        }
+
+        let service = PrintService::with_stability_delay(
+            AppDatabase::open_in_memory().unwrap(),
+            Duration::ZERO,
+        );
+        let preview = service
+            .preview(
+                uuid::Uuid::new_v4(),
+                "source-hash".to_owned(),
+                "two-colors.gcode.3mf".to_owned(),
+                &parsed,
+                ImportState::New,
+            )
+            .unwrap();
+
+        assert_eq!(preview.filaments.len(), 1);
+        assert_eq!(preview.filaments[0].tool, used_tool);
+        assert!(preview.filaments[0].total_grams > 0.0);
     }
 
     #[test]
@@ -2377,6 +2471,103 @@ impl PrintService {
         )
     }
 
+    pub fn retry_print_job(&mut self, source_job_id: Uuid) -> Result<ImportProjectPreview> {
+        let existing_project: Option<String> = self
+            .database
+            .connection
+            .query_row(
+                "SELECT plates.project_id
+                 FROM print_jobs AS jobs
+                 JOIN print_plates AS plates ON plates.plate_id = jobs.plate_id
+                 WHERE jobs.retry_of_job_id = ?1",
+                [source_job_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(project_id) = existing_project {
+            return self.project_preview_from_database(
+                parse_uuid(&project_id)?,
+                ImportState::ExistingPending,
+            );
+        }
+
+        let source: Option<(String, String, Option<String>, u32, String)> = self
+            .database
+            .connection
+            .query_row(
+                "SELECT projects.source_hash, projects.source_file_name,
+                        projects.source_path, plates.plate_index, jobs.outcome
+                 FROM print_jobs AS jobs
+                 JOIN print_plates AS plates ON plates.plate_id = jobs.plate_id
+                 JOIN print_projects AS projects ON projects.project_id = plates.project_id
+                 WHERE jobs.job_id = ?1",
+                [source_job_id.to_string()],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((source_hash, source_file_name, source_path, plate_index, outcome_json)) = source
+        else {
+            return Err(AppError::InvalidJob);
+        };
+        let outcome: crate::domain::JobOutcome =
+            serde_json::from_str(&outcome_json).map_err(|_| AppError::InvalidJob)?;
+        if !matches!(
+            outcome,
+            crate::domain::JobOutcome::Failed { .. } | crate::domain::JobOutcome::Cancelled { .. }
+        ) {
+            return Err(AppError::InvalidJob);
+        }
+        let cached = self
+            .persisted_project(&source_hash)?
+            .ok_or(AppError::InvalidJob)?;
+        let plate = cached
+            .plates
+            .iter()
+            .find(|plate| plate.plate_index == plate_index)
+            .cloned()
+            .ok_or(AppError::InvalidJob)?;
+        let parsed = ParsedProjectV2 {
+            version: 2,
+            plates: vec![plate],
+        };
+        let media = self.persisted_project_media(&source_hash, &parsed)?;
+        let preview = self.create_project_from_parsed(
+            source_hash,
+            source_file_name,
+            source_path.unwrap_or_default(),
+            &parsed,
+            ImportState::New,
+            None,
+            &media,
+        )?;
+        let new_job_id = preview
+            .plates
+            .first()
+            .map(|plate| plate.job_id)
+            .ok_or(AppError::InvalidJob)?;
+        let transaction = self.database.connection.transaction()?;
+        transaction.execute(
+            "UPDATE print_jobs SET retry_of_job_id = ?1 WHERE job_id = ?2",
+            params![source_job_id.to_string(), new_job_id.to_string()],
+        )?;
+        transaction.execute(
+            "INSERT INTO job_mappings (job_id, tool, spool_id, slot_number)
+             SELECT ?1, tool, spool_id, slot_number
+             FROM job_mappings WHERE job_id = ?2",
+            params![new_job_id.to_string(), source_job_id.to_string()],
+        )?;
+        transaction.commit()?;
+        self.project_preview_from_database(preview.project_id, ImportState::New)
+    }
+
     pub fn discard_project(&mut self, project_id: Uuid) -> Result<()> {
         let transaction = self.database.connection.transaction()?;
         let exists: bool = transaction.query_row(
@@ -3188,17 +3379,20 @@ impl PrintService {
     ) -> Result<ImportPreview> {
         let mut filaments = Vec::with_capacity(parsed.filaments.len());
         for profile in &parsed.filaments {
-            let candidates = self.matching_spools(profile)?;
-            let (suggested_spool_id, confidence) = match candidates.as_slice() {
-                [only] => (Some(*only), Confidence::Exact),
-                _ => (None, Confidence::NeedsConfirmation),
-            };
             let total_mm = parsed
                 .gcode
                 .totals_mm
                 .get(&profile.tool)
                 .copied()
                 .unwrap_or(0.0);
+            if !total_mm.is_finite() || total_mm <= 1e-9 {
+                continue;
+            }
+            let candidates = self.matching_spools(profile)?;
+            let (suggested_spool_id, confidence) = match candidates.as_slice() {
+                [only] => (Some(*only), Confidence::Exact),
+                _ => (None, Confidence::NeedsConfirmation),
+            };
             filaments.push(FilamentPreview {
                 tool: profile.tool,
                 profile: profile.clone(),
@@ -3207,6 +3401,9 @@ impl PrintService {
                 suggested_spool_id,
                 confidence,
             });
+        }
+        if filaments.is_empty() {
+            return Err(AppError::InvalidJob);
         }
         Ok(ImportPreview {
             job_id,
@@ -3437,6 +3634,11 @@ impl PrintService {
             return Ok(base);
         }
 
+        let catalog = self.catalog_identity_spool_ids(profile)?;
+        if !catalog.is_empty() {
+            return Ok(catalog);
+        }
+
         let nearest_loaded = self.nearest_loaded_preset_base_spool_ids(profile)?;
         if !nearest_loaded.is_empty() {
             return Ok(nearest_loaded);
@@ -3536,6 +3738,72 @@ impl PrintService {
                 })
             })
             .collect()
+    }
+
+    fn catalog_identity_spool_ids(&self, profile: &FilamentProfile) -> Result<Vec<Uuid>> {
+        const MAX_COLOR_DISTANCE_SQUARED: u32 = 10_000;
+
+        let Some(target_color) = parse_rgb_hex(&profile.color_hex) else {
+            return Ok(Vec::new());
+        };
+        let expected_base = preset_base(&profile.preset_id);
+        let snapshot: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../src/catalog/bambu.json"))
+                .map_err(|error| AppError::Database(error.to_string()))?;
+        let entries = snapshot["entries"]
+            .as_array()
+            .ok_or_else(|| AppError::Database("invalid embedded Bambu catalog".to_owned()))?;
+
+        let mut best: Option<(u32, &str)> = None;
+        let mut ambiguous = false;
+        for entry in entries {
+            let Some(catalog_id) = entry["id"].as_str() else {
+                continue;
+            };
+            let Some(stored_base) = entry["presetBase"].as_str() else {
+                continue;
+            };
+            if preset_base(stored_base) != expected_base
+                || entry["material"].as_str() != Some(profile.material.as_str())
+            {
+                continue;
+            }
+            let Some(distance) = entry["colors"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|color| color.as_str().and_then(parse_rgb_hex))
+                .map(|color| rgb_distance_squared(target_color, color))
+                .min()
+            else {
+                continue;
+            };
+            match best {
+                Some((best_distance, _)) if distance > best_distance => {}
+                Some((best_distance, best_id)) if distance == best_distance => {
+                    ambiguous |= best_id != catalog_id;
+                }
+                _ => {
+                    best = Some((distance, catalog_id));
+                    ambiguous = false;
+                }
+            }
+        }
+
+        let Some((distance, catalog_id)) = best else {
+            return Ok(Vec::new());
+        };
+        if ambiguous || distance > MAX_COLOR_DISTANCE_SQUARED {
+            return Ok(Vec::new());
+        }
+        self.spool_ids(
+            "SELECT spool_id FROM spools
+             WHERE status <> 'archived'
+               AND catalog_id = ?1
+               AND material = ?2
+             ORDER BY rowid",
+            params![catalog_id, profile.material],
+        )
     }
 
     fn spool_ids<P>(&self, sql: &str, params: P) -> Result<Vec<Uuid>>
@@ -3813,6 +4081,17 @@ pub fn confirm_new_project(
         }),
     );
     Ok(preview)
+}
+
+#[tauri::command]
+pub fn retry_print_job(
+    job_id: Uuid,
+    state: tauri::State<'_, PrintState>,
+) -> Result<ImportProjectPreview> {
+    state
+        .lock()
+        .map_err(|_| AppError::Database("print service lock poisoned".to_owned()))?
+        .retry_print_job(job_id)
 }
 
 #[tauri::command]

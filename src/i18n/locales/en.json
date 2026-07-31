@@ -249,7 +249,8 @@
     "estimate": "Estimate from print progress",
     "lastLayer": "Last completed layer",
     "layerHint": "Enter the layer shown in Bambu Studio, from 1 to {{count}}.",
-    "percentValue": "{{percent}}%"
+    "percentValue": "{{percent}}%",
+    "retryPrompt": "Print this plate again? Choose OK to create a retry task for this plate without uploading the file again."
   },
   "settings": {
     "title": "Settings",

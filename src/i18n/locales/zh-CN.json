@@ -249,7 +249,8 @@
     ,"estimate": "按打印进度估算",
     "lastLayer": "最后完成的层数",
     "layerHint": "请输入 Bambu Studio 中看到的层数，范围 1 至 {{count}}。",
-    "percentValue": "{{percent}}%"
+    "percentValue": "{{percent}}%",
+    "retryPrompt": "这次打印需要重新打印吗？选择“确定”将自动建立当前盘的重打任务，不需要重新上传文件。"
   },
   "settings": {
     "title": "设置",

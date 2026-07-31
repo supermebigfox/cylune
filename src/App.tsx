@@ -383,6 +383,19 @@ export function DesktopApp({
       if (settledPlateId) {
         setPlateResults((current) => ({ ...current, [settledPlateId]: result }));
       }
+      if (
+        (outcome.kind === "failed" || outcome.kind === "cancelled")
+        && window.confirm(copy("settlement.retryPrompt"))
+      ) {
+        const next = await apiClient.retryPrintJob(jobId);
+        setPlateResults({});
+        await Promise.all([
+          loadInventory(),
+          loadProjects(),
+          loadProject(next.project_id, next.plates[0]?.plate_id, next),
+        ]);
+        return;
+      }
       await Promise.all([loadInventory(), refreshActiveProject()]);
     }),
     repeat: (sourceHash: string) => runAction("repeat", async () => {

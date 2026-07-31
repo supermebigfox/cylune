@@ -51,6 +51,7 @@ it("forwards typed project history commands with their exact camelCase payloads"
   await api.discardProject("project-1");
   await api.skipPlate("plate-2");
   await api.confirmNewProject("hash-1", "/prints/mask.3mf");
+  await api.retryPrintJob("job-1");
   await api.takePendingNavigation();
   await api.getSettlementResult?.("job-1");
 
@@ -76,8 +77,11 @@ it("forwards typed project history commands with their exact camelCase payloads"
     sourceHash: "hash-1",
     sourcePath: "/prints/mask.3mf",
   });
-  expect(invoke).toHaveBeenNthCalledWith(8, "take_pending_navigation");
-  expect(invoke).toHaveBeenNthCalledWith(9, "get_settlement_result", {
+  expect(invoke).toHaveBeenNthCalledWith(8, "retry_print_job", {
+    jobId: "job-1",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(9, "take_pending_navigation");
+  expect(invoke).toHaveBeenNthCalledWith(10, "get_settlement_result", {
     jobId: "job-1",
   });
 });

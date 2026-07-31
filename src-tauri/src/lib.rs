@@ -140,6 +140,7 @@ pub fn run() {
             imports::skip_plate,
             imports::confirm_new_print,
             imports::confirm_new_project,
+            imports::retry_print_job,
             imports::get_job_preview,
             imports::get_project_preview,
             history::list_print_projects,

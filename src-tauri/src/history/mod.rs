@@ -305,21 +305,32 @@ fn plate_summaries(
     {
         let parsed: ParsedPrintFile = serde_json::from_str(&parsed_json)
             .map_err(|_| AppError::Database("invalid plate history".to_owned()))?;
-        let status = status_for_job(outcome.as_deref(), mapping_count, parsed.filaments.len())?;
+        let used_filament_count = parsed
+            .filaments
+            .iter()
+            .filter(|profile| {
+                parsed
+                    .gcode
+                    .totals_mm
+                    .get(&profile.tool)
+                    .is_some_and(|total_mm| total_mm.is_finite() && *total_mm > 1e-9)
+            })
+            .count();
+        let status = status_for_job(outcome.as_deref(), mapping_count, used_filament_count)?;
         let filaments = parsed
             .filaments
             .iter()
-            .map(|profile| {
+            .filter_map(|profile| {
                 let total_mm = parsed
                     .gcode
                     .totals_mm
                     .get(&profile.tool)
                     .copied()
                     .unwrap_or(0.0);
-                PrintFilamentSummary {
+                (total_mm.is_finite() && total_mm > 1e-9).then(|| PrintFilamentSummary {
                     profile: profile.clone(),
                     total_grams: profile.grams_for_length_mm(total_mm),
-                }
+                })
             })
             .collect();
         grouped
@@ -442,17 +453,30 @@ mod tests {
         asset_id: Option<&str>,
     ) {
         let parsed = serde_json::to_string(&ParsedPrintFile {
-            filaments: vec![FilamentProfile {
-                tool: 0,
-                preset_id: "Bambu PLA Basic".to_owned(),
-                brand: "Bambu Lab".to_owned(),
-                material: "PLA".to_owned(),
-                series: "Basic".to_owned(),
-                color_hex: "#1C4EBB".to_owned(),
-                diameter_mm: 1.75,
-                density_g_cm3: 1.24,
-                unknown_fields: BTreeMap::new(),
-            }],
+            filaments: vec![
+                FilamentProfile {
+                    tool: 0,
+                    preset_id: "Bambu PLA Basic".to_owned(),
+                    brand: "Bambu Lab".to_owned(),
+                    material: "PLA".to_owned(),
+                    series: "Basic".to_owned(),
+                    color_hex: "#1C4EBB".to_owned(),
+                    diameter_mm: 1.75,
+                    density_g_cm3: 1.24,
+                    unknown_fields: BTreeMap::new(),
+                },
+                FilamentProfile {
+                    tool: 1,
+                    preset_id: "Bambu PLA Basic".to_owned(),
+                    brand: "Bambu Lab".to_owned(),
+                    material: "PLA".to_owned(),
+                    series: "Basic".to_owned(),
+                    color_hex: "#FFFF00".to_owned(),
+                    diameter_mm: 1.75,
+                    density_g_cm3: 1.24,
+                    unknown_fields: BTreeMap::new(),
+                },
+            ],
             gcode: GcodeReport {
                 layers: Vec::new(),
                 totals_mm: BTreeMap::from([(0, 1000.0)]),

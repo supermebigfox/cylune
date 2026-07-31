@@ -336,6 +336,7 @@ export interface TauriApi {
   discardProject(projectId: string): Promise<void>;
   skipPlate(plateId: string): Promise<void>;
   confirmNewProject(sourceHash: string, sourcePath: string): Promise<ImportProjectPreview>;
+  retryPrintJob(jobId: string): Promise<ImportProjectPreview>;
   takePendingNavigation(): Promise<PendingNavigationTarget | null>;
   settleJob(jobId: string, outcome: JobOutcome): Promise<SettlementResult>;
   getSettlementResult?(jobId: string): Promise<SettlementResult | null>;
@@ -702,6 +703,7 @@ function demoApi(): TauriApi {
       );
     },
     async confirmNewProject(_sourceHash, sourcePath) { return projectPreview(sourcePath); },
+    async retryPrintJob(_jobId) { return projectPreview(); },
     async takePendingNavigation() {
       const plate = projectPlates.find((item) =>
         item.status === "pending_mapping" || item.status === "ready",
@@ -829,6 +831,7 @@ function commandApi(invoke: Invoke): TauriApi {
     skipPlate: (plateId) => call<void>("skip_plate", { plateId }),
     confirmNewProject: (sourceHash, sourcePath) =>
       call<ImportProjectPreview>("confirm_new_project", { sourceHash, sourcePath }),
+    retryPrintJob: (jobId) => call<ImportProjectPreview>("retry_print_job", { jobId }),
     takePendingNavigation: () =>
       invoke("take_pending_navigation") as Promise<PendingNavigationTarget | null>,
     settleJob: (jobId, outcome) => call<SettlementResult>("settle_job", { jobId, outcome }),

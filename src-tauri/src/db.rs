@@ -9,6 +9,7 @@ const REPEAT_JOBS_MIGRATION: &str = include_str!("../migrations/004_repeat_jobs.
 const CATALOG_INDEX_MIGRATION: &str = include_str!("../migrations/005_catalog.sql");
 const PRINT_HISTORY_MIGRATION: &str = include_str!("../migrations/006_print_history.sql");
 const PRINTERS_MIGRATION: &str = include_str!("../migrations/007_printers.sql");
+const PLATE_RETRY_MIGRATION: &str = include_str!("../migrations/008_plate_retry.sql");
 const CATALOG_COLUMN_MIGRATIONS: [(&str, &str); 5] = [
     (
         "catalog_id",
@@ -63,6 +64,7 @@ impl AppDatabase {
         ensure_catalog_schema(&mut connection)?;
         ensure_print_history_schema(&mut connection)?;
         ensure_printer_schema(&mut connection)?;
+        ensure_plate_retry_schema(&mut connection)?;
         Ok(Self { connection })
     }
 
@@ -75,6 +77,19 @@ impl AppDatabase {
 
         Ok(exists != 0)
     }
+}
+
+fn ensure_plate_retry_schema(connection: &mut Connection) -> Result<()> {
+    let transaction = connection.transaction()?;
+    if !column_exists(&transaction, "print_jobs", "retry_of_job_id")? {
+        transaction.execute(
+            "ALTER TABLE print_jobs ADD COLUMN retry_of_job_id TEXT REFERENCES print_jobs(job_id) ON DELETE RESTRICT",
+            [],
+        )?;
+    }
+    transaction.execute_batch(PLATE_RETRY_MIGRATION)?;
+    transaction.commit()?;
+    Ok(())
 }
 
 fn ensure_printer_schema(connection: &mut Connection) -> Result<()> {
