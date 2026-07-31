@@ -1,0 +1,33 @@
+.success-celebration {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+}
+
+.success-celebration canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.success-celebration__stars {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 18% 31%, var(--yellow) 0 3px, transparent 4px),
+    radial-gradient(circle at 31% 58%, var(--coral) 0 3px, transparent 4px),
+    radial-gradient(circle at 48% 23%, var(--mint) 0 4px, transparent 5px),
+    radial-gradient(circle at 58% 62%, var(--blue) 0 3px, transparent 4px),
+    radial-gradient(circle at 72% 38%, var(--coral) 0 3px, transparent 4px),
+    radial-gradient(circle at 84% 61%, var(--yellow) 0 4px, transparent 5px);
+  animation: success-celebration-stars 700ms ease-out both;
+}
+
+@keyframes success-celebration-stars {
+  0% { opacity: 0; transform: scale(.94); filter: brightness(1); }
+  35% { opacity: 1; transform: scale(1.02); filter: brightness(1.3); }
+  100% { opacity: 0; transform: scale(1); filter: brightness(1); }
+}
