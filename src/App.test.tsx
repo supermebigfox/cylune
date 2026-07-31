@@ -9,6 +9,7 @@ import {
   type ImportProjectPreview,
   type PrintProjectDetail,
   type PrintProjectSummary,
+  type SettlementResult,
   type Spool,
   type TauriApi,
 } from "./lib/tauri";
@@ -442,6 +443,7 @@ describe("App localization", () => {
   it("imports one project, settles only its selected second plate, and returns to grouped history", async () => {
     const user = userEvent.setup();
     const fixture = projectFixture();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     const listPrintProjects = vi.fn(async (filter: "pending" | "history") => {
       const pending = fixture.detail.plates.some((plate) => plate.status === "pending_mapping" || plate.status === "ready");
       const settled = fixture.detail.plates.some((plate) => !["pending_mapping", "ready"].includes(plate.status));
@@ -452,11 +454,15 @@ describe("App localization", () => {
       fixture.detail.plates[index].status = "ready";
       fixture.preview.plates[index].status = "ready";
     });
+    let resolveSettlement!: (value: SettlementResult) => void;
     const settleJob = vi.fn(async (jobId: string) => {
+      const result = await new Promise<SettlementResult>((resolve) => {
+        resolveSettlement = resolve;
+      });
       const index = fixture.preview.plates.findIndex((plate) => plate.job_id === jobId);
       fixture.detail.plates[index].status = "success";
       fixture.preview.plates[index].status = "success";
-      return { job_id: jobId, outcome: { kind: "success" } as const, settlement_version: 1, reversed: false, selected_layer: null, confidence: "exact" as const, consumption: [] };
+      return result;
     });
     const pickFile = vi.fn(async () => "/tmp/two-plates.gcode.3mf");
     const importPrintProject = vi.fn(async () => fixture.preview);
@@ -470,6 +476,17 @@ describe("App localization", () => {
     await waitFor(() => expect(confirmJobMapping).toHaveBeenCalledWith("job-2", expect.any(Array)));
     await user.click(screen.getByRole("button", { name: "确认扣减耗材" }));
     await waitFor(() => expect(settleJob).toHaveBeenCalledWith("job-2", { kind: "success" }));
+    expect(screen.queryByTestId("success-celebration")).not.toBeInTheDocument();
+    await act(async () => resolveSettlement({
+      job_id: "job-2",
+      outcome: { kind: "success" },
+      settlement_version: 1,
+      reversed: false,
+      selected_layer: null,
+      confidence: "exact",
+      consumption: [],
+    }));
+    expect(await screen.findByTestId("success-celebration")).toBeVisible();
     expect(await screen.findByText("结算结果")).toBeVisible();
     await user.click(screen.getByRole("button", { name: /前盘/ }));
     expect(screen.queryByRole("button", { name: "取消此次导入" })).not.toBeInTheDocument();
@@ -482,6 +499,95 @@ describe("App localization", () => {
     expect(screen.getAllByText("等待映射").length).toBeGreaterThan(0);
     expect(pickFile).toHaveBeenCalledTimes(1);
     expect(importPrintProject).toHaveBeenCalledWith("/tmp/two-plates.gcode.3mf");
+  });
+
+  it("does not celebrate when a successful-outcome settlement fails to persist", async () => {
+    const user = userEvent.setup();
+    const fixture = projectFixture();
+    const settleJob = vi.fn(async () => { throw { code: "database" }; });
+    const confirmJobMapping = vi.fn(async (jobId: string) => {
+      const index = fixture.preview.plates.findIndex((plate) => plate.job_id === jobId);
+      fixture.detail.plates[index].status = "ready";
+      fixture.preview.plates[index].status = "ready";
+    });
+    render(<DesktopApp apiClient={fakeTauriApi({
+      listPrintProjects: async () => [],
+      getPrintProject: async () => fixture.detail,
+      getProjectPreview: async () => fixture.preview,
+      importPrintProject: async () => fixture.preview,
+      confirmJobMapping,
+      settleJob,
+    })} pickFile={async () => "/tmp/two-plates.gcode.3mf"} />);
+    await screen.findByText("持久化蓝色 PLA");
+
+    await user.click(screen.getAllByRole("button", { name: "导入 3MF" })[0]);
+    await screen.findByRole("heading", { name: "two-plates.gcode.3mf" });
+    await user.click(screen.getByRole("button", { name: "确认耗材映射" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "耗材映射已确认" })).toBeVisible());
+    await user.click(screen.getByRole("button", { name: "确认扣减耗材" }));
+
+    await waitFor(() => expect(settleJob).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("alert")).toBeVisible();
+    expect(screen.queryByTestId("success-celebration")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      label: "打印中途失败",
+      outcome: { kind: "failed", stop_layer: 6 } as const,
+      confidence: "exact" as const,
+    },
+    {
+      label: "打印中途取消",
+      outcome: { kind: "cancelled", stop_layer: 6 } as const,
+      confidence: "exact" as const,
+    },
+    {
+      label: "按打印进度估算",
+      outcome: { kind: "estimated", progress_percent: 50 } as const,
+      confidence: "estimated" as const,
+    },
+  ])("does not celebrate a persisted $label settlement", async ({ label, outcome, confidence }) => {
+    const user = userEvent.setup();
+    const fixture = projectFixture();
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const confirmJobMapping = vi.fn(async (jobId: string) => {
+      const index = fixture.preview.plates.findIndex((plate) => plate.job_id === jobId);
+      fixture.detail.plates[index].status = "ready";
+      fixture.preview.plates[index].status = "ready";
+    });
+    const settleJob = vi.fn(async (jobId: string): Promise<SettlementResult> => ({
+      job_id: jobId,
+      outcome,
+      settlement_version: 1,
+      reversed: false,
+      selected_layer: "stop_layer" in outcome ? outcome.stop_layer : null,
+      confidence,
+      consumption: [],
+    }));
+    render(<DesktopApp apiClient={fakeTauriApi({
+      listPrintProjects: async () => [],
+      getPrintProject: async () => fixture.detail,
+      getProjectPreview: async () => fixture.preview,
+      importPrintProject: async () => fixture.preview,
+      confirmJobMapping,
+      settleJob,
+    })} pickFile={async () => "/tmp/two-plates.gcode.3mf"} />);
+    await screen.findByText("持久化蓝色 PLA");
+
+    await user.click(screen.getAllByRole("button", { name: "导入 3MF" })[0]);
+    await screen.findByRole("heading", { name: "two-plates.gcode.3mf" });
+    await user.click(screen.getByRole("button", { name: "确认耗材映射" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "耗材映射已确认" })).toBeVisible());
+    await user.click(screen.getByRole("radio", { name: label }));
+    if ("stop_layer" in outcome) {
+      await user.clear(screen.getByLabelText("最后完成的层数"));
+      await user.type(screen.getByLabelText("最后完成的层数"), String(outcome.stop_layer + 1));
+    }
+    await user.click(screen.getByRole("button", { name: "确认扣减耗材" }));
+
+    await waitFor(() => expect(settleJob).toHaveBeenCalledWith("job-1", outcome));
+    expect(screen.queryByTestId("success-celebration")).not.toBeInTheDocument();
   });
 
   it("inspects an ordinary 3MF and carries it into the independent slicing page", async () => {

@@ -2,6 +2,7 @@ import { CubeFocus, Disc, GearSix, House, Plus, Printer, Tray } from "@phosphor-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Mark } from "./brand/Mark";
+import { SuccessCelebration } from "./components/SuccessCelebration";
 import { Home } from "./features/home/Home";
 import { History } from "./features/jobs/History";
 import { Project } from "./features/jobs/Project";
@@ -150,6 +151,7 @@ export function DesktopApp({
   const [activePreview, setActivePreview] = useState<ImportProjectPreview | null>(null);
   const [selectedPlate, setSelectedPlate] = useState<string | null>(null);
   const [plateResults, setPlateResults] = useState<Record<string, SettlementResult>>({});
+  const [successCelebrationId, setSuccessCelebrationId] = useState(0);
   const [queuedNavigation, setQueuedNavigation] = useState<ProjectNavigation | null>(null);
   const [repeatCandidate, setRepeatCandidate] = useState<RepeatCandidate | null>(null);
   const [sliceMounted, setSliceMounted] = useState(false);
@@ -383,6 +385,9 @@ export function DesktopApp({
       if (settledPlateId) {
         setPlateResults((current) => ({ ...current, [settledPlateId]: result }));
       }
+      if (outcome.kind === "success") {
+        setSuccessCelebrationId((current) => current + 1);
+      }
       if (
         (outcome.kind === "failed" || outcome.kind === "cancelled")
         && window.confirm(copy("settlement.retryPrompt"))
@@ -572,6 +577,7 @@ export function DesktopApp({
       {page === "jobs" ? activeProject ? <Project project={activeProject} selectedPlateId={selectedPlate} preview={activePlatePreview} initialMappings={activeMappings} result={activeResult} repeatSourceHash={repeatCandidate?.project_id === activeProject.project_id ? repeatCandidate.source_hash : null} spools={spools} busy={busy} canDiscardProject={!hasSettledPlate} onBackToHistory={() => { activeProjectRef.current = null; setActiveProject(null); setActivePreview(null); setSelectedPlate(null); setRepeatCandidate(null); }} onSelectPlate={selectPlate} onConfirmMapping={actions.map} onSettle={actions.settle} onConfirmNewPrint={actions.repeat} onDiscard={actions.discard} onSkipPlate={actions.skip} onReverse={actions.reverse} /> : <History pending={pendingProjects} history={historyProjects} onOpenProject={(projectId) => { setRepeatCandidate(null); void loadProject(projectId).catch(() => setError(copy("errors.invalid_job"))); }} /> : null}
       {page === "settings" ? <Settings apiClient={apiClient} onRestored={() => void refresh()} /> : null}
     </main>
+    <SuccessCelebration playId={successCelebrationId} />
   </div>;
 }
 
