@@ -638,7 +638,8 @@ describe("App localization", () => {
     await user.click(screen.getByRole("button", { name: "切片 46% 进行中" }));
 
     expect(await screen.findByRole("progressbar")).toHaveAttribute("value", "46");
-    expect(screen.getByRole("combobox", { name: "目标打印机" })).toBeDisabled();
+    expect(screen.queryByRole("combobox", { name: "目标打印机" })).not.toBeInTheDocument();
+    expect(screen.getByText("我的 P2S · Bambu Lab P2S · 0.4 mm")).toBeVisible();
     expect(screen.getByRole("button", { name: "耗材库" })).toBeEnabled();
   });
 

@@ -353,6 +353,40 @@
   line-height: 1.45;
 }
 
+.slice-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.slice-summary-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--slice-control);
+}
+
+.slice-summary-row > span {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 720;
+}
+
+.slice-summary-row > strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .slice-fields-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -573,6 +607,17 @@
   width: 100%;
   min-width: 0;
   background: var(--surface);
+}
+
+.slice-tool-native {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 680;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .slice-output-row {
@@ -801,6 +846,19 @@
 
   .slice-form-section {
     padding-inline: 15px;
+  }
+
+  .slice-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .slice-tool-readonly {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .slice-tool-native {
+    grid-column: 2;
+    text-align: left;
   }
 
   .slice-form-actions {

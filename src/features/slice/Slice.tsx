@@ -68,48 +68,10 @@ export interface SliceInspection {
   tools: SliceToolInspection[];
 }
 
-export interface SliceProcessPreset {
-  key: string;
-  label: string;
-  layer_height_mm: number;
-  is_default?: boolean;
-}
-
-export interface SlicePlatePreset {
-  key: string;
-  label: string;
-  is_default?: boolean;
-}
-
-export interface SliceFilamentPreset {
-  key: string;
-  label: string;
-  material?: string | null;
-  color_hex?: string | null;
-  is_default?: boolean;
-}
-
-export interface SlicePresetCatalog {
-  processes: SliceProcessPreset[];
-  plates: SlicePlatePreset[];
-  filaments: SliceFilamentPreset[];
-}
-
 export interface SliceRequest {
   input_path: string;
   printer_id: string;
-  process_key: string;
-  plate_key: string;
-  plate_override: boolean;
-  infill_density: number | null;
-  support_enabled: boolean | null;
-  filaments: Array<{
-    tool: number;
-    preset_key: string;
-    override_project_settings: boolean;
-  }>;
   confirm_printer_mismatch: boolean;
-  preserve_project_settings: boolean;
 }
 
 export interface SliceTask {
@@ -147,7 +109,6 @@ export type SliceEventSubscriber = (
 export interface SliceApi {
   listSavedPrinters(): Promise<SlicePrinter[]>;
   inspect3mf(path: string): Promise<SliceInspection>;
-  listSlicePresets(printerId: string): Promise<SlicePresetCatalog>;
   startSlice(request: SliceRequest): Promise<SliceTask>;
   cancelSlice(taskId: string): Promise<void>;
   getSliceTask(taskId: string): Promise<SliceTask>;
@@ -207,7 +168,12 @@ const COPY = {
     support: "生成支撑",
     supportHint: "由 Bambu Studio 根据当前工艺生成支撑结构",
     materialSection: "逐工具耗材",
-    materialHint: "每个颜色工具都需要一个官方耗材预设。",
+    materialHint: "直接使用 3MF 保存的耗材设置，不在 CYLUNE 中替换。",
+    nativeSettings: "3MF 项目设置",
+    nativeSettingsHint: "以下内容只读；切片时会按 3MF 原样使用。",
+    supportOn: "已开启",
+    supportOff: "已关闭",
+    unknownValue: "未提供",
     toolFallback: "颜色 {{number}}",
     filamentForTool: "{{tool}} 耗材",
     start: "开始后台切片",
@@ -215,11 +181,11 @@ const COPY = {
     cancel: "取消切片",
     stopping: "正在停止…",
     cancelled: "切片已取消",
-    cancelledHint: "Bambu Studio 后台进程已经退出，当前设置可以继续修改。",
+    cancelledHint: "Bambu Studio 后台进程已经退出，项目设置没有被修改。",
     retry: "重新尝试",
     openStudio: "使用 Bambu Studio 打开",
     failedTitle: "Bambu Studio 无法完成这个项目",
-    failedHint: "可以调整设置后重试，或手动交给 Bambu Studio 检查；软件绝不会自动打开它。",
+    failedHint: "可以重新尝试，或手动交给 Bambu Studio 检查；软件绝不会自动打开它。",
     loadFailed: "无法读取本地切片配置",
     openFailed: "无法打开 Bambu Studio",
     mismatchTitle: "目标机型与项目不同",
@@ -265,7 +231,12 @@ const COPY = {
     support: "產生支撐",
     supportHint: "由 Bambu Studio 依照目前工藝產生支撐結構",
     materialSection: "逐工具耗材",
-    materialHint: "每個顏色工具都需要一個官方耗材預設。",
+    materialHint: "直接使用 3MF 儲存的耗材設定，不在 CYLUNE 中替換。",
+    nativeSettings: "3MF 專案設定",
+    nativeSettingsHint: "以下內容唯讀；切片時會依照 3MF 原樣使用。",
+    supportOn: "已開啟",
+    supportOff: "已關閉",
+    unknownValue: "未提供",
     toolFallback: "顏色 {{number}}",
     filamentForTool: "{{tool}}耗材",
     start: "開始背景切片",
@@ -273,11 +244,11 @@ const COPY = {
     cancel: "取消切片",
     stopping: "正在停止…",
     cancelled: "切片已取消",
-    cancelledHint: "Bambu Studio 背景程序已經結束，目前設定可以繼續修改。",
+    cancelledHint: "Bambu Studio 背景程序已經結束，專案設定沒有被修改。",
     retry: "重新嘗試",
     openStudio: "使用 Bambu Studio 開啟",
     failedTitle: "Bambu Studio 無法完成這個專案",
-    failedHint: "可以調整設定後重試，或手動交給 Bambu Studio 檢查；軟體絕不會自動開啟它。",
+    failedHint: "可以重新嘗試，或手動交給 Bambu Studio 檢查；軟體絕不會自動開啟它。",
     loadFailed: "無法讀取本機切片設定",
     openFailed: "無法開啟 Bambu Studio",
     mismatchTitle: "目標機型與專案不同",
@@ -323,7 +294,12 @@ const COPY = {
     support: "Generate supports",
     supportHint: "Bambu Studio generates supports using the selected process",
     materialSection: "Filament by tool",
-    materialHint: "Every color tool needs an official filament preset.",
+    materialHint: "Uses the filament settings saved in the 3MF without replacing them in CYLUNE.",
+    nativeSettings: "3MF project settings",
+    nativeSettingsHint: "These values are read-only and are used exactly as saved in the 3MF.",
+    supportOn: "Enabled",
+    supportOff: "Disabled",
+    unknownValue: "Not provided",
     toolFallback: "Color {{number}}",
     filamentForTool: "Filament for {{tool}}",
     start: "Start background slicing",
@@ -331,11 +307,11 @@ const COPY = {
     cancel: "Cancel slicing",
     stopping: "Stopping…",
     cancelled: "Slicing cancelled",
-    cancelledHint: "The Bambu Studio background process has exited. You can edit these settings again.",
+    cancelledHint: "The Bambu Studio background process has exited without changing the project settings.",
     retry: "Try again",
     openStudio: "Open in Bambu Studio",
     failedTitle: "Bambu Studio couldn't slice this project",
-    failedHint: "Adjust the settings and retry, or explicitly open it in Bambu Studio. CYLUNE never opens it automatically.",
+    failedHint: "Try again or explicitly open it in Bambu Studio. CYLUNE never opens it automatically.",
     loadFailed: "Couldn't load the local slicing configuration",
     openFailed: "Couldn't open Bambu Studio",
     mismatchTitle: "The target printer is different",
@@ -438,27 +414,6 @@ function toolsFor(inspection: SliceInspection, copy: ReturnType<typeof makeCopy>
   }];
 }
 
-function filamentFamily(key?: string | null) {
-  return key?.split(/\s+@/u, 1)[0]?.trim().toLocaleLowerCase("en-US") ?? "";
-}
-
-function presetForTool(tool: SliceToolInspection, presets: SliceFilamentPreset[]) {
-  const exact = presets.find((preset) => preset.key === tool.embedded_filament_key);
-  if (exact) return exact;
-
-  const family = filamentFamily(tool.embedded_filament_key);
-  const equivalent = family
-    ? presets.find((preset) => filamentFamily(preset.key) === family)
-    : null;
-  if (equivalent) return equivalent;
-
-  const material = tool.material?.trim().toLocaleLowerCase("en-US");
-  const sameMaterial = material
-    ? presets.find((preset) => preset.material?.trim().toLocaleLowerCase("en-US") === material)
-    : null;
-  return sameMaterial ?? presets.find((preset) => preset.is_default) ?? presets[0] ?? null;
-}
-
 function SectionTitle({ icon, title, hint }: {
   icon: ReactNode;
   title: string;
@@ -493,18 +448,6 @@ export function Slice({
   const [inputPath, setInputPath] = useState<string | null>(null);
   const [inspection, setInspection] = useState<SliceInspection | null>(null);
   const [selectedPrinterId, setSelectedPrinterId] = useState("");
-  const [catalog, setCatalog] = useState<SlicePresetCatalog | null>(null);
-  const [presetsLoading, setPresetsLoading] = useState(false);
-  const [processKey, setProcessKey] = useState("");
-  const [processTouched, setProcessTouched] = useState(false);
-  const [plateKey, setPlateKey] = useState("");
-  const [plateTouched, setPlateTouched] = useState(false);
-  const [infill, setInfill] = useState("15");
-  const [infillTouched, setInfillTouched] = useState(false);
-  const [support, setSupport] = useState(false);
-  const [supportTouched, setSupportTouched] = useState(false);
-  const [filaments, setFilaments] = useState<Record<number, string>>({});
-  const [filamentsTouched, setFilamentsTouched] = useState<Record<number, boolean>>({});
   const [mismatchConfirmed, setMismatchConfirmed] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -539,19 +482,10 @@ export function Slice({
         && Math.abs(embeddedNozzle - selectedPrinter.nozzle_diameter) > 0.001)
   ));
   const locked = view === "starting" || view === "running" || view === "stopping";
-  const infillNumber = Number(infill);
-  const allFilamentsChosen = tools.every((tool) => Boolean(filaments[tool.tool]));
   const formValid = Boolean(
     inputPath
       && inspection?.kind === "unsliced"
       && selectedPrinter?.is_available
-      && catalog
-      && processKey
-      && plateKey
-      && Number.isFinite(infillNumber)
-      && infillNumber >= 0
-      && infillNumber <= 100
-      && allFilamentsChosen
       && (!printerMismatch || mismatchConfirmed),
   );
 
@@ -570,17 +504,9 @@ export function Slice({
     if (!preserveTaskView) setView("inspecting");
     setInputPath(path);
     setInspection(null);
-    setCatalog(null);
     setError(null);
     setErrorDetail(null);
     setMismatchConfirmed(false);
-    setProcessTouched(false);
-    setPlateTouched(false);
-    setInfillTouched(false);
-    setSupportTouched(false);
-    setFilamentsTouched({});
-    setInfill("15");
-    setSupport(false);
     try {
       const result = await api.inspect3mf(path);
       if (!mounted.current) return;
@@ -669,66 +595,6 @@ export function Slice({
   }, [locked, onFormLockChange]);
 
   useEffect(() => {
-    if (!inputPath || !inspection || inspection.kind !== "unsliced" || !selectedPrinterId) {
-      setCatalog(null);
-      return;
-    }
-    let disposed = false;
-    setPresetsLoading(true);
-    setCatalog(null);
-    setMismatchConfirmed(false);
-    void api.listSlicePresets(selectedPrinterId)
-      .then((next) => {
-        if (disposed) return;
-        setCatalog(next);
-        const printer = printers.find((item) => item.printer_id === selectedPrinterId);
-        const process = next.processes.find((item) =>
-          item.key === inspection.embedded_process_key,
-        ) ?? next.processes.find((item) => item.is_default) ?? next.processes[0];
-        const embeddedPlate = next.plates.find((item) =>
-          item.key === inspection.embedded_plate_key
-            || item.label === inspection.embedded_plate_key,
-        );
-        const plate = embeddedPlate ?? next.plates.find((item) =>
-          item.key === printer?.default_plate || item.label === printer?.default_plate,
-        ) ?? next.plates.find((item) => item.is_default) ?? next.plates[0];
-        setProcessKey(process?.key ?? "");
-        setProcessTouched(false);
-        setPlateKey(plate?.key ?? "");
-        // An unsupported/missing embedded plate must fall back to a valid
-        // target-printer plate. Otherwise the original project value stays
-        // untouched until the user changes this control.
-        setPlateTouched(!embeddedPlate && Boolean(plate));
-        if (typeof inspection.embedded_infill_density === "number"
-          && Number.isFinite(inspection.embedded_infill_density)
-          && inspection.embedded_infill_density >= 0
-          && inspection.embedded_infill_density <= 100) {
-          setInfill(String(inspection.embedded_infill_density));
-        }
-        if (typeof inspection.embedded_support_enabled === "boolean") {
-          setSupport(inspection.embedded_support_enabled);
-        }
-        setFilaments(Object.fromEntries(toolsFor(inspection, copy).map((tool) => {
-          const preset = presetForTool(tool, next.filaments);
-          return [tool.tool, preset?.key ?? ""];
-        })));
-        setFilamentsTouched({});
-        setError(null);
-        setErrorDetail(null);
-      })
-      .catch((loadError) => {
-        if (!disposed) {
-          setError(copy("loadFailed"));
-          setErrorDetail(stableError(loadError));
-        }
-      })
-      .finally(() => {
-        if (!disposed) setPresetsLoading(false);
-      });
-    return () => { disposed = true; };
-  }, [api, copy, inputPath, inspection, printers, selectedPrinterId]);
-
-  useEffect(() => {
     let disposed = false;
     const stops: Array<() => void> = [];
     const register = async (name: SliceEventName, handler: (payload: unknown) => void) => {
@@ -811,18 +677,7 @@ export function Slice({
       const next = await api.startSlice({
         input_path: inputPath,
         printer_id: selectedPrinterId,
-        process_key: processKey,
-        plate_key: plateKey,
-        plate_override: plateTouched,
-        infill_density: infillTouched ? infillNumber : null,
-        support_enabled: supportTouched ? support : null,
-        filaments: tools.map((tool) => ({
-          tool: tool.tool,
-          preset_key: filaments[tool.tool],
-          override_project_settings: Boolean(filamentsTouched[tool.tool]),
-        })),
         confirm_printer_mismatch: printerMismatch && mismatchConfirmed,
-        preserve_project_settings: !processTouched,
       });
       if (!mounted.current) return;
       publishTask(next);
@@ -901,20 +756,9 @@ export function Slice({
     setView("idle");
     setInputPath(null);
     setInspection(null);
-    setCatalog(null);
     setError(null);
     setErrorDetail(null);
     setMismatchConfirmed(false);
-    setProcessKey("");
-    setPlateKey("");
-    setProcessTouched(false);
-    setPlateTouched(false);
-    setInfill("15");
-    setInfillTouched(false);
-    setSupport(false);
-    setSupportTouched(false);
-    setFilaments({});
-    setFilamentsTouched({});
     setProgress({ phase: "preparing", percent: null });
   };
 
@@ -923,6 +767,17 @@ export function Slice({
       count: Math.max(inspection.plate_count, 1),
     })
     : "";
+  const nativeValue = (value?: string | null) => value?.trim() || copy("unknownValue");
+  const printerValue = selectedPrinter
+    ? `${selectedPrinter.display_name} · ${selectedPrinter.model_key} · ${selectedPrinter.nozzle_diameter.toFixed(1)} mm`
+    : copy("unknownValue");
+  const infillValue = typeof inspection?.embedded_infill_density === "number"
+    && Number.isFinite(inspection.embedded_infill_density)
+    ? copy("percent", { percent: inspection.embedded_infill_density })
+    : copy("unknownValue");
+  const supportValue = typeof inspection?.embedded_support_enabled === "boolean"
+    ? copy(inspection.embedded_support_enabled ? "supportOn" : "supportOff")
+    : copy("unknownValue");
 
   return <section className="page slice-page" aria-labelledby="slice-title">
     <div className="page-heading slice-heading">
@@ -1001,15 +856,7 @@ export function Slice({
         <fieldset disabled={locked}>
           <section className="slice-form-section">
             <SectionTitle icon={<Printer size={21} weight="duotone" />} title={copy("printerSection")} />
-            <label className="slice-field slice-field-wide">
-              <span>{copy("printer")}</span>
-              <select aria-label={copy("printer")} value={selectedPrinterId} disabled={locked || printersLoading || !printers.length} onChange={(event) => {
-                setSelectedPrinterId(event.target.value);
-                setProcessTouched(false);
-              }}>
-                {printers.map((printer) => <option key={printer.printer_id} value={printer.printer_id}>{printer.display_name} · {printer.model_key} · {printer.nozzle_diameter.toFixed(1)} mm</option>)}
-              </select>
-            </label>
+            <div className="slice-summary-row"><span>{copy("printer")}</span><strong>{printerValue}</strong></div>
             {!printersLoading && !printers.length ? <div className="slice-inline-note warning"><WarningCircle size={17} weight="fill" />{copy("noPrinters")}</div> : null}
             {selectedPrinter && !selectedPrinter.is_available ? <div className="slice-inline-note warning"><WarningCircle size={17} weight="fill" />{copy("unavailablePrinter")}</div> : null}
             {selectedPrinter && printerMismatch ? <div className="slice-mismatch" role="alert">
@@ -1022,41 +869,12 @@ export function Slice({
           </section>
 
           <section className="slice-form-section">
-            <SectionTitle icon={<SlidersHorizontal size={21} weight="duotone" />} title={copy("processSection")} />
-            {presetsLoading ? <div className="slice-preset-loading" role="status">{copy("loadingPresets")}</div> : null}
-            <div className="slice-fields-grid">
-              <label className="slice-field">
-                <span>{copy("process")}</span>
-                <select aria-label={copy("process")} value={processKey} disabled={locked || presetsLoading || !catalog?.processes.length} onChange={(event) => {
-                  setProcessKey(event.target.value);
-                  setProcessTouched(true);
-                }}>
-                  {(catalog?.processes ?? []).map((process) => <option key={process.key} value={process.key}>{process.layer_height_mm.toFixed(2)} mm · {process.label}</option>)}
-                </select>
-              </label>
-              <label className="slice-field">
-                <span>{copy("plate")}</span>
-                <select aria-label={copy("plate")} value={plateKey} disabled={locked || presetsLoading || !catalog?.plates.length} onChange={(event) => {
-                  setPlateKey(event.target.value);
-                  setPlateTouched(true);
-                }}>
-                  {(catalog?.plates ?? []).map((plate) => <option key={plate.key} value={plate.key}>{plate.label}</option>)}
-                </select>
-              </label>
-              <label className="slice-field">
-                <span>{copy("infill")}</span>
-                <span className="slice-number-control"><input aria-label={copy("infill")} type="number" min={0} max={100} step={1} inputMode="numeric" value={infill} onChange={(event) => {
-                  setInfill(event.target.value);
-                  setInfillTouched(true);
-                }} /><b>{copy("infillUnit")}</b></span>
-              </label>
-              <label className="slice-support">
-                <input type="checkbox" aria-label={copy("support")} checked={support} onChange={(event) => {
-                  setSupport(event.target.checked);
-                  setSupportTouched(true);
-                }} />
-                <span><strong>{copy("support")}</strong><small>{copy("supportHint")}</small></span>
-              </label>
+            <SectionTitle icon={<SlidersHorizontal size={21} weight="duotone" />} title={copy("nativeSettings")} hint={copy("nativeSettingsHint")} />
+            <div className="slice-summary">
+              <div className="slice-summary-row"><span>{copy("process")}</span><strong>{nativeValue(inspection.embedded_process_key)}</strong></div>
+              <div className="slice-summary-row"><span>{copy("plate")}</span><strong>{nativeValue(inspection.embedded_plate_key)}</strong></div>
+              <div className="slice-summary-row"><span>{copy("infill")}</span><strong>{infillValue}</strong></div>
+              <div className="slice-summary-row"><span>{copy("support")}</span><strong>{supportValue}</strong></div>
             </div>
           </section>
 
@@ -1065,17 +883,12 @@ export function Slice({
             <div className="slice-tools">
               {tools.map((tool) => {
                 const toolName = tool.label?.trim() || copy("toolFallback", { number: tool.tool + 1 });
-                const label = copy("filamentForTool", { tool: toolName });
-                return <label className="slice-tool" key={tool.tool}>
+                const filamentName = nativeValue(tool.embedded_filament_key);
+                return <div className="slice-tool slice-tool-readonly" key={tool.tool}>
                   <span className="slice-tool-color" style={{ "--tool-color": tool.color_hex || "var(--blue)" } as CSSProperties} />
                   <span className="slice-tool-copy"><strong>{toolName}</strong><small>{tool.material || copy("embedded")}</small></span>
-                  <select aria-label={label} value={filaments[tool.tool] ?? ""} disabled={locked || presetsLoading || !catalog?.filaments.length} onChange={(event) => {
-                    setFilaments((current) => ({ ...current, [tool.tool]: event.target.value }));
-                    setFilamentsTouched((current) => ({ ...current, [tool.tool]: true }));
-                  }}>
-                    {(catalog?.filaments ?? []).map((filament) => <option key={filament.key} value={filament.key}>{filament.label}</option>)}
-                  </select>
-                </label>;
+                  <span className="slice-tool-native">{filamentName === toolName ? copy("embedded") : filamentName}</span>
+                </div>;
               })}
             </div>
           </section>

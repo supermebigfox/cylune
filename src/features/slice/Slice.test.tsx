@@ -49,22 +49,6 @@ const inspection: SliceInspection = {
   ],
 };
 
-const presets = {
-  processes: [
-    { key: "standard-020", label: "标准", layer_height_mm: 0.2, is_default: true },
-    { key: "fine-012", label: "精细", layer_height_mm: 0.12 },
-  ],
-  plates: [
-    { key: "supertack", label: "Supertack Plate", is_default: true },
-    { key: "textured", label: "Textured PEI Plate" },
-  ],
-  filaments: [
-    { key: "pla-basic-white", label: "Bambu PLA Basic · 玉白", material: "PLA", color_hex: "#FFFEFC" },
-    { key: "pla-basic-black", label: "Bambu PLA Basic · 曜石黑", material: "PLA", color_hex: "#252733" },
-    { key: "petg-hf-blue", label: "Bambu PETG HF · 湖蓝", material: "PETG", color_hex: "#3B6CFF" },
-  ],
-};
-
 type EventPayloads = {
   "slice-progress": SliceProgressEvent;
   "slice-complete": SliceCompleteEvent;
@@ -116,7 +100,6 @@ function fixture({
   const api: SliceApi = {
     listSavedPrinters: vi.fn(async () => [p2s]),
     inspect3mf: vi.fn(async () => inspected),
-    listSlicePresets: vi.fn(async () => presets),
     startSlice,
     cancelSlice: vi.fn(cancel),
     getSliceTask: vi.fn(getTask),
@@ -170,40 +153,41 @@ it("starts metadata slicing without asking for an output file", async () => {
   ));
 });
 
-it("configures a multi-plate project, freezes only its form, reports progress, and opens the completed project", async () => {
+it("uses the preferred machine, keeps the embedded project read-only, reports progress, and opens the completed project", async () => {
   const user = userEvent.setup();
   const onProjectComplete = vi.fn();
-  const { client, onFormLockChange } = renderSlice({ onProjectComplete });
+  const client = fixture({
+    inspected: {
+      ...inspection,
+      embedded_process_key: "Bambu_Lumina",
+      embedded_plate_key: "Textured PEI Plate",
+      embedded_infill_density: 100,
+      embedded_support_enabled: true,
+    },
+  });
+  const { onFormLockChange } = renderSlice({ client, onProjectComplete });
 
   await user.click(await screen.findByRole("button", { name: "选择 3MF" }));
   expect(await screen.findByText("2 个打印盘 · 切片后仍是 1 个项目")).toBeVisible();
-  expect(screen.getByRole("combobox", { name: "目标打印机" })).toHaveValue("printer-p2s");
+  expect(screen.getByText("我的 P2S · Bambu Lab P2S · 0.4 mm")).toBeVisible();
+  expect(screen.getByText("Bambu_Lumina")).toBeVisible();
+  expect(screen.getByText("Textured PEI Plate")).toBeVisible();
+  expect(screen.getByText("100%")).toBeVisible();
+  expect(screen.getByText("已开启")).toBeVisible();
+  expect(screen.queryByRole("combobox", { name: "目标打印机" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("combobox", { name: "工艺与层高" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("combobox", { name: "打印板" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("spinbutton", { name: "填充率" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("checkbox", { name: "生成支撑" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("combobox", { name: "颜色 2 耗材" })).not.toBeInTheDocument();
 
-  await user.selectOptions(screen.getByRole("combobox", { name: "工艺与层高" }), "fine-012");
-  await user.selectOptions(screen.getByRole("combobox", { name: "打印板" }), "textured");
-  const infill = screen.getByRole("spinbutton", { name: "填充率" });
-  await user.clear(infill);
-  await user.type(infill, "22");
-  await user.click(screen.getByRole("checkbox", { name: "生成支撑" }));
-  await user.selectOptions(screen.getByRole("combobox", { name: "颜色 2 耗材" }), "petg-hf-blue");
   await user.click(screen.getByRole("button", { name: "开始后台切片" }));
   await waitFor(() => expect(client.startSlice).toHaveBeenCalledWith({
     input_path: "/Users/robin/Desktop/月球灯.3mf",
     printer_id: "printer-p2s",
-    process_key: "fine-012",
-    plate_key: "textured",
-    plate_override: true,
-    infill_density: 22,
-    support_enabled: true,
-    filaments: [
-      { tool: 0, preset_key: "pla-basic-white", override_project_settings: false },
-      { tool: 1, preset_key: "petg-hf-blue", override_project_settings: true },
-    ],
     confirm_printer_mismatch: false,
-    preserve_project_settings: false,
   }));
 
-  expect(screen.getByRole("combobox", { name: "目标打印机" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "更换 3MF" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "取消切片" })).toBeEnabled();
   await waitFor(() => expect(onFormLockChange).toHaveBeenLastCalledWith(true));
@@ -263,7 +247,7 @@ it("refreshes saved printers whenever the persistent slicing page becomes active
   rerender(<Slice {...props} active />);
 
   await waitFor(() => expect(client.api.listSavedPrinters).toHaveBeenCalledTimes(2));
-  expect(screen.getByRole("combobox", { name: "目标打印机" })).toHaveValue("printer-p2s");
+  expect(screen.getByText("我的 P2S · Bambu Lab P2S · 0.4 mm")).toBeVisible();
 });
 
 it("cancels an unstarted slicing setup and returns to the empty drop zone", async () => {
@@ -294,7 +278,7 @@ it("requires explicit confirmation when the embedded machine differs from the ta
   expect(screen.getByRole("button", { name: "开始后台切片" })).toBeEnabled();
 });
 
-it("keeps the preferred printer and maps an embedded filament to its equivalent target-machine preset", async () => {
+it("keeps the preferred printer while leaving embedded filament settings untouched", async () => {
   const client = fixture({
     inspected: {
       ...inspection,
@@ -309,37 +293,26 @@ it("keeps the preferred printer and maps an embedded filament to its equivalent 
       }],
     },
   });
-  client.api.listSlicePresets = vi.fn(async () => ({
-    ...presets,
-    filaments: [
-      { key: "Bambu PETG HF @BBL P2S", label: "PETG HF", material: "PETG", is_default: true },
-      { key: "Bambu PLA Basic @BBL P2S", label: "PLA Basic", material: "PLA" },
-    ],
-  }));
   renderSlice({ client });
   const user = await prepareReadyForm();
 
-  expect(screen.getByRole("combobox", { name: "目标打印机" })).toHaveValue("printer-p2s");
-  expect(screen.getByRole("combobox", {
+  expect(screen.getByText("我的 P2S · Bambu Lab P2S · 0.4 mm")).toBeVisible();
+  expect(screen.getByText("Bambu PLA Basic @BBL X2D 0.4 nozzle")).toBeVisible();
+  expect(screen.queryByRole("combobox", {
     name: "Bambu PLA Basic @BBL X2D 0.4 nozzle 耗材",
-  })).toHaveValue("Bambu PLA Basic @BBL P2S");
+  })).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("checkbox", { name: "确认改用我的 P2S" }));
   await user.click(screen.getByRole("button", { name: "开始后台切片" }));
 
-  await waitFor(() => expect(client.startSlice).toHaveBeenCalledWith(expect.objectContaining({
+  await waitFor(() => expect(client.startSlice).toHaveBeenCalledWith({
+    input_path: "/Users/robin/Desktop/月球灯.3mf",
     printer_id: "printer-p2s",
-    filaments: [{
-      tool: 0,
-      preset_key: "Bambu PLA Basic @BBL P2S",
-      override_project_settings: false,
-    }],
     confirm_printer_mismatch: true,
-    preserve_project_settings: true,
-  })));
+  }));
 });
 
-it("prefills compatible embedded process, plate, infill, and support settings", async () => {
+it("shows compatible embedded process, plate, infill, and support as read-only values", async () => {
   const embedded = {
     ...inspection,
     embedded_process_key: "fine-012",
@@ -356,35 +329,14 @@ it("prefills compatible embedded process, plate, infill, and support settings", 
 
   await prepareReadyForm();
 
-  expect(screen.getByRole("combobox", { name: "工艺与层高" })).toHaveValue("fine-012");
-  expect(screen.getByRole("combobox", { name: "打印板" })).toHaveValue("textured");
-  expect(screen.getByRole("spinbutton", { name: "填充率" })).toHaveValue(27);
-  expect(screen.getByRole("checkbox", { name: "生成支撑" })).toBeChecked();
-});
-
-it("preserves every embedded process value until the user explicitly changes a quick setting", async () => {
-  const client = fixture({
-    inspected: {
-      ...inspection,
-      embedded_process_key: "fine-012",
-      embedded_plate_key: "textured",
-      embedded_infill_density: 27,
-      embedded_support_enabled: true,
-    },
-  });
-  renderSlice({ client });
-  const user = await prepareReadyForm();
-
-  await user.click(screen.getByRole("button", { name: "开始后台切片" }));
-
-  await waitFor(() => expect(client.startSlice).toHaveBeenCalledWith(expect.objectContaining({
-    process_key: "fine-012",
-    plate_key: "textured",
-    plate_override: false,
-    infill_density: null,
-    support_enabled: null,
-    preserve_project_settings: true,
-  })));
+  expect(screen.getByText("fine-012")).toBeVisible();
+  expect(screen.getByText("textured")).toBeVisible();
+  expect(screen.getByText("27%")).toBeVisible();
+  expect(screen.getByText("已开启")).toBeVisible();
+  expect(screen.queryByRole("combobox", { name: "工艺与层高" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("combobox", { name: "打印板" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("spinbutton", { name: "填充率" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("checkbox", { name: "生成支撑" })).not.toBeInTheDocument();
 });
 
 it("keeps cancel available, shows stopping until the child exits, and then unlocks the form", async () => {
@@ -396,11 +348,11 @@ it("keeps cancel available, shows stopping until the child exits, and then unloc
 
   await user.click(screen.getByRole("button", { name: "取消切片" }));
   expect(screen.getByRole("button", { name: "正在停止…" })).toBeDisabled();
-  expect(screen.getByRole("combobox", { name: "目标打印机" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "更换 3MF" })).toBeDisabled();
 
   stopping.resolve();
   expect(await screen.findByText("切片已取消")).toBeVisible();
-  expect(screen.getByRole("combobox", { name: "目标打印机" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "更换 3MF" })).toBeEnabled();
 });
 
 it("uses the authoritative completed task when cancellation loses the import race", async () => {
@@ -475,7 +427,7 @@ it("rehydrates an active background task when the user returns to the slicing pa
   expect(await screen.findByRole("heading", { name: "月球灯.3mf" })).toBeVisible();
   expect(screen.getByText("61%")).toBeVisible();
   expect(screen.getByRole("progressbar")).toHaveAttribute("value", "61");
-  expect(screen.getByRole("combobox", { name: "目标打印机" })).toBeDisabled();
+  expect(screen.queryByRole("combobox", { name: "目标打印机" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "取消切片" })).toBeEnabled();
 });
 
