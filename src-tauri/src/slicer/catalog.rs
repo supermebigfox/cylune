@@ -43,13 +43,6 @@ pub struct SlicePresetCatalog {
     pub plates: Vec<SlicePresetOption>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ResolvedPresetPaths {
-    pub machine: PathBuf,
-    pub process: PathBuf,
-    pub filaments: Vec<PathBuf>,
-}
-
 pub(crate) fn load_slice_preset_catalog(
     profiles_root: &Path,
     printer: &SavedPrinter,
@@ -57,54 +50,19 @@ pub(crate) fn load_slice_preset_catalog(
     Ok(load_catalog_data(profiles_root, printer)?.catalog)
 }
 
-pub(crate) fn resolve_preset_paths(
+pub(crate) fn resolve_machine_path(
     profiles_root: &Path,
     printer: &SavedPrinter,
-    process_key: &str,
-    filament_keys: &[String],
-) -> Result<ResolvedPresetPaths> {
-    if process_key.trim() != process_key
-        || process_key.is_empty()
-        || filament_keys.is_empty()
-        || filament_keys
-            .iter()
-            .any(|key| key.trim() != key || key.is_empty())
-    {
-        return Err(AppError::SlicerIncompatible);
-    }
-    let data = load_catalog_data(profiles_root, printer)?;
-    let process = data
-        .processes
-        .get(process_key)
-        .filter(|entry| entry.supported)
-        .map(|entry| entry.path.clone())
-        .ok_or(AppError::SlicerIncompatible)?;
-    let filaments = filament_keys
-        .iter()
-        .map(|key| {
-            data.filaments
-                .get(key)
-                .filter(|entry| entry.supported)
-                .map(|entry| entry.path.clone())
-                .ok_or(AppError::SlicerIncompatible)
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(ResolvedPresetPaths {
-        machine: data.machine_path,
-        process,
-        filaments,
-    })
+) -> Result<PathBuf> {
+    Ok(load_catalog_data(profiles_root, printer)?.machine_path)
 }
 
 struct CatalogData {
     catalog: SlicePresetCatalog,
     machine_path: PathBuf,
-    processes: BTreeMap<String, CatalogPath>,
-    filaments: BTreeMap<String, CatalogPath>,
 }
 
 struct CatalogPath {
-    path: PathBuf,
     supported: bool,
     layer_height_mm: Option<f64>,
     material: Option<String>,
@@ -173,8 +131,6 @@ fn load_catalog_data(profiles_root: &Path, printer: &SavedPrinter) -> Result<Cat
             plates,
         },
         machine_path: machine_document.path.clone(),
-        processes: process_entries,
-        filaments: filament_entries,
     })
 }
 
@@ -302,7 +258,7 @@ fn catalog_entries(
             document.raw.get("type").and_then(Value::as_str) == Some(expected_type)
                 && json_true(document.raw.get("instantiation"))
         })
-        .map(|(name, document)| {
+        .map(|(name, _document)| {
             let supported = resolved.get(name).is_some_and(|profile| {
                 json_strings(profile.get("compatible_printers"))
                     .iter()
@@ -311,7 +267,6 @@ fn catalog_entries(
             (
                 name.clone(),
                 CatalogPath {
-                    path: document.path.clone(),
                     supported,
                     layer_height_mm: resolved.get(name).and_then(|profile| {
                         json_strings(profile.get("layer_height"))
@@ -458,7 +413,7 @@ fn json_true(value: Option<&Value>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_slice_preset_catalog, resolve_preset_paths};
+    use super::{load_slice_preset_catalog, resolve_machine_path};
     use crate::printers::SavedPrinter;
     use std::{fs, path::PathBuf};
     use uuid::Uuid;
@@ -613,32 +568,18 @@ mod tests {
     }
 
     #[test]
-    fn resolves_only_supported_exact_keys_to_internal_paths() {
+    fn resolves_only_the_exact_saved_printer_machine_to_an_internal_canonical_path() {
         let profiles = Profiles::new();
-        let filaments = vec!["Bambu PLA Basic @BBL P2S".to_owned()];
 
-        let resolved = resolve_preset_paths(
-            &profiles.root,
-            &printer(),
-            "0.20mm Standard @BBL P2S",
-            &filaments,
-        )
-        .unwrap();
+        let resolved = resolve_machine_path(&profiles.root, &printer()).unwrap();
 
-        assert!(resolved
-            .machine
-            .ends_with("BBL/machine/Bambu Lab P2S 0.4 nozzle.json"));
-        assert!(resolved
-            .process
-            .ends_with("BBL/process/0.20mm Standard @BBL P2S.json"));
-        assert!(resolved.filaments[0].ends_with("BBL/filament/Bambu PLA Basic @BBL P2S.json"));
-        assert!(
-            resolve_preset_paths(&profiles.root, &printer(), "../outside", &filaments).is_err()
-        );
-        assert!(
-            resolve_preset_paths(&profiles.root, &printer(), "A1 only process", &filaments)
-                .is_err()
-        );
+        assert!(resolved.is_absolute());
+        assert_eq!(resolved, fs::canonicalize(&resolved).unwrap());
+        assert!(resolved.ends_with("BBL/machine/Bambu Lab P2S 0.4 nozzle.json"));
+
+        let mut incompatible = printer();
+        incompatible.nozzle_diameter = 0.6;
+        assert!(resolve_machine_path(&profiles.root, &incompatible).is_err());
     }
 
     #[cfg(unix)]

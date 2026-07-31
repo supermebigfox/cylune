@@ -16,7 +16,7 @@ use std::{
 use uuid::Uuid;
 
 pub use catalog::{SliceFilamentPreset, SlicePresetCatalog, SlicePresetOption, SliceProcessPreset};
-pub use command::{build_bambu_args, FastOverrides, PlateSelection, SliceRequest};
+pub use command::{build_bambu_args, PlateSelection, SliceRequest};
 pub use discovery::{BambuInstallation, InstallationDiscovery};
 pub use inspect::{
     inspect_3mf_content, EmbeddedMachine, EmbeddedPlate, EmbeddedProcess, EmbeddedTool,
@@ -27,31 +27,12 @@ pub use runtime::{
     SlicerService,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SliceFilamentSelection {
-    pub tool: u32,
-    pub preset_key: String,
-    #[serde(default)]
-    pub override_project_settings: bool,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FastSliceRequest {
     pub input_path: PathBuf,
     pub printer_id: String,
-    pub process_key: String,
-    pub plate_key: String,
-    #[serde(default)]
-    pub plate_override: bool,
-    #[serde(default)]
-    pub infill_density: Option<f64>,
-    #[serde(default)]
-    pub support_enabled: Option<bool>,
-    pub filaments: Vec<SliceFilamentSelection>,
     #[serde(default)]
     pub confirm_printer_mismatch: bool,
-    #[serde(default)]
-    pub preserve_project_settings: bool,
 }
 
 fn resolve_fast_request(
@@ -75,55 +56,14 @@ fn resolve_fast_request(
         return Err(AppError::SlicerIncompatible);
     }
 
-    let catalog = catalog::load_slice_preset_catalog(profiles_root, &printer)?;
-    if !catalog
-        .plates
-        .iter()
-        .any(|plate| plate.key == request.plate_key)
-    {
-        return Err(AppError::SlicerIncompatible);
-    }
-    let mut selections = request.filaments.clone();
-    selections.sort_unstable_by_key(|selection| selection.tool);
-    if selections.len() != inspection.tools.len()
-        || selections
-            .iter()
-            .enumerate()
-            .any(|(index, selection)| selection.tool != index as u32)
-    {
-        return Err(AppError::SlicerIncompatible);
-    }
-    let preserve_filament_settings = selections
-        .iter()
-        .map(|selection| !selection.override_project_settings)
-        .collect::<Vec<_>>();
-    let filament_keys = selections
-        .into_iter()
-        .map(|selection| selection.preset_key)
-        .collect::<Vec<_>>();
-    let resolved = catalog::resolve_preset_paths(
-        profiles_root,
-        &printer,
-        &request.process_key,
-        &filament_keys,
-    )?;
+    let machine_settings = catalog::resolve_machine_path(profiles_root, &printer)?;
 
     Ok(SliceRequest {
         printer,
-        expected_filament_count: filament_keys.len(),
         input: input_path,
         plate_selection: PlateSelection::All,
         estimate_mode: model_mismatch || nozzle_mismatch,
-        preserve_project_settings: request.preserve_project_settings,
-        preserve_filament_settings,
-        machine_settings: resolved.machine,
-        process_settings: resolved.process,
-        filament_settings: resolved.filaments,
-        fast_overrides: FastOverrides {
-            infill_density: request.infill_density,
-            support_enabled: request.support_enabled,
-            plate_type: request.plate_override.then_some(request.plate_key),
-        },
+        machine_settings,
     })
 }
 
@@ -183,7 +123,7 @@ pub fn open_in_bambu_studio(path: String, service: tauri::State<'_, SlicerServic
 
 #[cfg(test)]
 mod task6_tests {
-    use super::{resolve_fast_request, FastSliceRequest, SliceFilamentSelection};
+    use super::{resolve_fast_request, FastSliceRequest};
     use crate::printers::SavedPrinter;
     use std::{fs, io::Write, path::PathBuf};
     use uuid::Uuid;
@@ -244,25 +184,7 @@ mod task6_tests {
             FastSliceRequest {
                 input_path: self.input.clone(),
                 printer_id: self.printer().printer_id,
-                process_key: "0.20mm Standard @BBL P2S".to_owned(),
-                plate_key: "Supertack Plate".to_owned(),
-                plate_override: true,
-                infill_density: Some(15.0),
-                support_enabled: Some(true),
-                filaments: vec![
-                    SliceFilamentSelection {
-                        tool: 0,
-                        preset_key: "Bambu PLA Basic @BBL P2S".to_owned(),
-                        override_project_settings: false,
-                    },
-                    SliceFilamentSelection {
-                        tool: 1,
-                        preset_key: "Bambu PLA Basic @BBL P2S".to_owned(),
-                        override_project_settings: false,
-                    },
-                ],
                 confirm_printer_mismatch: false,
-                preserve_project_settings: true,
             }
         }
 
@@ -309,7 +231,7 @@ mod task6_tests {
     }
 
     #[test]
-    fn resolves_high_level_keys_without_accepting_frontend_profile_paths() {
+    fn resolves_only_the_internal_machine_path_and_canonical_input() {
         let fixture = Fixture::new();
         let printer = fixture.printer();
         let request = fixture.request();
@@ -321,16 +243,8 @@ mod task6_tests {
         assert!(resolved
             .machine_settings
             .starts_with(profiles.join("machine")));
-        assert!(resolved
-            .process_settings
-            .starts_with(profiles.join("process")));
-        assert_eq!(resolved.filament_settings.len(), 2);
-        assert_eq!(resolved.fast_overrides.infill_density, Some(15.0));
-        assert_eq!(resolved.fast_overrides.support_enabled, Some(true));
-        assert_eq!(
-            resolved.fast_overrides.plate_type.as_deref(),
-            Some("Supertack Plate")
-        );
+        assert_eq!(resolved.input, fs::canonicalize(&fixture.input).unwrap());
+        assert!(!resolved.estimate_mode);
     }
 
     #[test]
@@ -340,25 +254,25 @@ mod task6_tests {
         let value = serde_json::to_value(fixture.request()).unwrap();
         let object = value.as_object().unwrap();
 
+        assert_eq!(object.len(), 3);
+        assert!(object.contains_key("input_path"));
+        assert!(object.contains_key("printer_id"));
+        assert!(object.contains_key("confirm_printer_mismatch"));
         assert!(!object.contains_key("output_path"));
         assert!(!object.contains_key("destination"));
         assert!(!object.contains_key("allow_overwrite"));
     }
 
     #[test]
-    fn leaves_the_embedded_process_untouched_without_explicit_quick_overrides() {
+    fn matching_embedded_machine_does_not_enable_estimation() {
         let fixture = Fixture::new();
         let printer = fixture.printer();
-        let mut request = fixture.request();
-        request.plate_override = false;
-        request.infill_density = None;
-        request.support_enabled = None;
+        let request = fixture.request();
 
         let resolved =
             resolve_fast_request(&fixture.root.join("profiles"), printer, request).unwrap();
 
-        assert!(resolved.fast_overrides.is_empty());
-        assert!(resolved.preserve_project_settings);
+        assert!(!resolved.estimate_mode);
     }
 
     #[test]
@@ -376,9 +290,9 @@ mod task6_tests {
         .is_err());
 
         request.confirm_printer_mismatch = true;
-        assert!(
-            resolve_fast_request(&fixture.root.join("profiles"), fixture.printer(), request,)
-                .is_ok()
-        );
+        let resolved =
+            resolve_fast_request(&fixture.root.join("profiles"), fixture.printer(), request)
+                .unwrap();
+        assert!(resolved.estimate_mode);
     }
 }

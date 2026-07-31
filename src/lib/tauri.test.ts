@@ -268,17 +268,7 @@ it("starts private metadata slicing without exposing output or profile paths", a
   const request = {
     input_path: "/Users/robin/Desktop/月球灯.3mf",
     printer_id: "printer-p2s",
-    process_key: "standard-020",
-    plate_key: "supertack",
-    plate_override: false,
-    infill_density: null,
-    support_enabled: null,
-    filaments: [
-      { tool: 0, preset_key: "pla-basic-white", override_project_settings: false },
-      { tool: 1, preset_key: "pla-basic-black", override_project_settings: true },
-    ],
     confirm_printer_mismatch: false,
-    preserve_project_settings: true,
   };
 
   await api.inspect3mf("/Users/robin/Desktop/月球灯.3mf");
@@ -295,6 +285,11 @@ it("starts private metadata slicing without exposing output or profile paths", a
     printerId: "printer-p2s",
   });
   expect(invoke).toHaveBeenNthCalledWith(3, "start_slice", { request });
+  expect(request).toEqual({
+    input_path: "/Users/robin/Desktop/月球灯.3mf",
+    printer_id: "printer-p2s",
+    confirm_printer_mismatch: false,
+  });
   expect(invoke).toHaveBeenNthCalledWith(4, "get_slice_task", {
     taskId: "slice-task-1",
   });

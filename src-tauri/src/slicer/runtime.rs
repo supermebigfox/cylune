@@ -1,9 +1,7 @@
 use super::{
-    build_bambu_args,
-    catalog::load_slice_preset_catalog,
-    command::{materialize_filament_settings, materialize_process_settings},
-    inspect_3mf_content, resolve_fast_request, FastSliceRequest, InstallationDiscovery,
-    SlicePresetCatalog, SliceRequest,
+    build_bambu_args, catalog::load_slice_preset_catalog, inspect_3mf_content,
+    resolve_fast_request, FastSliceRequest, InstallationDiscovery, SlicePresetCatalog,
+    SliceRequest,
 };
 use crate::{
     error::{AppError, Result},
@@ -202,12 +200,7 @@ impl SlicerService {
         Ok(())
     }
 
-    pub fn start(&self, mut request: SliceRequest) -> Result<SliceTask> {
-        if request.filament_settings.len() != request.expected_filament_count
-            || request.preserve_filament_settings.len() != request.expected_filament_count
-        {
-            return Err(AppError::SlicerIncompatible);
-        }
+    pub fn start(&self, request: SliceRequest) -> Result<SliceTask> {
         let installation = self.inner.discovery.discover()?;
         let task_id = Uuid::new_v4();
         let task_dir = self
@@ -217,33 +210,6 @@ impl SlicerService {
             .join(task_id.to_string());
         fs::create_dir_all(&task_dir).map_err(|_| AppError::SlicerFailed)?;
         let temporary_output = task_dir.join("output.gcode.3mf");
-        if request.preserve_project_settings || !request.fast_overrides.is_empty() {
-            let effective_process = task_dir.join("effective-process.json");
-            if let Err(error) = materialize_process_settings(
-                &request.process_settings,
-                &effective_process,
-                &request.fast_overrides,
-                request.preserve_project_settings,
-            ) {
-                let _ = fs::remove_dir_all(&task_dir);
-                return Err(error);
-            }
-            request.process_settings = effective_process;
-        }
-        for index in 0..request.filament_settings.len() {
-            if !request.preserve_filament_settings[index] {
-                continue;
-            }
-            let effective_filament = task_dir.join(format!("effective-filament-{index}.json"));
-            if let Err(error) = materialize_filament_settings(
-                &request.filament_settings[index],
-                &effective_filament,
-            ) {
-                let _ = fs::remove_dir_all(&task_dir);
-                return Err(error);
-            }
-            request.filament_settings[index] = effective_filament;
-        }
         let args = match build_bambu_args(&request, &temporary_output) {
             Ok(args) => args,
             Err(error) => {
@@ -722,8 +688,8 @@ mod tests {
         parser::parse_3mf_project,
         printers::SavedPrinter,
         slicer::{
-            inspect_3mf_content, FastOverrides, FastSliceRequest, InstallationDiscovery,
-            PlateSelection, SliceFilamentSelection, SliceRequest, ThreeMfKind,
+            inspect_3mf_content, FastSliceRequest, InstallationDiscovery, PlateSelection,
+            SliceRequest, ThreeMfKind,
         },
     };
     use std::{
@@ -832,8 +798,6 @@ mod tests {
         cache: PathBuf,
         input: PathBuf,
         machine: PathBuf,
-        process: PathBuf,
-        filament: PathBuf,
     }
 
     impl Fixture {
@@ -857,12 +821,8 @@ mod tests {
 
             let input = root.join("input project.3mf");
             let machine = root.join("P2S machine.json");
-            let process = root.join("0.20 Standard.json");
-            let filament = root.join("PLA Basic.json");
             fs::write(&input, b"unsliced project").unwrap();
             fs::write(&machine, b"machine").unwrap();
-            fs::write(&process, b"process").unwrap();
-            fs::write(&filament, b"filament").unwrap();
 
             Self {
                 root,
@@ -871,8 +831,6 @@ mod tests {
                 cache,
                 input,
                 machine,
-                process,
-                filament,
             }
         }
 
@@ -888,16 +846,10 @@ mod tests {
                     is_default: true,
                     is_available: true,
                 },
-                expected_filament_count: 1,
                 input: self.input.clone(),
                 plate_selection: PlateSelection::All,
                 estimate_mode: false,
-                preserve_project_settings: false,
-                preserve_filament_settings: vec![false],
                 machine_settings: self.machine.clone(),
-                process_settings: self.process.clone(),
-                filament_settings: vec![self.filament.clone()],
-                fast_overrides: FastOverrides::default(),
             }
         }
 
@@ -1048,68 +1000,6 @@ mod tests {
             ]
         );
         assert!(!task_root.exists());
-    }
-
-    #[test]
-    fn materializes_fast_settings_into_the_single_process_profile_argument() {
-        let fixture = Fixture::success();
-        fs::write(
-            &fixture.process,
-            br#"{"type":"process","name":"0.20 Standard","layer_height":"0.2"}"#,
-        )
-        .unwrap();
-        fixture.set_script(
-            b"#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/captured-args.txt\"\nout=''\nprev=''\nfor arg in \"$@\"; do\n  if [ \"$prev\" = '--export-3mf' ]; then out=\"$arg\"; break; fi\n  prev=\"$arg\"\ndone\ncp \"$(dirname \"$0\")/fixture.gcode.3mf\" \"$out\"\n",
-        );
-        let service = SlicerService::with_dependencies(
-            InstallationDiscovery::new(Some(fixture.app.clone())),
-            fixture.cache.clone(),
-            Arc::new(RecordingImporter::new(Uuid::new_v4())),
-            Arc::new(RecordingEvents::default()),
-            Duration::ZERO,
-        );
-        let mut request = fixture.request();
-        request.fast_overrides.infill_density = Some(18.0);
-        request.fast_overrides.support_enabled = Some(true);
-        request.fast_overrides.plate_type = Some("Supertack Plate".to_owned());
-
-        let started = service.start(request).unwrap();
-        let completed = wait_for_terminal(&service, started.task_id);
-
-        assert_eq!(completed.state, SliceTaskState::Completed);
-        let arguments = fs::read_to_string(
-            fixture
-                .executable
-                .parent()
-                .unwrap()
-                .join("captured-args.txt"),
-        )
-        .unwrap();
-        assert!(arguments.contains("effective-process.json"));
-        assert!(!arguments.contains("--sparse_infill_density"));
-        assert!(!arguments.contains("--enable_support"));
-        assert!(!arguments.contains("--curr_bed_type"));
-    }
-
-    #[test]
-    fn malformed_direct_request_is_rejected_before_filament_materialization() {
-        let fixture = Fixture::success();
-        let service = SlicerService::with_dependencies(
-            InstallationDiscovery::new(Some(fixture.app.clone())),
-            fixture.cache.clone(),
-            Arc::new(RecordingImporter::new(Uuid::new_v4())),
-            Arc::new(RecordingEvents::default()),
-            Duration::ZERO,
-        );
-        let mut request = fixture.request();
-        request.preserve_filament_settings.clear();
-
-        let error = service.start(request).unwrap_err();
-
-        assert_eq!(error.code(), "slicer_incompatible");
-        assert!(fs::read_dir(fixture.cache.join("slices"))
-            .map(|mut entries| entries.next().is_none())
-            .unwrap_or(true));
     }
 
     #[test]
@@ -1404,48 +1294,10 @@ mod tests {
             })
             .or(inspection.embedded_nozzle_diameter)
             .expect("the supplied project or test target must declare a nozzle diameter");
-        let process_key = std::env::var("CYLUNE_TARGET_PROCESS_KEY")
-            .ok()
-            .or_else(|| inspection.embedded_process_key.clone())
-            .expect("the supplied project or test target must declare a process preset");
-        let plate_key = std::env::var("CYLUNE_TARGET_PLATE_KEY")
+        let default_plate = std::env::var("CYLUNE_TARGET_DEFAULT_PLATE")
             .ok()
             .or_else(|| inspection.embedded_plate_key.clone())
             .expect("the supplied project or test target must declare a plate type");
-        let filament_keys = std::env::var("CYLUNE_TARGET_FILAMENT_KEYS")
-            .ok()
-            .map(|value| {
-                value
-                    .split(';')
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_else(|| {
-                inspection
-                    .tools
-                    .iter()
-                    .map(|tool| {
-                        tool.embedded_filament_key
-                            .clone()
-                            .expect("every tool must resolve to an installed filament preset")
-                    })
-                    .collect()
-            });
-        assert_eq!(filament_keys.len(), inspection.tools.len());
-        let filaments = inspection
-            .tools
-            .iter()
-            .zip(filament_keys)
-            .map(|(tool, preset_key)| SliceFilamentSelection {
-                tool: tool.tool,
-                preset_key,
-                override_project_settings: false,
-            })
-            .collect::<Vec<_>>();
-        let default_plate =
-            std::env::var("CYLUNE_TARGET_DEFAULT_PLATE").unwrap_or_else(|_| plate_key.clone());
         let printer_mismatch = inspection
             .embedded_model_key
             .as_deref()
@@ -1463,18 +1315,10 @@ mod tests {
             is_default: true,
             is_available: true,
         };
-        let plate_override = inspection.embedded_plate_key.as_deref() != Some(plate_key.as_str());
         let request = FastSliceRequest {
             input_path: copied_input.clone(),
             printer_id: printer.printer_id.clone(),
-            process_key,
-            plate_key,
-            plate_override,
-            infill_density: None,
-            support_enabled: None,
-            filaments,
             confirm_printer_mismatch: printer_mismatch,
-            preserve_project_settings: true,
         };
         let app = std::env::var_os("BAMBU_STUDIO_APP")
             .map(PathBuf::from)

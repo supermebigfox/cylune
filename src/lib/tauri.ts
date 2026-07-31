@@ -129,23 +129,10 @@ export interface SlicePresetCatalog {
   filaments: SliceFilamentPreset[];
 }
 
-export interface SliceFilamentSelection {
-  tool: number;
-  preset_key: string;
-  override_project_settings: boolean;
-}
-
 export interface SliceStartRequest {
   input_path: string;
   printer_id: string;
-  process_key: string;
-  plate_key: string;
-  plate_override: boolean;
-  infill_density: number | null;
-  support_enabled: boolean | null;
-  filaments: SliceFilamentSelection[];
   confirm_printer_mismatch: boolean;
-  preserve_project_settings: boolean;
 }
 
 export type SlicePhase = "preparing" | "slicing" | "validating" | "importing" | "complete";
