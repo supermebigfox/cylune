@@ -339,6 +339,7 @@
     "slicer_failed": "Bambu Studio 无法切片此项目",
     "slicer_incompatible": "此 Bambu Studio 安装版本不兼容切片功能",
     "slicer_plate_conflict": "打印盘中的模型路径发生冲突，请先在 Bambu Studio 中修正",
+    "slicer_process_incompatible": "3MF 内嵌工艺无法用于当前目标打印机，请在 Bambu Studio 中调整项目工艺",
     "slicer_profiles_missing": "找不到 Bambu Studio 官方预设",
     "slot_conflict": "这个槽位或耗材卷已被占用",
     "unsliced_project": "这个项目尚未切片",

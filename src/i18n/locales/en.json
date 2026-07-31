@@ -339,6 +339,7 @@
     "slicer_failed": "Bambu Studio could not slice this project",
     "slicer_incompatible": "This Bambu Studio installation is incompatible with slicing",
     "slicer_plate_conflict": "Model paths conflict on a plate. Fix the project in Bambu Studio first.",
+    "slicer_process_incompatible": "The 3MF's embedded process cannot be used with the target printer. Adjust the project process in Bambu Studio.",
     "slicer_profiles_missing": "Bambu Studio's official profiles could not be found",
     "slot_conflict": "That slot or spool is already in use",
     "unsliced_project": "This project has not been sliced",

@@ -534,12 +534,13 @@ fn classify_slicer_failure(task_dir: &Path) -> AppError {
     let Ok(result) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
         return AppError::SlicerFailed;
     };
-    if result
+    match result
         .get("return_code")
         .and_then(serde_json::Value::as_i64)
-        == Some(-101)
     {
-        return AppError::SlicerPlateConflict;
+        Some(-101) => return AppError::SlicerPlateConflict,
+        Some(-17) => return AppError::SlicerProcessIncompatible,
+        _ => {}
     }
     AppError::SlicerFailed
 }
@@ -710,6 +711,11 @@ fn finish_error(inner: &Arc<SlicerInner>, task_id: Uuid, error: AppError) {
         (SliceTaskState::Failed, AppError::OutputExists.code())
     } else if matches!(error, AppError::SlicerPlateConflict) {
         (SliceTaskState::Failed, AppError::SlicerPlateConflict.code())
+    } else if matches!(error, AppError::SlicerProcessIncompatible) {
+        (
+            SliceTaskState::Failed,
+            AppError::SlicerProcessIncompatible.code(),
+        )
     } else {
         (SliceTaskState::Failed, AppError::SlicerFailed.code())
     };
@@ -1389,6 +1395,24 @@ mod tests {
             classify_slicer_failure(&task_dir),
             AppError::SlicerPlateConflict
         ));
+
+        fs::remove_dir_all(task_dir).unwrap();
+    }
+
+    #[test]
+    fn classifies_bambu_process_incompatibility_without_exposing_private_details() {
+        let task_dir =
+            std::env::temp_dir().join(format!("cylune-slicer-process-result-{}", Uuid::new_v4()));
+        fs::create_dir_all(&task_dir).unwrap();
+        fs::write(
+            task_dir.join("result.json"),
+            br#"{"return_code":-17,"error_string":"untrusted details"}"#,
+        )
+        .unwrap();
+
+        let error = classify_slicer_failure(&task_dir);
+        assert!(matches!(error, AppError::SlicerProcessIncompatible));
+        assert_eq!(error.code(), "slicer_process_incompatible");
 
         fs::remove_dir_all(task_dir).unwrap();
     }

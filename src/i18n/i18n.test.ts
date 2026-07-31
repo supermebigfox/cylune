@@ -29,6 +29,7 @@ const stableErrorCodes = [
   "slicer_failed",
   "slicer_incompatible",
   "slicer_plate_conflict",
+  "slicer_process_incompatible",
   "slicer_profiles_missing",
   "slot_conflict",
   "standalone_gcode_profiles_required",
