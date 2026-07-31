@@ -44,7 +44,7 @@ pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
                 declared_total_layers = value.trim().parse().ok();
             }
         }
-        if let Some(layer) = layer_marker(&line) {
+        if let Some(layer) = layer_marker(&line, layers.len() as u32) {
             add_layers_through(&mut layers, layer, &totals_mm);
             current_layer = Some(layer as usize);
         }
@@ -139,9 +139,12 @@ fn parse_estimated_seconds(value: &str) -> Option<u32> {
     saw_component.then_some(seconds)
 }
 
-fn layer_marker(line: &str) -> Option<u32> {
+fn layer_marker(line: &str, next_sequential_layer: u32) -> Option<u32> {
     let (_, comment) = line.split_once(';')?;
     let comment = comment.trim();
+    if comment == "CHANGE_LAYER" {
+        return Some(next_sequential_layer);
+    }
     if let Some(value) = comment.strip_prefix("LAYER:") {
         return value.split_ascii_whitespace().next()?.parse().ok();
     }
@@ -239,6 +242,18 @@ mod tests {
     #[test]
     fn recognizes_bambu_one_based_layer_progress_comments() {
         let src = b"M83\n; layer num/total_layer_count: 1/3\nG1 E2\n; layer num/total_layer_count: 2/3\nG1 E3\n; layer num/total_layer_count: 3/3\nG1 E4\n";
+
+        let report = parse_gcode(&src[..]).unwrap();
+
+        assert_eq!(report.max_layer, 3);
+        assert_eq!(report.layers[0].cumulative_mm[&0], 2.0);
+        assert_eq!(report.layers[1].cumulative_mm[&0], 5.0);
+        assert_eq!(report.layers[2].cumulative_mm[&0], 9.0);
+    }
+
+    #[test]
+    fn recognizes_bambu_x2d_sequential_change_layer_comments() {
+        let src = b"M83\n; CHANGE_LAYER\n; Z_HEIGHT: 0.2\nG1 E2\n; CHANGE_LAYER\n; Z_HEIGHT: 0.4\nG1 E3\n; CHANGE_LAYER\n; Z_HEIGHT: 0.6\nG1 E4\n";
 
         let report = parse_gcode(&src[..]).unwrap();
 

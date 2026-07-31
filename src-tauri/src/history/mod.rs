@@ -150,7 +150,11 @@ fn project_aggregates(
             projects.source_path,
             projects.imported_at,
             COUNT(plates.plate_id),
-            SUM(plates.estimated_seconds),
+            CASE
+              WHEN COUNT(plates.estimated_seconds) = COUNT(plates.plate_id)
+              THEN SUM(plates.estimated_seconds)
+              ELSE NULL
+            END,
             projects.cover_asset_id,
             cover.relative_path
          FROM print_projects AS projects
@@ -160,16 +164,27 @@ fn project_aggregates(
          WHERE (?1 IS NULL OR projects.project_id = ?1)
            AND (
              ?2 IS NULL
-             OR EXISTS (
-               SELECT 1
-               FROM print_plates AS filtered_plates
-               JOIN print_jobs AS filtered_jobs
-                 ON filtered_jobs.plate_id = filtered_plates.plate_id
-               WHERE filtered_plates.project_id = projects.project_id
-                 AND (
-                   (?2 = 'pending' AND filtered_jobs.outcome IS NULL)
-                   OR (?2 = 'history' AND filtered_jobs.outcome IS NOT NULL)
-                 )
+             OR (
+               ?2 = 'pending'
+               AND EXISTS (
+                 SELECT 1
+                 FROM print_plates AS filtered_plates
+                 JOIN print_jobs AS filtered_jobs
+                   ON filtered_jobs.plate_id = filtered_plates.plate_id
+                 WHERE filtered_plates.project_id = projects.project_id
+                   AND filtered_jobs.outcome IS NULL
+               )
+             )
+             OR (
+               ?2 = 'history'
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM print_plates AS filtered_plates
+                 JOIN print_jobs AS filtered_jobs
+                   ON filtered_jobs.plate_id = filtered_plates.plate_id
+                 WHERE filtered_plates.project_id = projects.project_id
+                   AND filtered_jobs.outcome IS NULL
+               )
              )
            )
          GROUP BY
@@ -576,6 +591,7 @@ mod tests {
         let database = AppDatabase::open(root.join("inventory.sqlite")).unwrap();
         let pending_id = Uuid::new_v4();
         let partial_id = Uuid::new_v4();
+        let complete_id = Uuid::new_v4();
         let media_hash = "a".repeat(64);
         insert_project(
             &database,
@@ -597,6 +613,24 @@ mod tests {
             [Some(r#"{"kind":"success"}"#), None],
             None,
         );
+        insert_project(
+            &database,
+            complete_id,
+            &"3".repeat(64),
+            "complete.3mf",
+            "2026-07-30 12:00:00",
+            [60, 90],
+            [Some(r#"{"kind":"success"}"#), Some(r#"{"kind":"success"}"#)],
+            None,
+        );
+        database
+            .connection
+            .execute(
+                "UPDATE print_plates SET estimated_seconds = NULL
+                 WHERE project_id = ?1 AND plate_index = 2",
+                params![pending_id.to_string()],
+            )
+            .unwrap();
         let service = PrintService::new(database);
 
         let pending = service.list_print_projects(HistoryFilter::Pending).unwrap();
@@ -614,7 +648,7 @@ mod tests {
             1
         );
         assert_eq!(pending_project.plate_count, 2);
-        assert_eq!(pending_project.total_estimated_seconds, Some(300));
+        assert_eq!(pending_project.total_estimated_seconds, None);
         assert_eq!(pending_project.plates.len(), 2);
         let expected_url = super::asset_url(
             &fs::canonicalize(&root).unwrap(),
@@ -639,17 +673,20 @@ mod tests {
                 && (plate.filaments[0].total_grams - 2.9825495255018097).abs() < 1e-9
         }));
 
-        let partial_project = history
+        let partial_project = pending
             .iter()
             .find(|project| project.project_id == partial_id)
             .unwrap();
         assert_eq!(
-            history
+            pending
                 .iter()
                 .filter(|project| project.project_id == partial_id)
                 .count(),
             1
         );
+        assert!(history
+            .iter()
+            .all(|project| project.project_id != partial_id));
         assert_eq!(partial_project.plate_count, 2);
         assert_eq!(partial_project.total_estimated_seconds, Some(720));
         assert_eq!(
@@ -666,6 +703,15 @@ mod tests {
         assert_eq!(detail.plate_count, 2);
         assert_eq!(detail.total_estimated_seconds, Some(720));
         assert_eq!(detail.plates, partial_project.plates);
+
+        let complete_project = history
+            .iter()
+            .find(|project| project.project_id == complete_id)
+            .unwrap();
+        assert_eq!(complete_project.total_estimated_seconds, Some(150));
+        assert!(pending
+            .iter()
+            .all(|project| project.project_id != complete_id));
         drop(service);
         fs::remove_dir_all(root).unwrap();
     }

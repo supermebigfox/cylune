@@ -6,7 +6,7 @@ use std::path::Path;
 use serde_json::Value;
 use zip::ZipArchive;
 
-use super::gcode::parse_gcode;
+use super::gcode::{parse_gcode, GcodeReport};
 use super::{preset_base, FilamentProfile, ParsedPlate, ParsedPrintFile, ParsedProjectV2};
 use crate::error::{AppError, Result};
 
@@ -81,6 +81,11 @@ pub fn parse_3mf_project(path: &Path) -> Result<ParsedProjectV2> {
         .as_deref()
         .map(slice_predictions)
         .unwrap_or_default();
+    let declared_filament_grams = slice_info
+        .as_deref()
+        .map(slice_filament_grams)
+        .transpose()?
+        .unwrap_or_default();
     let single_plate = gcode_entries.len() == 1;
     let plates = gcode_entries
         .into_iter()
@@ -88,7 +93,10 @@ pub fn parse_3mf_project(path: &Path) -> Result<ParsedProjectV2> {
             let gcode_entry = archive
                 .by_name(&gcode_name)
                 .map_err(|_| AppError::InvalidFile)?;
-            let gcode = parse_gcode(BufReader::new(gcode_entry))?;
+            let mut gcode = parse_gcode(BufReader::new(gcode_entry))?;
+            if let Some(grams) = declared_filament_grams.get(&plate_index) {
+                calibrate_gcode_to_declared_grams(&mut gcode, &filaments, grams)?;
+            }
             let display_name = plate_json
                 .get(&plate_index)
                 .map(String::as_str)
@@ -99,10 +107,13 @@ pub fn parse_3mf_project(path: &Path) -> Result<ParsedProjectV2> {
             Ok(ParsedPlate {
                 plate_index,
                 display_name,
-                estimated_seconds: predictions
-                    .get(&plate_index)
-                    .copied()
-                    .or(gcode.declared_estimated_seconds),
+                // Prefer the estimate emitted with the actual G-code over the
+                // auxiliary slice-info value. Bambu Studio may display a
+                // separate printer-preparation estimate in its GUI; Cylune
+                // intentionally records the sliced model time only.
+                estimated_seconds: gcode
+                    .declared_estimated_seconds
+                    .or_else(|| predictions.get(&plate_index).copied()),
                 thumbnail_entries: thumbnail_entries(plate_index, &entry_names, single_plate),
                 filaments: filaments.clone(),
                 gcode,
@@ -124,9 +135,17 @@ fn is_filament_config(name: &str) -> bool {
 }
 
 fn contains_filament_settings(config: &Value) -> bool {
-    config
-        .as_object()
-        .is_some_and(|object| object.contains_key("filament_settings_id"))
+    config.as_object().is_some_and(|object| {
+        [
+            "filament_settings_id",
+            "filament_type",
+            "filament_colour",
+            "filament_diameter",
+            "filament_density",
+        ]
+        .iter()
+        .all(|key| object.contains_key(*key))
+    })
 }
 
 fn plate_gcode_index(name: &str) -> Option<u32> {
@@ -203,6 +222,84 @@ fn slice_predictions(contents: &str) -> BTreeMap<u32, u32> {
             Some((index, prediction))
         })
         .collect()
+}
+
+fn slice_filament_grams(contents: &str) -> Result<BTreeMap<u32, BTreeMap<u8, f64>>> {
+    let mut plates = BTreeMap::new();
+    for element in contents.split("<plate").skip(1) {
+        if !element.starts_with(char::is_whitespace) && !element.starts_with('>') {
+            continue;
+        }
+        let tag = element.split('>').next().ok_or(AppError::InvalidFile)?;
+        let plate_contents = element.split("</plate>").next().unwrap_or(element);
+        let Some(plate_index) = xml_attribute(tag, "index")
+            .or_else(|| plate_metadata_value(plate_contents, "index"))
+            .and_then(|value| value.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let mut tools = BTreeMap::new();
+        for filament in plate_contents.split("<filament ").skip(1) {
+            let filament_tag = filament.split('>').next().ok_or(AppError::InvalidFile)?;
+            let Some(used_grams) = xml_attribute(filament_tag, "used_g") else {
+                continue;
+            };
+            let tool = xml_attribute(filament_tag, "id")
+                .and_then(|value| value.parse::<u16>().ok())
+                .and_then(|value| value.checked_sub(1))
+                .and_then(|value| u8::try_from(value).ok())
+                .ok_or(AppError::InvalidFile)?;
+            let used_grams = used_grams
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite() && *value >= 0.0)
+                .ok_or(AppError::InvalidFile)?;
+            if tools.insert(tool, used_grams).is_some() {
+                return Err(AppError::InvalidFile);
+            }
+        }
+        if !tools.is_empty() && plates.insert(plate_index, tools).is_some() {
+            return Err(AppError::InvalidFile);
+        }
+    }
+    Ok(plates)
+}
+
+fn calibrate_gcode_to_declared_grams(
+    gcode: &mut GcodeReport,
+    profiles: &[FilamentProfile],
+    declared_grams: &BTreeMap<u8, f64>,
+) -> Result<()> {
+    for (&tool, &grams) in declared_grams {
+        let profile = profiles
+            .iter()
+            .find(|profile| profile.tool == tool)
+            .ok_or(AppError::InvalidFile)?;
+        let grams_per_mm = profile.grams_for_length_mm(1.0);
+        if !grams_per_mm.is_finite() || grams_per_mm <= 0.0 {
+            return Err(AppError::InvalidFile);
+        }
+        let target_mm = grams / grams_per_mm;
+        let measured_mm = gcode.totals_mm.get(&tool).copied().unwrap_or(0.0);
+        if target_mm == 0.0 {
+            gcode.totals_mm.insert(tool, 0.0);
+            for layer in &mut gcode.layers {
+                layer.cumulative_mm.insert(tool, 0.0);
+            }
+            continue;
+        }
+        if !measured_mm.is_finite() || measured_mm <= 0.0 {
+            return Err(AppError::UnknownGcode);
+        }
+        let scale = target_mm / measured_mm;
+        for layer in &mut gcode.layers {
+            if let Some(value) = layer.cumulative_mm.get_mut(&tool) {
+                *value *= scale;
+            }
+        }
+        gcode.totals_mm.insert(tool, target_mm);
+    }
+    Ok(())
 }
 
 fn plate_metadata_value<'a>(contents: &'a str, key: &str) -> Option<&'a str> {
@@ -339,8 +436,12 @@ fn normalize_preset(preset_id: &str, material: &str) -> (String, String) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{parse_3mf, parse_3mf_project, FilamentProfile};
-    use super::slice_predictions;
+    use super::super::{
+        gcode::{GcodeReport, LayerUsage},
+        parse_3mf, parse_3mf_project, FilamentProfile,
+    };
+    use super::{calibrate_gcode_to_declared_grams, slice_filament_grams, slice_predictions};
+    use crate::domain::Confidence;
     use std::collections::BTreeMap;
     use std::fs::{self, File};
     use std::io::Write;
@@ -467,6 +568,32 @@ mod tests {
     }
 
     #[test]
+    fn prefers_the_actual_gcode_estimate_over_auxiliary_slice_info() {
+        let path = temporary_archive_path();
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = FileOptions::default();
+        write_filament_config(&mut archive, options);
+        archive
+            .start_file("Metadata/slice_info.config", options)
+            .unwrap();
+        archive
+            .write_all(b"<config><plate index=\"1\" prediction=\"17280\" /></config>")
+            .unwrap();
+        archive
+            .start_file("Metadata/plate_1.gcode", options)
+            .unwrap();
+        archive
+            .write_all(b"; total estimated time: 4h 55m 2s\nM83\n; LAYER:0\nG1 E1\n")
+            .unwrap();
+        archive.finish().unwrap();
+
+        let plate = parse_3mf_project(&path).unwrap().plates.remove(0);
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(plate.estimated_seconds, Some(17_702));
+    }
+
+    #[test]
     fn multi_plate_projects_prioritize_each_plates_own_thumbnail() {
         let path = temporary_archive_path();
         let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
@@ -520,6 +647,48 @@ mod tests {
     }
 
     #[test]
+    fn calibrates_gcode_usage_to_bambu_per_plate_declared_grams() {
+        let declared = slice_filament_grams(
+            r##"<config><plate><metadata key="index" value="1"/><filament id="1" type="PLA" color="#F5547C" used_m="73.09" used_g="221.52"/></plate></config>"##,
+        )
+        .unwrap();
+        let profile = FilamentProfile {
+            tool: 0,
+            preset_id: "Bambu PLA Basic @BBL X2D".to_owned(),
+            brand: "Bambu Lab".to_owned(),
+            material: "PLA".to_owned(),
+            series: "Basic".to_owned(),
+            color_hex: "#F5547C".to_owned(),
+            diameter_mm: 1.75,
+            density_g_cm3: 1.26,
+            unknown_fields: BTreeMap::new(),
+        };
+        let mut report = GcodeReport {
+            layers: vec![LayerUsage {
+                layer: 0,
+                cumulative_mm: BTreeMap::from([(0, 500.0)]),
+                confidence: Confidence::Exact,
+            }],
+            totals_mm: BTreeMap::from([(0, 1_000.0)]),
+            max_layer: 1,
+            declared_estimated_seconds: None,
+            declared_total_layers: None,
+        };
+
+        calibrate_gcode_to_declared_grams(
+            &mut report,
+            std::slice::from_ref(&profile),
+            &declared[&1],
+        )
+        .unwrap();
+
+        assert!((profile.grams_for_length_mm(report.totals_mm[&0]) - 221.52).abs() < 1e-9);
+        assert!(
+            (profile.grams_for_length_mm(report.layers[0].cumulative_mm[&0]) - 110.76).abs() < 1e-9
+        );
+    }
+
+    #[test]
     fn identifies_a_3mf_without_sliced_gcode_as_an_unsliced_project() {
         let error = parse_3mf(&fixture("project_only.3mf")).unwrap_err();
 
@@ -566,6 +735,40 @@ mod tests {
         fs::remove_file(path).unwrap();
         assert_eq!(parsed.filaments[0].preset_id, "Bambu PLA Basic");
         assert_eq!(parsed.gcode.totals_mm[&0], 1.0);
+    }
+
+    #[test]
+    fn ignores_inheritance_only_filament_configs_beside_complete_project_settings() {
+        let path = temporary_archive_path();
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = FileOptions::default();
+        archive
+            .start_file("Metadata/project_settings.config", options)
+            .unwrap();
+        archive
+            .write_all(
+                br##"{"filament_settings_id":["Bambu PLA Basic"],"filament_type":["PLA"],"filament_colour":["#FFFFFF"],"filament_diameter":["1.75"],"filament_density":["1.24"]}"##,
+            )
+            .unwrap();
+        archive
+            .start_file("Metadata/filament_settings_1.config", options)
+            .unwrap();
+        archive
+            .write_all(
+                br#"{"filament_settings_id":["Custom PLA"],"inherits":"Bambu PLA Basic","from":"project"}"#,
+            )
+            .unwrap();
+        archive
+            .start_file("Metadata/plate_1.gcode", options)
+            .unwrap();
+        archive.write_all(b"M83\n; LAYER:0\nG1 E1\n").unwrap();
+        archive.finish().unwrap();
+
+        let parsed = parse_3mf_project(&path).unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(parsed.plates[0].filaments.len(), 1);
+        assert_eq!(parsed.plates[0].filaments[0].preset_id, "Bambu PLA Basic");
     }
 
     fn fixture(name: &str) -> PathBuf {
@@ -618,13 +821,13 @@ mod tests {
             .write_all(format!("<config>{slice_info}</config>").as_bytes())
             .unwrap();
 
-        for (index, _, layers) in plates {
+        for (index, prediction, layers) in plates {
             archive
                 .start_file(format!("Metadata/plate_{index}.gcode"), options)
                 .unwrap();
             let tool = if *index == 3 { 1 } else { 0 };
             let mut gcode = format!(
-                "; total estimated time: 9h 9m 9s\n; total layer number: {layers}\nM83\nT{tool}\n"
+                "; total estimated time: {prediction}s\n; total layer number: {layers}\nM83\nT{tool}\n"
             );
             for layer in 0..*layers {
                 gcode.push_str(&format!("; LAYER:{layer}\nG1 E1\n"));
