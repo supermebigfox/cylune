@@ -5,3 +5,5 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 /发布/
+/video/assets/
+/video/exports/
