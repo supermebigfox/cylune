@@ -3,7 +3,7 @@ use super::{
     catalog::load_slice_preset_catalog,
     inspect_3mf_content,
     process_options::{
-        configure_background_command, configure_gui_command, current_process_platform,
+        configure_gui_command, current_process_platform, spawn_background_process,
         NativeProcessTerminator,
     },
     progress::BambuProgressParser,
@@ -98,19 +98,15 @@ trait ProcessTerminator: Send {
 }
 
 trait ProcessFactory: Send + Sync {
-    fn configure(&self, command: &mut Command);
-    fn attach(&self, child: &Child) -> io::Result<Box<dyn ProcessTerminator>>;
+    fn spawn(&self, command: &mut Command) -> io::Result<(Child, Box<dyn ProcessTerminator>)>;
 }
 
 struct NativeProcessFactory;
 
 impl ProcessFactory for NativeProcessFactory {
-    fn configure(&self, command: &mut Command) {
-        configure_background_command(command, current_process_platform());
-    }
-
-    fn attach(&self, child: &Child) -> io::Result<Box<dyn ProcessTerminator>> {
-        Ok(Box::new(NativeProcessTerminator::attach(child)?))
+    fn spawn(&self, command: &mut Command) -> io::Result<(Child, Box<dyn ProcessTerminator>)> {
+        let (child, terminator) = spawn_background_process(command)?;
+        Ok((child, Box::new(terminator)))
     }
 }
 
@@ -123,7 +119,7 @@ impl ProcessTerminator for NativeProcessTerminator {
 struct RunningSlice {
     child: Mutex<Child>,
     process_id: u32,
-    process_terminator: Mutex<Box<dyn ProcessTerminator>>,
+    process_terminator: Mutex<Option<Box<dyn ProcessTerminator>>>,
     cancel_requested: AtomicBool,
     import_started: AtomicBool,
     finished: Mutex<bool>,
@@ -141,7 +137,7 @@ impl RunningSlice {
         Self {
             child: Mutex::new(child),
             process_id,
-            process_terminator: Mutex::new(process_terminator),
+            process_terminator: Mutex::new(Some(process_terminator)),
             cancel_requested: AtomicBool::new(false),
             import_started: AtomicBool::new(false),
             finished: Mutex::new(false),
@@ -156,6 +152,22 @@ impl RunningSlice {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = true;
         self.finished_changed.notify_all();
+    }
+
+    fn terminate_process_tree(&self) {
+        let process_terminator = self
+            .process_terminator
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        let Some(mut process_terminator) = process_terminator else {
+            return;
+        };
+        let mut child = self
+            .child
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _ = process_terminator.terminate(&mut child, self.process_id);
     }
 }
 
@@ -335,19 +347,9 @@ impl SlicerService {
             .current_dir(&task_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        self.inner.process_factory.configure(&mut command);
-        let mut child = match command.spawn() {
-            Ok(child) => child,
+        let (mut child, process_terminator) = match self.inner.process_factory.spawn(&mut command) {
+            Ok(process) => process,
             Err(_) => {
-                let _ = fs::remove_dir_all(&task_dir);
-                return Err(AppError::SlicerFailed);
-            }
-        };
-        let process_terminator = match self.inner.process_factory.attach(&child) {
-            Ok(process_terminator) => process_terminator,
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
                 let _ = fs::remove_dir_all(&task_dir);
                 return Err(AppError::SlicerFailed);
             }
@@ -433,13 +435,7 @@ impl SlicerService {
         };
         if !running.import_started.load(Ordering::SeqCst) {
             running.cancel_requested.store(true, Ordering::SeqCst);
-            if let Ok(mut child) = running.child.lock() {
-                if child.try_wait().ok().flatten().is_none() {
-                    if let Ok(mut process_terminator) = running.process_terminator.lock() {
-                        let _ = process_terminator.terminate(&mut child, running.process_id);
-                    }
-                }
-            }
+            running.terminate_process_tree();
         }
 
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -587,6 +583,7 @@ fn run_to_completion(
             Err(error) => break Err(error),
         }
     };
+    running.terminate_process_tree();
     let _ = stdout_reader.join();
     let _stderr = stderr_reader.join().unwrap_or_default();
     #[cfg(test)]
@@ -880,29 +877,49 @@ mod tests {
     #[cfg(unix)]
     mod windows_cancellation {
         use super::*;
-        use std::{io, process::Child};
+        use std::{
+            io,
+            process::Child,
+            sync::{
+                atomic::{AtomicUsize, Ordering as AtomicOrdering},
+                Barrier,
+            },
+        };
 
-        struct FixtureProcessTreeFactory;
+        struct FixtureProcessTreeFactory {
+            terminate_calls: Arc<AtomicUsize>,
+        }
+
+        impl FixtureProcessTreeFactory {
+            fn new(terminate_calls: Arc<AtomicUsize>) -> Self {
+                Self { terminate_calls }
+            }
+        }
 
         impl ProcessFactory for FixtureProcessTreeFactory {
-            fn configure(&self, command: &mut std::process::Command) {
+            fn spawn(
+                &self,
+                command: &mut std::process::Command,
+            ) -> io::Result<(Child, Box<dyn ProcessTerminator>)> {
                 use std::os::unix::process::CommandExt;
                 command.process_group(0);
-            }
-
-            fn attach(&self, child: &Child) -> io::Result<Box<dyn ProcessTerminator>> {
-                Ok(Box::new(FixtureProcessTree {
+                let child = command.spawn()?;
+                let terminator = Box::new(FixtureProcessTree {
                     process_group_id: child.id(),
-                }))
+                    terminate_calls: self.terminate_calls.clone(),
+                });
+                Ok((child, terminator))
             }
         }
 
         struct FixtureProcessTree {
             process_group_id: u32,
+            terminate_calls: Arc<AtomicUsize>,
         }
 
         impl ProcessTerminator for FixtureProcessTree {
             fn terminate(&mut self, _child: &mut Child, _process_id: u32) -> io::Result<()> {
+                self.terminate_calls.fetch_add(1, AtomicOrdering::SeqCst);
                 unsafe extern "C" {
                     fn kill(pid: i32, signal: i32) -> i32;
                 }
@@ -930,13 +947,14 @@ mod tests {
             );
             let importer = Arc::new(RecordingImporter::new(Uuid::new_v4()));
             let events = Arc::new(RecordingEvents::default());
+            let terminate_calls = Arc::new(AtomicUsize::new(0));
             let service = SlicerService::with_dependencies_and_process_factory(
                 InstallationDiscovery::new(Some(fixture.app.clone())),
                 fixture.cache.clone(),
                 importer.clone(),
                 events.clone(),
                 Duration::ZERO,
-                Arc::new(FixtureProcessTreeFactory),
+                Arc::new(FixtureProcessTreeFactory::new(terminate_calls.clone())),
             );
 
             let started = service.start(fixture.request()).unwrap();
@@ -968,6 +986,215 @@ mod tests {
                     .filter(|name| name.as_str() == "error:slicer_cancelled")
                     .count(),
                 1
+            );
+            assert_eq!(terminate_calls.load(AtomicOrdering::SeqCst), 1);
+        }
+
+        #[test]
+        fn root_exit_releases_the_tree_before_joining_inherited_pipes() {
+            let fixture = Fixture::success();
+            let root_exiting = fixture.root.join("normal-root-exiting.txt");
+            let descendant_survived = fixture.root.join("normal-descendant-survived.txt");
+            fixture.set_script(
+                format!(
+                    "#!/bin/sh\n(sleep 10; printf survived > '{}') &\nprintf exiting > '{}'\nexit 7\n",
+                    descendant_survived.display(),
+                    root_exiting.display(),
+                )
+                .as_bytes(),
+            );
+            let importer = Arc::new(RecordingImporter::new(Uuid::new_v4()));
+            let terminate_calls = Arc::new(AtomicUsize::new(0));
+            let service = SlicerService::with_dependencies_and_process_factory(
+                InstallationDiscovery::new(Some(fixture.app.clone())),
+                fixture.cache.clone(),
+                importer.clone(),
+                Arc::new(RecordingEvents::default()),
+                Duration::ZERO,
+                Arc::new(FixtureProcessTreeFactory::new(terminate_calls.clone())),
+            );
+
+            let started = service.start(fixture.request()).unwrap();
+            let ready_deadline = Instant::now() + Duration::from_secs(15);
+            while !root_exiting.exists() {
+                assert!(
+                    Instant::now() < ready_deadline,
+                    "root process did not reach its exit boundary"
+                );
+                thread::sleep(Duration::from_millis(5));
+            }
+            let root_exit_started = Instant::now();
+            let failed = wait_for_terminal_until(&service, started.task_id, Duration::from_secs(3));
+
+            assert_eq!(failed.state, SliceTaskState::Failed);
+            assert!(root_exit_started.elapsed() < Duration::from_secs(3));
+            assert!(importer.imported.lock().unwrap().is_empty());
+            assert_eq!(terminate_calls.load(AtomicOrdering::SeqCst), 1);
+            assert!(!descendant_survived.exists());
+            assert!(!fixture
+                .cache
+                .join("slices")
+                .join(started.task_id.to_string())
+                .exists());
+        }
+
+        #[test]
+        fn cancel_after_root_exit_takes_the_tree_once_and_finishes_cancelled() {
+            let fixture = Fixture::success();
+            let descendant_started = fixture.root.join("cancel-descendant-started.txt");
+            let descendant_survived = fixture.root.join("cancel-descendant-survived.txt");
+            fixture.set_script(
+                format!(
+                    "#!/bin/sh\n(sleep 1; printf survived > '{}') &\nprintf started > '{}'\nexit 0\n",
+                    descendant_survived.display(),
+                    descendant_started.display(),
+                )
+                .as_bytes(),
+            );
+            let importer = Arc::new(RecordingImporter::new(Uuid::new_v4()));
+            let events = Arc::new(RecordingEvents::default());
+            let terminate_calls = Arc::new(AtomicUsize::new(0));
+            let service = SlicerService::with_dependencies_and_process_factory(
+                InstallationDiscovery::new(Some(fixture.app.clone())),
+                fixture.cache.clone(),
+                importer.clone(),
+                events.clone(),
+                Duration::ZERO,
+                Arc::new(FixtureProcessTreeFactory::new(terminate_calls.clone())),
+            );
+
+            let started = service.start(fixture.request()).unwrap();
+            let running = service
+                .inner
+                .running
+                .lock()
+                .unwrap()
+                .get(&started.task_id)
+                .cloned()
+                .unwrap();
+            let mut child = running.child.lock().unwrap();
+            let root_deadline = Instant::now() + Duration::from_secs(5);
+            while child.try_wait().unwrap().is_none() {
+                assert!(Instant::now() < root_deadline, "root process did not exit");
+                thread::sleep(Duration::from_millis(5));
+            }
+            assert!(descendant_started.exists());
+
+            let cancel_service = service.clone();
+            let cancel = thread::spawn(move || cancel_service.cancel(started.task_id));
+            let take_deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                if running.process_terminator.lock().unwrap().is_none() {
+                    break;
+                }
+                assert!(
+                    Instant::now() < take_deadline,
+                    "cancel did not take the process-tree terminator"
+                );
+                thread::sleep(Duration::from_millis(5));
+            }
+            drop(child);
+            cancel.join().unwrap().unwrap();
+            thread::sleep(Duration::from_millis(1100));
+
+            let cancelled = service.get(started.task_id).unwrap();
+            assert_eq!(cancelled.state, SliceTaskState::Cancelled);
+            assert!(importer.imported.lock().unwrap().is_empty());
+            assert!(!descendant_survived.exists());
+            assert_eq!(terminate_calls.load(AtomicOrdering::SeqCst), 1);
+            assert_eq!(
+                events
+                    .names()
+                    .iter()
+                    .filter(|name| name.as_str() == "error:slicer_cancelled")
+                    .count(),
+                1
+            );
+            assert!(!fixture
+                .cache
+                .join("slices")
+                .join(started.task_id.to_string())
+                .exists());
+        }
+
+        struct CountingChildTerminator {
+            terminate_calls: Arc<AtomicUsize>,
+        }
+
+        impl ProcessTerminator for CountingChildTerminator {
+            fn terminate(&mut self, child: &mut Child, _process_id: u32) -> io::Result<()> {
+                self.terminate_calls.fetch_add(1, AtomicOrdering::SeqCst);
+                child.kill()
+            }
+        }
+
+        #[test]
+        fn concurrent_process_tree_take_invokes_the_terminator_once() {
+            let fixture = Fixture::success();
+            let child = std::process::Command::new("/bin/sh")
+                .args(["-c", "sleep 5"])
+                .spawn()
+                .unwrap();
+            let terminate_calls = Arc::new(AtomicUsize::new(0));
+            let running = Arc::new(super::super::RunningSlice::new(
+                child,
+                fixture.root.join("concurrent-task"),
+                Box::new(CountingChildTerminator {
+                    terminate_calls: terminate_calls.clone(),
+                }),
+            ));
+            let barrier = Arc::new(Barrier::new(9));
+            let workers = (0..8)
+                .map(|_| {
+                    let running = running.clone();
+                    let barrier = barrier.clone();
+                    thread::spawn(move || {
+                        barrier.wait();
+                        running.terminate_process_tree();
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            barrier.wait();
+            for worker in workers {
+                worker.join().unwrap();
+            }
+
+            assert_eq!(terminate_calls.load(AtomicOrdering::SeqCst), 1);
+            assert!(running.process_terminator.lock().unwrap().is_none());
+            let _ = running.child.lock().unwrap().wait();
+        }
+
+        struct FailingProcessFactory;
+
+        impl ProcessFactory for FailingProcessFactory {
+            fn spawn(
+                &self,
+                _command: &mut std::process::Command,
+            ) -> io::Result<(Child, Box<dyn ProcessTerminator>)> {
+                Err(io::Error::new(io::ErrorKind::Other, "forced spawn failure"))
+            }
+        }
+
+        #[test]
+        fn process_factory_failure_removes_the_private_task_directory() {
+            let fixture = Fixture::success();
+            let service = SlicerService::with_dependencies_and_process_factory(
+                InstallationDiscovery::new(Some(fixture.app.clone())),
+                fixture.cache.clone(),
+                Arc::new(RecordingImporter::new(Uuid::new_v4())),
+                Arc::new(RecordingEvents::default()),
+                Duration::ZERO,
+                Arc::new(FailingProcessFactory),
+            );
+
+            assert!(matches!(
+                service.start(fixture.request()),
+                Err(AppError::SlicerFailed)
+            ));
+            assert_eq!(
+                fs::read_dir(fixture.cache.join("slices")).unwrap().count(),
+                0
             );
         }
     }
