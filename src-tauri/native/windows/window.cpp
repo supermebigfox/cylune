@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <cstdint>
@@ -42,7 +43,6 @@ constexpr UINT kMessageShow = WM_APP + 2;
 constexpr UINT kMessageHide = WM_APP + 3;
 constexpr UINT kMessageReset = WM_APP + 4;
 constexpr UINT kMessageShutdown = WM_APP + 5;
-constexpr UINT_PTR kDestroyRetryTimer = 1;
 constexpr uint32_t kCallbackClicked = 1;
 constexpr uint32_t kCallbackMoved = 2;
 constexpr uint32_t kCallbackDisplayChanged = 6;
@@ -62,13 +62,13 @@ uint64_t DisplayId(const wchar_t *device) {
   return hash == 0 ? 1 : hash;
 }
 
-double MonitorScale(const RECT &rect) {
-  HWND probe = CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC", L"", WS_POPUP,
-                               rect.left, rect.top, 1, 1, nullptr, nullptr,
-                               GetModuleHandleW(nullptr), nullptr);
-  if (probe == nullptr) return 1.0;
+double MonitorScale(HWND probe, const RECT &rect) {
+  if (probe == nullptr ||
+      !SetWindowPos(probe, nullptr, rect.left, rect.top, 1, 1,
+                    SWP_NOACTIVATE | SWP_NOZORDER)) {
+    return 1.0;
+  }
   const UINT dpi = GetDpiForWindow(probe);
-  if (!DestroyWindow(probe)) return 1.0;
   return dpi == 0 ? 1.0 : static_cast<double>(dpi) / 96.0;
 }
 
@@ -94,16 +94,21 @@ struct MonitorSnapshot {
   bool primary;
 };
 
+struct MonitorCollectionContext {
+  std::vector<MonitorSnapshot> *monitors;
+  HWND dpiProbe;
+};
+
 BOOL CALLBACK CollectMonitor(HMONITOR monitor, HDC, LPRECT,
                              LPARAM contextValue) {
-  auto *monitors =
-      reinterpret_cast<std::vector<MonitorSnapshot> *>(contextValue);
+  auto *context =
+      reinterpret_cast<MonitorCollectionContext *>(contextValue);
   MONITORINFOEXW info{};
   info.cbSize = sizeof(info);
   if (!GetMonitorInfoW(monitor, &info)) return TRUE;
   const RECT rect = info.rcMonitor;
-  const double scale = MonitorScale(rect);
-  monitors->push_back(
+  const double scale = MonitorScale(context->dpiProbe, rect);
+  context->monitors->push_back(
       {monitor,
        rect,
        {DisplayId(info.szDevice), static_cast<double>(rect.left),
@@ -115,10 +120,11 @@ BOOL CALLBACK CollectMonitor(HMONITOR monitor, HDC, LPRECT,
   return TRUE;
 }
 
-std::vector<MonitorSnapshot> MonitorSnapshots() {
+std::vector<MonitorSnapshot> MonitorSnapshots(HWND dpiProbe) {
   std::vector<MonitorSnapshot> monitors;
+  MonitorCollectionContext context{&monitors, dpiProbe};
   EnumDisplayMonitors(nullptr, nullptr, CollectMonitor,
-                      reinterpret_cast<LPARAM>(&monitors));
+                      reinterpret_cast<LPARAM>(&context));
   std::stable_sort(monitors.begin(), monitors.end(),
                    [](const MonitorSnapshot &lhs, const MonitorSnapshot &rhs) {
                      return lhs.primary && !rhs.primary;
@@ -172,8 +178,13 @@ int Rounded(double value) {
 struct PetWindow::Impl {
   explicit Impl(PetCallback callbackValue) : callback(callbackValue) {}
 
+  ~Impl() {
+    if (stopEvent != nullptr) (void)CloseHandle(stopEvent);
+  }
+
   PetCallback callback;
   std::atomic<HANDLE> ownerHandle{nullptr};
+  HANDLE stopEvent = nullptr;
   std::mutex readyMutex;
   std::condition_variable readyCondition;
   bool ready = false;
@@ -192,6 +203,8 @@ struct PetWindow::Impl {
   bool dragging = false;
   bool dragMoved = false;
   bool windowDestroyed = false;
+  bool inputRegionValid = false;
+  HWND dpiProbe = nullptr;
   POINT dragCursorOrigin{};
   RECT dragWindowOrigin{};
 
@@ -228,17 +241,91 @@ struct PetWindow::Impl {
     readyCondition.notify_one();
   }
 
-  bool requestWindowDestroy(HWND window) {
+  bool detachWindowUserData(HWND window) {
+    SetLastError(ERROR_SUCCESS);
+    const LONG_PTR previous = SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+    return previous != 0 || GetLastError() == ERROR_SUCCESS;
+  }
+
+  bool attemptWindowDestroy(HWND window, uint32_t &attempts,
+                            DWORD &retryDelay) {
+    ++attempts;
     const bool destroyed = DestroyWindow(window) != 0;
-    if (OwnerExitAfterDestroyAttempt(destroyed, windowDestroyed)) return true;
-    if (SetTimer(window, kDestroyRetryTimer, 50, nullptr) == 0) {
-      const DWORD threadId =
-          ownerThreadId.load(std::memory_order_acquire);
-      if (threadId != 0) {
-        (void)PostThreadMessageW(threadId, kMessageShutdown, 0, 0);
-      }
+    const OwnerDestroyDecision decision =
+        NextOwnerDestroyDecision(attempts, destroyed, windowDestroyed);
+    if (decision.action == OwnerDestroyAction::Complete) return true;
+    if (decision.action == OwnerDestroyAction::RetryAfterDelay) {
+      retryDelay = decision.delayMilliseconds;
+      return false;
     }
+    if (detachWindowUserData(window)) {
+      hwnd.store(nullptr, std::memory_order_release);
+      return true;
+    }
+    retryDelay = 200;
     return false;
+  }
+
+  void runOwnerLoop(HWND window, bool initialized) {
+    bool stopRequested =
+        !initialized || stopping.load(std::memory_order_acquire) ||
+        WaitForSingleObject(stopEvent, 0) == WAIT_OBJECT_0;
+    bool stopUiApplied = false;
+    uint32_t destroyAttempts = 0;
+    ULONGLONG nextDestroyAttempt = 0;
+
+    while (!windowDestroyed) {
+      const ULONGLONG now = GetTickCount64();
+      if (stopRequested && now >= nextDestroyAttempt) {
+        if (!stopUiApplied) {
+          hideWindow();
+          stopUiApplied = true;
+        }
+        DWORD retryDelay = 0;
+        if (attemptWindowDestroy(window, destroyAttempts, retryDelay)) break;
+        nextDestroyAttempt = GetTickCount64() + retryDelay;
+      }
+
+      DWORD timeout = INFINITE;
+      if (stopRequested) {
+        const ULONGLONG current = GetTickCount64();
+        const ULONGLONG remaining = nextDestroyAttempt > current
+                                        ? nextDestroyAttempt - current
+                                        : 0;
+        timeout = remaining > MAXDWORD ? MAXDWORD
+                                       : static_cast<DWORD>(remaining);
+      }
+      const DWORD handleCount = stopRequested ? 0 : 1;
+      const HANDLE *handles = stopRequested ? nullptr : &stopEvent;
+      const DWORD waitResult = MsgWaitForMultipleObjectsEx(
+          handleCount, handles, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+      if (!stopRequested && waitResult == WAIT_OBJECT_0) {
+        stopping.store(true, std::memory_order_release);
+        stopRequested = true;
+        nextDestroyAttempt = 0;
+        continue;
+      }
+      if (waitResult == WAIT_OBJECT_0 + handleCount) {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+          if (message.message == WM_QUIT ||
+              (message.hwnd == nullptr &&
+               message.message == kMessageShutdown)) {
+            stopping.store(true, std::memory_order_release);
+            stopRequested = true;
+            nextDestroyAttempt = 0;
+          } else {
+            (void)TranslateMessage(&message);
+            (void)DispatchMessageW(&message);
+          }
+        }
+        continue;
+      }
+      if (waitResult == WAIT_TIMEOUT) continue;
+      stopping.store(true, std::memory_order_release);
+      stopRequested = true;
+      if (timeout != 0) Sleep(std::min<DWORD>(timeout, 10));
+    }
   }
 
   void threadMain() {
@@ -269,6 +356,12 @@ struct PetWindow::Impl {
       if (apartmentInitialized) CoUninitialize();
       return;
     }
+    if (WaitForSingleObject(stopEvent, 0) == WAIT_OBJECT_0) {
+      signalReady(false);
+      ownerThreadId.store(0, std::memory_order_release);
+      CoUninitialize();
+      return;
+    }
 
     const DWORD style = WS_POPUP;
     const DWORD exStyle =
@@ -282,26 +375,20 @@ struct PetWindow::Impl {
       return;
     }
     hwnd.store(window, std::memory_order_release);
-    monitors = MonitorSnapshots();
-    const bool initialized = ConfigureWindowProtection(window) &&
+    dpiProbe = CreateWindowExW(
+        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"", WS_POPUP, 0, 0,
+        1, 1, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    monitors = MonitorSnapshots(dpiProbe);
+    const bool stopRequested =
+        WaitForSingleObject(stopEvent, 0) == WAIT_OBJECT_0;
+    const bool initialized = !stopRequested && dpiProbe != nullptr &&
+                             ConfigureWindowProtection(window) &&
                              !monitors.empty() && resetPosition();
     signalReady(initialized);
-    if (!initialized) (void)requestWindowDestroy(window);
-
-    MSG message{};
-    while (!windowDestroyed) {
-      const BOOL result = GetMessageW(&message, nullptr, 0, 0);
-      if (result > 0) {
-        if (message.hwnd == nullptr && message.message == kMessageShutdown) {
-          (void)requestWindowDestroy(window);
-        } else {
-          (void)TranslateMessage(&message);
-          (void)DispatchMessageW(&message);
-        }
-      } else {
-        (void)requestWindowDestroy(window);
-        if (!windowDestroyed && result < 0) Sleep(10);
-      }
+    runOwnerLoop(window, initialized);
+    if (dpiProbe != nullptr) {
+      (void)DestroyWindow(dpiProbe);
+      dpiProbe = nullptr;
     }
     hwnd.store(nullptr, std::memory_order_release);
     ownerThreadId.store(0, std::memory_order_release);
@@ -328,6 +415,11 @@ struct PetWindow::Impl {
     return false;
   }
 
+  bool signalStop() {
+    stopping.store(true, std::memory_order_release);
+    return stopEvent != nullptr && SetEvent(stopEvent) != 0;
+  }
+
   void emit(uint32_t kind, double x = 0.0, double y = 0.0,
             uint64_t displayId = 0) const {
     if (callback != nullptr) callback(kind, nullptr, x, y, displayId);
@@ -337,6 +429,16 @@ struct PetWindow::Impl {
                   uint64_t preferredDisplay = 0) const {
     return ClampPetOrigin(origin, size, DisplayInfos(monitors),
                           preferredDisplay);
+  }
+
+  void invalidateInputRegion() {
+    inputRegionValid = false;
+    dragging = false;
+    dragMoved = false;
+    (void)ReleaseCapture();
+    if (HWND window = hwnd.load(std::memory_order_relaxed)) {
+      (void)ShowWindow(window, SW_HIDE);
+    }
   }
 
   bool positionWindow() {
@@ -351,9 +453,12 @@ struct PetWindow::Impl {
     if (!SetWindowPos(window, HWND_TOPMOST, Rounded(physical.x),
                       Rounded(physical.y), side, side,
                       SWP_NOACTIVATE | SWP_NOOWNERZORDER)) {
+      invalidateInputRegion();
       return false;
     }
-    return ApplyInputRegion(window, side);
+    inputRegionValid = ApplyInputRegion(window, side);
+    if (!inputRegionValid) invalidateInputRegion();
+    return inputRegionValid;
   }
 
   bool resetPosition() {
@@ -366,7 +471,8 @@ struct PetWindow::Impl {
   }
 
   void applyConfig(PetConfig config) {
-    monitors = MonitorSnapshots();
+    monitors = MonitorSnapshots(dpiProbe);
+    visible = config.visible != 0;
     if (config.has_position != 0) {
       placement = clamp({config.x, config.y}, config.size, config.display_id);
     } else if (placement.displayId != 0) {
@@ -379,15 +485,20 @@ struct PetWindow::Impl {
           config.size);
     }
     if (!positionWindow()) {
-      hideWindow();
+      invalidateInputRegion();
       return;
     }
-    config.visible != 0 ? showWindow() : hideWindow();
+    visible ? showWindow() : hideWindow();
   }
 
   void showWindow() {
     visible = true;
-    if (sleeping) return;
+    if (!PetWindowMayShow(visible, sleeping, inputRegionValid)) {
+      if (HWND window = hwnd.load(std::memory_order_relaxed)) {
+        (void)ShowWindow(window, SW_HIDE);
+      }
+      return;
+    }
     HWND window = hwnd.load(std::memory_order_relaxed);
     if (window == nullptr) return;
     (void)ShowWindow(window, SW_SHOWNOACTIVATE);
@@ -413,7 +524,7 @@ struct PetWindow::Impl {
     HWND window = hwnd.load(std::memory_order_relaxed);
     const bool haveRect = window != nullptr && GetWindowRect(window, &rect);
     const uint64_t priorDisplay = placement.displayId;
-    monitors = MonitorSnapshots();
+    monitors = MonitorSnapshots(dpiProbe);
     LogicalPoint origin{placement.x, placement.y};
     if (haveRect) {
       HMONITOR active = MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST);
@@ -440,9 +551,10 @@ struct PetWindow::Impl {
     }
     placement = clamp(origin, placement.size, targetDisplay);
     if (!positionWindow()) {
-      hideWindow();
+      invalidateInputRegion();
       return;
     }
+    if (visible && !sleeping) showWindow();
     if (emitChange) {
       emit(kCallbackDisplayChanged, placement.x, placement.y,
            placement.displayId);
@@ -494,7 +606,7 @@ struct PetWindow::Impl {
          static_cast<double>(dragWindowOrigin.top + dy)},
         targetDisplay);
     placement = clamp(origin, placement.size, targetId);
-    if (!positionWindow()) hideWindow();
+    if (!positionWindow()) invalidateInputRegion();
   }
 
   void endDrag() {
@@ -528,20 +640,12 @@ struct PetWindow::Impl {
         hideWindow();
         return 0;
       case kMessageReset:
-        monitors = MonitorSnapshots();
-        if (!resetPosition()) hideWindow();
+        monitors = MonitorSnapshots(dpiProbe);
+        if (!resetPosition()) invalidateInputRegion();
         return 0;
       case kMessageShutdown:
-        hideWindow();
-        (void)requestWindowDestroy(window);
+        (void)signalStop();
         return 0;
-      case WM_TIMER:
-        if (wParam == kDestroyRetryTimer) {
-          (void)KillTimer(window, kDestroyRetryTimer);
-          (void)requestWindowDestroy(window);
-          return 0;
-        }
-        return DefWindowProcW(window, message, wParam, lParam);
       case WM_NCHITTEST: {
         POINT point{static_cast<short>(LOWORD(lParam)),
                     static_cast<short>(HIWORD(lParam))};
@@ -573,8 +677,8 @@ struct PetWindow::Impl {
           if (!SetWindowPos(window, nullptr, suggested->left, suggested->top,
                             suggested->right - suggested->left,
                             suggested->bottom - suggested->top,
-                            SWP_NOACTIVATE | SWP_NOZORDER)) {
-            hideWindow();
+                          SWP_NOACTIVATE | SWP_NOZORDER)) {
+            invalidateInputRegion();
             return 0;
           }
         }
@@ -610,8 +714,7 @@ struct PetWindow::Impl {
         return 0;
       }
       case WM_CLOSE:
-        hideWindow();
-        (void)requestWindowDestroy(window);
+        (void)signalStop();
         return 0;
       case WM_NCDESTROY: {
         windowDestroyed = true;
@@ -646,6 +749,11 @@ std::unique_ptr<PetWindow> PetWindow::create(PetCallback callback) {
 }
 
 bool PetWindow::start() {
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::milliseconds(
+                            kShutdownTimeoutMilliseconds);
+  impl_->stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (impl_->stopEvent == nullptr) return false;
   auto *context =
       new (std::nothrow) std::shared_ptr<Impl>(impl_);
   if (context == nullptr) return false;
@@ -659,18 +767,31 @@ bool PetWindow::start() {
   const HANDLE handle = reinterpret_cast<HANDLE>(rawHandle);
   impl_->ownerHandle.store(handle, std::memory_order_release);
   std::unique_lock<std::mutex> lock(impl_->readyMutex);
-  impl_->readyCondition.wait(lock, [this] { return impl_->ready; });
+  const bool waitSatisfied = impl_->readyCondition.wait_until(
+      lock, deadline, [this] { return impl_->ready; });
+  const bool ready = impl_->ready;
   const bool created = impl_->created;
+  const OwnerReadinessAction readiness =
+      ResolveOwnerReadiness(waitSatisfied, ready, created);
   lock.unlock();
-  if (!created) {
-    (void)WaitForSingleObject(handle, kShutdownTimeoutMilliseconds);
+  if (readiness != OwnerReadinessAction::Created) {
+    (void)impl_->signalStop();
+    const auto now = std::chrono::steady_clock::now();
+    const auto remaining = now < deadline
+                               ? std::chrono::duration_cast<
+                                     std::chrono::milliseconds>(deadline - now)
+                               : std::chrono::milliseconds(0);
+    if (remaining.count() > 0) {
+      (void)WaitForSingleObject(handle,
+                                static_cast<DWORD>(remaining.count()));
+    }
     HANDLE expected = handle;
     if (impl_->ownerHandle.compare_exchange_strong(expected, nullptr,
                                                    std::memory_order_acq_rel)) {
       (void)CloseHandle(handle);
     }
   }
-  return created;
+  return readiness == OwnerReadinessAction::Created;
 }
 
 bool PetWindow::apply(PetConfig config) {
@@ -688,26 +809,27 @@ uint32_t PetWindow::shutdown() {
   if (impl_ == nullptr) return PET_SHUTDOWN_COMPLETE;
   const std::shared_ptr<Impl> impl = impl_;
   std::lock_guard<std::mutex> shutdownLock(impl->shutdownMutex);
-  bool posted = true;
+  bool stopSignaled = false;
   {
     std::lock_guard<std::mutex> lock(impl->commandMutex);
     const bool wasStopping = impl->stopping.exchange(true);
+    stopSignaled = impl->stopEvent != nullptr && SetEvent(impl->stopEvent) != 0;
     if (!wasStopping) {
       HWND window = impl->hwnd.load(std::memory_order_acquire);
-      posted =
+      bool posted =
           window == nullptr || PostMessageW(window, kMessageShutdown, 0, 0);
       if (!posted) {
         const DWORD threadId =
             impl->ownerThreadId.load(std::memory_order_acquire);
-        posted = threadId == 0 ||
-                 PostThreadMessageW(threadId, kMessageShutdown, 0, 0);
+        (void)(threadId == 0 ||
+               PostThreadMessageW(threadId, kMessageShutdown, 0, 0));
       }
     }
   }
   const HANDLE handle =
       impl->ownerHandle.exchange(nullptr, std::memory_order_acq_rel);
   if (handle == nullptr) {
-    return posted ? PET_SHUTDOWN_COMPLETE : PET_SHUTDOWN_STOP_FAILED;
+    return stopSignaled ? PET_SHUTDOWN_COMPLETE : PET_SHUTDOWN_STOP_FAILED;
   }
   const DWORD ownerThreadId =
       impl->ownerThreadId.load(std::memory_order_acquire);
@@ -719,5 +841,5 @@ uint32_t PetWindow::shutdown() {
   const bool closed = CloseHandle(handle) != 0;
   if (!closed || waitResult == WAIT_FAILED) return PET_SHUTDOWN_STOP_FAILED;
   if (waitResult != WAIT_OBJECT_0) return PET_SHUTDOWN_STOP_TIMED_OUT;
-  return posted ? PET_SHUTDOWN_COMPLETE : PET_SHUTDOWN_STOP_FAILED;
+  return stopSignaled ? PET_SHUTDOWN_COMPLETE : PET_SHUTDOWN_STOP_FAILED;
 }

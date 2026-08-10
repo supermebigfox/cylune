@@ -63,6 +63,54 @@ struct PixelRegionBounds {
   int bottom;
 };
 
+enum class OwnerDestroyAction {
+  Complete,
+  RetryAfterDelay,
+  DetachUserDataAndExit,
+};
+
+struct OwnerDestroyDecision {
+  OwnerDestroyAction action;
+  uint32_t delayMilliseconds;
+};
+
+constexpr uint32_t kOwnerDestroyMaximumAttempts = 5;
+
+inline OwnerDestroyDecision NextOwnerDestroyDecision(
+    uint32_t attemptsCompleted, bool destroySucceeded,
+    bool receivedNcDestroy) {
+  if (destroySucceeded || receivedNcDestroy) {
+    return {OwnerDestroyAction::Complete, 0};
+  }
+  if (attemptsCompleted >= kOwnerDestroyMaximumAttempts) {
+    return {OwnerDestroyAction::DetachUserDataAndExit, 0};
+  }
+  const uint32_t shift =
+      std::min(attemptsCompleted == 0 ? 0U : attemptsCompleted - 1, 3U);
+  return {OwnerDestroyAction::RetryAfterDelay, 25U << shift};
+}
+
+inline bool OwnerStopIsObservable(bool stopEventSignaled,
+                                  bool windowMessagePosted,
+                                  bool threadMessagePosted) {
+  return stopEventSignaled || windowMessagePosted || threadMessagePosted;
+}
+
+enum class OwnerReadinessAction { Created, Failed, TimedOutSignalStop };
+
+inline OwnerReadinessAction ResolveOwnerReadiness(bool waitSatisfied,
+                                                  bool ready,
+                                                  bool created) {
+  if (!waitSatisfied) return OwnerReadinessAction::TimedOutSignalStop;
+  return ready && created ? OwnerReadinessAction::Created
+                          : OwnerReadinessAction::Failed;
+}
+
+inline bool PetWindowMayShow(bool requestedVisible, bool sleeping,
+                             bool inputRegionValid) {
+  return requestedVisible && !sleeping && inputRegionValid;
+}
+
 inline bool OwnerExitAfterDestroyAttempt(bool destroySucceeded,
                                          bool receivedNcDestroy) {
   return destroySucceeded || receivedNcDestroy;

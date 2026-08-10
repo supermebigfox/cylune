@@ -14,6 +14,32 @@ bool close_to(double lhs, double rhs) {
 } // namespace
 
 int main() {
+  const OwnerDestroyDecision destroyRetry =
+      NextOwnerDestroyDecision(1, false, false);
+  assert(destroyRetry.action == OwnerDestroyAction::RetryAfterDelay);
+  assert(destroyRetry.delayMilliseconds > 0);
+  const OwnerDestroyDecision destroyRecovered =
+      NextOwnerDestroyDecision(2, true, false);
+  assert(destroyRecovered.action == OwnerDestroyAction::Complete);
+  const OwnerDestroyDecision destroyPersistent =
+      NextOwnerDestroyDecision(kOwnerDestroyMaximumAttempts, false, false);
+  assert(destroyPersistent.action ==
+         OwnerDestroyAction::DetachUserDataAndExit);
+  assert(OwnerStopIsObservable(true, false, false));
+  assert(!OwnerStopIsObservable(false, false, false));
+
+  assert(ResolveOwnerReadiness(false, false, false) ==
+         OwnerReadinessAction::TimedOutSignalStop);
+  assert(ResolveOwnerReadiness(false, true, true) ==
+         OwnerReadinessAction::TimedOutSignalStop);
+  assert(ResolveOwnerReadiness(true, true, true) ==
+         OwnerReadinessAction::Created);
+  assert(ResolveOwnerReadiness(true, true, false) ==
+         OwnerReadinessAction::Failed);
+  assert(PetWindowMayShow(true, false, true));
+  assert(!PetWindowMayShow(true, false, false));
+  assert(!PetWindowMayShow(true, true, true));
+
   assert(OwnerExitAfterDestroyAttempt(true, false));
   assert(OwnerExitAfterDestroyAttempt(false, true));
   assert(!OwnerExitAfterDestroyAttempt(false, false));
