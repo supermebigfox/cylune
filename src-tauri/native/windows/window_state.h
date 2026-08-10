@@ -21,6 +21,32 @@ struct DisplayInfo {
   double width;
   double height;
   double scale;
+  double physicalX;
+  double physicalY;
+
+  DisplayInfo(uint64_t displayId, double logicalX, double logicalY,
+              double logicalWidth, double logicalHeight,
+              double displayScale)
+      : id(displayId),
+        x(logicalX),
+        y(logicalY),
+        width(logicalWidth),
+        height(logicalHeight),
+        scale(displayScale),
+        physicalX(logicalX),
+        physicalY(logicalY) {}
+
+  DisplayInfo(uint64_t displayId, double logicalX, double logicalY,
+              double logicalWidth, double logicalHeight, double displayScale,
+              double physicalOriginX, double physicalOriginY)
+      : id(displayId),
+        x(logicalX),
+        y(logicalY),
+        width(logicalWidth),
+        height(logicalHeight),
+        scale(displayScale),
+        physicalX(physicalOriginX),
+        physicalY(physicalOriginY) {}
 };
 
 struct Placement {
@@ -29,6 +55,18 @@ struct Placement {
   double y;
   double size;
 };
+
+struct PixelRegionBounds {
+  int left;
+  int top;
+  int right;
+  int bottom;
+};
+
+inline bool OwnerExitAfterDestroyAttempt(bool destroySucceeded,
+                                         bool receivedNcDestroy) {
+  return destroySucceeded || receivedNcDestroy;
+}
 
 namespace cylune_window_state {
 
@@ -39,21 +77,26 @@ constexpr double kMaximumSize = 900.0;
 inline bool ValidDisplay(const DisplayInfo &display) {
   return std::isfinite(display.x) && std::isfinite(display.y) &&
          std::isfinite(display.width) && std::isfinite(display.height) &&
-         std::isfinite(display.scale) && display.width > 0.0 &&
+         std::isfinite(display.scale) && std::isfinite(display.physicalX) &&
+         std::isfinite(display.physicalY) && display.width > 0.0 &&
          display.height > 0.0 && display.scale > 0.0 &&
          std::isfinite(display.x + display.width) &&
-         std::isfinite(display.y + display.height);
+         std::isfinite(display.y + display.height) &&
+         std::isfinite(display.width * display.scale) &&
+         std::isfinite(display.height * display.scale) &&
+         std::isfinite(display.physicalX + display.width * display.scale) &&
+         std::isfinite(display.physicalY + display.height * display.scale);
 }
 
-inline double DistanceSquaredToDisplay(LogicalPoint point,
-                                       const DisplayInfo &display) {
+inline double DistanceToDisplay(LogicalPoint point,
+                                const DisplayInfo &display) {
   const double closestX =
       std::clamp(point.x, display.x, display.x + display.width);
   const double closestY =
       std::clamp(point.y, display.y, display.y + display.height);
   const double dx = closestX - point.x;
   const double dy = closestY - point.y;
-  return dx * dx + dy * dy;
+  return std::hypot(dx, dy);
 }
 
 inline double ClampAxis(double value, double origin, double extent,
@@ -66,39 +109,64 @@ inline double ClampAxis(double value, double origin, double extent,
 
 } // namespace cylune_window_state
 
-inline LogicalPoint LogicalToPhysical(LogicalPoint point, double scale) {
-  const double safeScale =
-      std::isfinite(scale) && scale > 0.0 ? scale : 1.0;
-  return {std::isfinite(point.x) ? point.x * safeScale : 0.0,
-          std::isfinite(point.y) ? point.y * safeScale : 0.0};
+inline PixelRegionBounds PetInputRegionBounds(int physicalSide) {
+  if (physicalSide <= 0) return {0, 0, 0, 0};
+  const double inset = static_cast<double>(physicalSide) * 0.02;
+  const int minimum = static_cast<int>(std::floor(inset));
+  const int maximum = static_cast<int>(
+      std::ceil(static_cast<double>(physicalSide) - inset));
+  return {minimum, minimum, maximum, maximum};
 }
 
-inline LogicalPoint PhysicalToLogical(LogicalPoint point, double scale) {
-  const double safeScale =
-      std::isfinite(scale) && scale > 0.0 ? scale : 1.0;
-  return {std::isfinite(point.x) ? point.x / safeScale : 0.0,
-          std::isfinite(point.y) ? point.y / safeScale : 0.0};
+inline LogicalPoint LogicalToPhysical(LogicalPoint point,
+                                      const DisplayInfo &display) {
+  if (!cylune_window_state::ValidDisplay(display) ||
+      !std::isfinite(point.x) || !std::isfinite(point.y)) {
+    return {display.physicalX, display.physicalY};
+  }
+  return {display.physicalX + (point.x - display.x) * display.scale,
+          display.physicalY + (point.y - display.y) * display.scale};
+}
+
+inline LogicalPoint PhysicalToLogical(LogicalPoint point,
+                                      const DisplayInfo &display) {
+  if (!cylune_window_state::ValidDisplay(display) ||
+      !std::isfinite(point.x) || !std::isfinite(point.y)) {
+    return {display.x, display.y};
+  }
+  return {display.x + (point.x - display.physicalX) / display.scale,
+          display.y + (point.y - display.physicalY) / display.scale};
 }
 
 inline Placement ClampPetOrigin(LogicalPoint origin, double size,
-                                const std::vector<DisplayInfo> &displays) {
+                                const std::vector<DisplayInfo> &displays,
+                                uint64_t preferredDisplayId = 0) {
   using namespace cylune_window_state;
   const double safeSize = std::isfinite(size)
                               ? std::clamp(size, kMinimumSize, kMaximumSize)
                               : kMinimumSize;
 
   const DisplayInfo *selected = nullptr;
-  if (std::isfinite(origin.x) && std::isfinite(origin.y)) {
+  if (preferredDisplayId != 0) {
+    for (const DisplayInfo &display : displays) {
+      if (display.id == preferredDisplayId && ValidDisplay(display)) {
+        selected = &display;
+        break;
+      }
+    }
+  }
+  if (selected == nullptr && std::isfinite(origin.x) &&
+      std::isfinite(origin.y)) {
     double nearestDistance = std::numeric_limits<double>::infinity();
     for (const DisplayInfo &display : displays) {
       if (!ValidDisplay(display)) continue;
-      const double distance = DistanceSquaredToDisplay(origin, display);
-      if (distance < nearestDistance) {
+      const double distance = DistanceToDisplay(origin, display);
+      if (selected == nullptr || distance < nearestDistance) {
         nearestDistance = distance;
         selected = &display;
       }
     }
-  } else {
+  } else if (selected == nullptr) {
     for (const DisplayInfo &display : displays) {
       if (ValidDisplay(display)) {
         selected = &display;

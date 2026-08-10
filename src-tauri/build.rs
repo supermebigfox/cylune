@@ -48,6 +48,7 @@ fn main() {
             .compile("pet_native_windows");
         for library in [
             "user32",
+            "gdi32",
             "ole32",
             "shell32",
             "d3d11",

@@ -14,6 +14,17 @@ bool close_to(double lhs, double rhs) {
 } // namespace
 
 int main() {
+  assert(OwnerExitAfterDestroyAttempt(true, false));
+  assert(OwnerExitAfterDestroyAttempt(false, true));
+  assert(!OwnerExitAfterDestroyAttempt(false, false));
+
+  const PixelRegionBounds inputRegion = PetInputRegionBounds(1200);
+  assert(inputRegion.left == 24);
+  assert(inputRegion.top == 24);
+  assert(inputRegion.right == 1176);
+  assert(inputRegion.bottom == 1176);
+  assert(inputRegion.right - inputRegion.left == 1152);
+
   const DisplayInfo left{1, -1920, 0, 1920, 1080, 1.0};
   const DisplayInfo right{2, 0, 0, 3840, 2160, 2.0};
   const std::vector<DisplayInfo> displays{left, right};
@@ -34,12 +45,54 @@ int main() {
   assert(close_to(negative.x, -1920 + 16));
   assert(close_to(negative.y, 400));
 
-  const LogicalPoint physical = LogicalToPhysical({100, 75}, 2.0);
+  const DisplayInfo conversion{3, 0, 0, 1000, 1000, 2.0, 0, 0};
+  const LogicalPoint physical = LogicalToPhysical({100, 75}, conversion);
   assert(close_to(physical.x, 200));
   assert(close_to(physical.y, 150));
-  const LogicalPoint logical = PhysicalToLogical(physical, 2.0);
+  const LogicalPoint logical = PhysicalToLogical(physical, conversion);
   assert(close_to(logical.x, 100));
   assert(close_to(logical.y, 75));
+
+  const DisplayInfo primaryMixed{10, 0, 0, 1920, 1080, 1.0, 0, 0};
+  const DisplayInfo rightMixed{20, 1920, 0, 1920, 1080, 2.0, 1920, 0};
+  const DisplayInfo negativeMixed{30, -3840, 0, 1920, 1080, 2.0,
+                                  -3840, 0};
+  const std::vector<DisplayInfo> mixedDisplays{primaryMixed, rightMixed};
+
+  const LogicalPoint rightLogical =
+      PhysicalToLogical({3000, 400}, rightMixed);
+  assert(close_to(rightLogical.x, 2460));
+  assert(close_to(rightLogical.y, 200));
+  assert(ClampPetOrigin(rightLogical, 300, mixedDisplays).displayId == 20);
+  const LogicalPoint rightRoundTrip =
+      LogicalToPhysical(rightLogical, rightMixed);
+  assert(close_to(rightRoundTrip.x, 3000));
+  assert(close_to(rightRoundTrip.y, 400));
+
+  const LogicalPoint primaryFromRight =
+      PhysicalToLogical({1800, 400}, primaryMixed);
+  assert(close_to(primaryFromRight.x, 1800));
+  assert(close_to(LogicalToPhysical(primaryFromRight, primaryMixed).x, 1800));
+  assert(ClampPetOrigin(primaryFromRight, 300, mixedDisplays).displayId == 10);
+
+  const LogicalPoint negativeLogical =
+      PhysicalToLogical({-2000, 400}, negativeMixed);
+  assert(close_to(negativeLogical.x, -2920));
+  assert(close_to(negativeLogical.y, 200));
+  assert(close_to(LogicalToPhysical(negativeLogical, negativeMixed).x,
+                  -2000));
+  assert(ClampPetOrigin(negativeLogical, 300,
+                        {negativeMixed, primaryMixed, rightMixed})
+             .displayId == 30);
+
+  const Placement preferred =
+      ClampPetOrigin({1800, 200}, 300, mixedDisplays, 20);
+  assert(preferred.displayId == 20);
+  assert(close_to(preferred.x, 1936));
+  const Placement removed =
+      ClampPetOrigin(negativeLogical, 300, mixedDisplays, 30);
+  assert(removed.displayId == 10);
+  assert(close_to(removed.x, 16));
 
   const Placement minimum = ClampPetOrigin({100, 100}, 120, displays);
   assert(close_to(minimum.size, 300));
@@ -63,6 +116,19 @@ int main() {
   assert(HitTestPet({150, 150}, nan) == PetHit::Transparent);
 
   const double huge = std::numeric_limits<double>::max();
+  for (const LogicalPoint extreme :
+       {LogicalPoint{huge, huge}, LogicalPoint{-huge, -huge},
+        LogicalPoint{1e307, -1e307}}) {
+    const Placement extremePlaced = ClampPetOrigin(extreme, 300, displays);
+    assert(extremePlaced.displayId == 1);
+    assert(std::isfinite(extremePlaced.x));
+    assert(std::isfinite(extremePlaced.y));
+    assert(std::isfinite(extremePlaced.size));
+    assert(extremePlaced.x >= left.x + 16);
+    assert(extremePlaced.x <= left.x + left.width - 300 - 16);
+    assert(extremePlaced.y >= left.y + 16);
+    assert(extremePlaced.y <= left.y + left.height - 300 - 16);
+  }
   const Placement overflowSafe = ClampPetOrigin(
       {nan, nan}, 300,
       {{99, huge, huge, huge, huge, 1.0}, {2, 0, 0, 3840, 2160, 2.0}});

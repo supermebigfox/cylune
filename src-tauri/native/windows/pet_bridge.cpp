@@ -24,13 +24,7 @@ void *pet_create(PetCallback callback, const char *hlsl_source) {
 uint32_t pet_destroy(void *handle) {
   std::unique_ptr<PetWindow> pet(from_handle(handle));
   if (pet == nullptr) return PET_SHUTDOWN_COMPLETE;
-  const uint32_t result = pet->shutdown();
-  if (result == PET_SHUTDOWN_STOP_TIMED_OUT) {
-    // The timed-out owner thread may still execute window callbacks. Let it
-    // retain the handle storage instead of freeing memory it can still read.
-    pet.release();
-  }
-  return result;
+  return pet->shutdown();
 }
 
 bool pet_apply(void *handle, PetConfig config) {

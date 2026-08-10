@@ -26,7 +26,7 @@ class PetWindow {
   explicit PetWindow(PetCallback callback);
   bool start();
 
-  std::unique_ptr<Impl> impl_;
+  std::shared_ptr<Impl> impl_;
 };
 
 #endif
