@@ -2,12 +2,14 @@ mod catalog;
 mod command;
 mod discovery;
 mod inspect;
+mod install_layout;
 mod progress;
 mod project;
 mod runtime;
 
 use crate::{
     error::{AppError, Result},
+    imports::PrintState,
     printers::{PrinterState, SavedPrinter},
 };
 use serde::{Deserialize, Serialize};
@@ -19,11 +21,12 @@ use uuid::Uuid;
 
 pub use catalog::{SliceFilamentPreset, SlicePresetCatalog, SlicePresetOption, SliceProcessPreset};
 pub use command::{build_bambu_args, PlateSelection, SliceRequest};
-pub use discovery::{BambuInstallation, InstallationDiscovery};
+pub use discovery::{windows_registry_candidates, BambuInstallation, InstallationDiscovery};
 pub use inspect::{
     inspect_3mf_content, EmbeddedMachine, EmbeddedPlate, EmbeddedProcess, EmbeddedTool,
     ThreeMfInspection, ThreeMfKind,
 };
+pub use install_layout::{resolve_selected_install, InstallPlatform};
 pub use runtime::{
     SliceComplete, SliceErrorEvent, SlicePhase, SliceProgress, SliceTask, SliceTaskState,
     SlicerService,
@@ -121,6 +124,52 @@ pub fn list_slice_presets(
 #[tauri::command]
 pub fn open_in_bambu_studio(path: String, service: tauri::State<'_, SlicerService>) -> Result<()> {
     service.open_in_bambu_studio(Path::new(&path))
+}
+
+#[tauri::command]
+pub const fn get_desktop_platform() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "macos"
+    }
+    #[cfg(target_os = "windows")]
+    {
+        "windows"
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        "unsupported"
+    }
+}
+
+#[tauri::command]
+pub fn set_bambu_studio_path(
+    path: String,
+    service: tauri::State<'_, SlicerService>,
+    prints: tauri::State<'_, PrintState>,
+) -> Result<()> {
+    if get_desktop_platform() != "windows"
+        || !Path::new(&path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("BambuStudio.exe"))
+    {
+        return Err(AppError::BambuStudioMissing);
+    }
+
+    let installation = resolve_selected_install(Path::new(&path), InstallPlatform::Windows)?;
+    let canonical = installation.executable.to_string_lossy().into_owned();
+    {
+        let prints = prints
+            .lock()
+            .map_err(|_| AppError::Database("print lock poisoned".into()))?;
+        prints.database.connection.execute(
+            "INSERT INTO app_settings(setting_key,setting_value) VALUES('bambu_studio_path',?1) \
+             ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value,updated_at=CURRENT_TIMESTAMP",
+            [&canonical],
+        )?;
+    }
+    service.set_explicit_app(installation.executable)
 }
 
 #[cfg(test)]

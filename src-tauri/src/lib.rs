@@ -81,6 +81,15 @@ pub fn run() {
                 .optional()?
                 .filter(|locale: &String| matches!(locale.as_str(), "zh-CN" | "zh-TW" | "en"))
                 .unwrap_or_else(|| "zh-CN".to_owned());
+            let saved_bambu_studio: Option<String> = print_service
+                .database
+                .connection
+                .query_row(
+                    "SELECT setting_value FROM app_settings WHERE setting_key='bambu_studio_path'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
             app.manage(InventoryState::new(InventoryService::new(
                 inventory_database,
             )));
@@ -100,7 +109,7 @@ pub fn run() {
             app.manage(slicer::SlicerService::for_app(
                 app.handle().clone(),
                 slicer_cache,
-                None,
+                saved_bambu_studio.map(std::path::PathBuf::from),
             ));
             service_instance_recall(app.handle());
             if let Some(folder) = saved_watch {
@@ -161,6 +170,8 @@ pub fn run() {
             slicer::inspect_3mf,
             slicer::list_slice_presets,
             slicer::open_in_bambu_studio,
+            slicer::get_desktop_platform,
+            slicer::set_bambu_studio_path,
             pet::get_pet_settings,
             pet::set_pet_settings,
             tray::set_watch_folder,

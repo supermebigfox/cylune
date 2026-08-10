@@ -116,7 +116,7 @@ impl RunningSlice {
 }
 
 struct SlicerInner {
-    discovery: InstallationDiscovery,
+    discovery: Mutex<InstallationDiscovery>,
     cache_root: PathBuf,
     importer: Arc<dyn SliceImporter>,
     events: Arc<dyn SliceEventSink>,
@@ -155,7 +155,7 @@ impl SlicerService {
         cleanup_orphaned_slice_tasks(&cache_root);
         Self {
             inner: Arc::new(SlicerInner {
-                discovery,
+                discovery: Mutex::new(discovery),
                 cache_root,
                 importer,
                 events,
@@ -166,12 +166,29 @@ impl SlicerService {
         }
     }
 
+    fn discover_installation(&self) -> Result<super::BambuInstallation> {
+        self.inner
+            .discovery
+            .lock()
+            .map_err(|_| AppError::SlicerFailed)?
+            .discover()
+    }
+
+    pub fn set_explicit_app(&self, path: PathBuf) -> Result<()> {
+        *self
+            .inner
+            .discovery
+            .lock()
+            .map_err(|_| AppError::SlicerFailed)? = InstallationDiscovery::new(Some(path));
+        Ok(())
+    }
+
     pub fn start_fast(
         &self,
         request: FastSliceRequest,
         printer: crate::printers::SavedPrinter,
     ) -> Result<SliceTask> {
-        let installation = self.inner.discovery.discover()?;
+        let installation = self.discover_installation()?;
         let request = resolve_fast_request(&installation.profiles_root, printer, request)?;
         self.start(request)
     }
@@ -180,13 +197,13 @@ impl SlicerService {
         &self,
         printer: &crate::printers::SavedPrinter,
     ) -> Result<SlicePresetCatalog> {
-        let installation = self.inner.discovery.discover()?;
+        let installation = self.discover_installation()?;
         load_slice_preset_catalog(&installation.profiles_root, printer)
     }
 
     pub fn open_in_bambu_studio(&self, path: &Path) -> Result<()> {
         inspect_3mf_content(path)?;
-        let installation = self.inner.discovery.discover()?;
+        let installation = self.discover_installation()?;
         let mut child = Command::new(&installation.executable)
             .arg(path)
             .stdin(Stdio::null())
@@ -201,7 +218,7 @@ impl SlicerService {
     }
 
     pub fn start(&self, request: SliceRequest) -> Result<SliceTask> {
-        let installation = self.inner.discovery.discover()?;
+        let installation = self.discover_installation()?;
         let task_id = Uuid::new_v4();
         let task_dir = self
             .inner

@@ -324,6 +324,8 @@ export interface TauriApi {
   cancelSlice(taskId: string): Promise<void>;
   getSliceTask(taskId: string): Promise<SliceTask>;
   openInBambuStudio(path: string): Promise<void>;
+  getDesktopPlatform(): Promise<"macos" | "windows" | "unsupported">;
+  setBambuStudioPath(path: string): Promise<void>;
   importPrintFile(path: string): Promise<ImportPreview>;
   confirmJobMapping(jobId: string, mappings: ToolMapping[]): Promise<void>;
   confirmNewPrint(sourceHash: string): Promise<ImportPreview>;
@@ -674,6 +676,8 @@ function demoApi(): TauriApi {
       };
     },
     async openInBambuStudio() {},
+    async getDesktopPlatform() { return "unsupported"; },
+    async setBambuStudioPath() {},
     async importPrintFile(path) { return { ...demoPreview, source_file_name: path.split(/[\\/]/).pop() || demoPreview.source_file_name }; },
     async confirmJobMapping(jobId, mappings) {
       projectMappings.set(jobId, mappings.map((mapping) => ({ ...mapping })));
@@ -818,6 +822,9 @@ function commandApi(invoke: Invoke): TauriApi {
     cancelSlice: (taskId) => call<void>("cancel_slice", { taskId }),
     getSliceTask: (taskId) => call<SliceTask>("get_slice_task", { taskId }),
     openInBambuStudio: (path) => call<void>("open_in_bambu_studio", { path }),
+    getDesktopPlatform: () =>
+      call<"macos" | "windows" | "unsupported">("get_desktop_platform", undefined),
+    setBambuStudioPath: (path) => call<void>("set_bambu_studio_path", { path }),
     importPrintFile: (path) => call<ImportPreview>("import_print_file", { path }),
     confirmJobMapping: (jobId, mappings) => call<void>("confirm_job_mapping", { jobId, mappings }),
     confirmNewPrint: (sourceHash) => call<ImportPreview>("confirm_new_print", { sourceHash }),

@@ -99,6 +99,8 @@ function fakeTauriApi(overrides: Partial<TauriApi> = {}): TauriApi {
       error_code: null,
     }),
     openInBambuStudio: async () => undefined,
+    getDesktopPlatform: async () => "unsupported",
+    setBambuStudioPath: async () => undefined,
     ...overrides,
   };
 }

@@ -1,8 +1,7 @@
 use crate::error::{AppError, Result};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
+
+use super::install_layout::{resolve_selected_install, InstallPlatform};
 
 const SYSTEM_EXECUTABLE: &str = "/Applications/BambuStudio.app/Contents/MacOS/BambuStudio";
 
@@ -26,8 +25,20 @@ impl InstallationDiscovery {
     }
 
     pub fn discover(&self) -> Result<BambuInstallation> {
+        #[cfg(target_os = "windows")]
+        {
+            return self.discover_windows();
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            self.discover_macos()
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn discover_macos(&self) -> Result<BambuInstallation> {
         if let Some(app) = &self.explicit_app {
-            match discover_selected_app(app) {
+            match resolve_selected_install(app, InstallPlatform::MacOs) {
                 Ok(installation) => return Ok(installation),
                 Err(AppError::BambuStudioMissing) => {}
                 Err(error) => return Err(error),
@@ -36,64 +47,128 @@ impl InstallationDiscovery {
 
         discover_from_executable(&self.system_executable)
     }
-}
 
-fn discover_selected_app(app: &Path) -> Result<BambuInstallation> {
-    if !is_directory(app) {
-        return Err(AppError::BambuStudioMissing);
+    #[cfg(target_os = "windows")]
+    fn discover_windows(&self) -> Result<BambuInstallation> {
+        let candidates = ordered_candidates(
+            self.explicit_app.clone(),
+            windows_registry_candidates(),
+            windows_standard_candidates(),
+        );
+        let mut profiles_missing = false;
+        for candidate in candidates {
+            match resolve_selected_install(&candidate, InstallPlatform::Windows) {
+                Ok(installation) => return Ok(installation),
+                Err(AppError::SlicerProfilesMissing) => profiles_missing = true,
+                Err(AppError::BambuStudioMissing) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        if profiles_missing {
+            Err(AppError::SlicerProfilesMissing)
+        } else {
+            Err(AppError::BambuStudioMissing)
+        }
     }
-
-    discover_from_executable(&app.join("Contents/MacOS/BambuStudio"))
 }
 
 fn discover_from_executable(executable: &Path) -> Result<BambuInstallation> {
-    if !is_executable(executable) {
-        return Err(AppError::BambuStudioMissing);
-    }
-
-    let Some(contents) = executable.parent().and_then(Path::parent) else {
+    let Some(app) = executable
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+    else {
         return Err(AppError::BambuStudioMissing);
     };
-    let profiles_root = contents.join("Resources/profiles");
-    if !is_directory(&profiles_root) {
-        return Err(AppError::SlicerProfilesMissing);
+    resolve_selected_install(app, InstallPlatform::MacOs)
+}
+
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn ordered_candidates(
+    explicit: Option<PathBuf>,
+    registry: Vec<PathBuf>,
+    standard: Vec<PathBuf>,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    for candidate in explicit.into_iter().chain(registry).chain(standard) {
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
     }
-
-    Ok(BambuInstallation {
-        executable: fs::canonicalize(executable).map_err(|_| AppError::BambuStudioMissing)?,
-        profiles_root: fs::canonicalize(profiles_root)
-            .map_err(|_| AppError::SlicerProfilesMissing)?,
-    })
+    candidates
 }
 
-fn is_directory(path: &Path) -> bool {
-    fs::symlink_metadata(path)
-        .is_ok_and(|metadata| metadata.file_type().is_dir() && !metadata.file_type().is_symlink())
+#[cfg(target_os = "windows")]
+pub fn windows_registry_candidates() -> Vec<PathBuf> {
+    use winreg::{
+        enums::{
+            HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY, KEY_WOW64_64KEY,
+        },
+        RegKey,
+    };
+
+    const UNINSTALL: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
+    let mut candidates = Vec::new();
+    for hive in [
+        RegKey::predef(HKEY_CURRENT_USER),
+        RegKey::predef(HKEY_LOCAL_MACHINE),
+    ] {
+        for access in [KEY_READ | KEY_WOW64_64KEY, KEY_READ | KEY_WOW64_32KEY] {
+            let Ok(uninstall) = hive.open_subkey_with_flags(UNINSTALL, access) else {
+                continue;
+            };
+            for key_name in uninstall.enum_keys().filter_map(std::result::Result::ok) {
+                let Ok(entry) = uninstall.open_subkey_with_flags(&key_name, access) else {
+                    continue;
+                };
+                let Ok(display_name) = entry.get_value::<String, _>("DisplayName") else {
+                    continue;
+                };
+                if !display_name.to_ascii_lowercase().contains("bambu studio") {
+                    continue;
+                }
+                if let Ok(location) = entry.get_value::<String, _>("InstallLocation") {
+                    let location = location.trim().trim_matches('"');
+                    if !location.is_empty() {
+                        candidates.push(PathBuf::from(location).join("BambuStudio.exe"));
+                    }
+                }
+            }
+        }
+    }
+    ordered_candidates(None, candidates, Vec::new())
 }
 
-fn is_executable(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|metadata| {
-        metadata.file_type().is_file()
-            && !metadata.file_type().is_symlink()
-            && has_execute_permission(&metadata)
-    })
+#[cfg(not(target_os = "windows"))]
+pub fn windows_registry_candidates() -> Vec<PathBuf> {
+    Vec::new()
 }
 
-#[cfg(unix)]
-fn has_execute_permission(metadata: &fs::Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-
-    metadata.permissions().mode() & 0o111 != 0
-}
-
-#[cfg(not(unix))]
-fn has_execute_permission(_metadata: &fs::Metadata) -> bool {
-    true
+#[cfg(target_os = "windows")]
+fn windows_standard_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        candidates.push(
+            PathBuf::from(program_files)
+                .join("Bambu Studio")
+                .join("BambuStudio.exe"),
+        );
+    }
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        let local_app_data = PathBuf::from(local_app_data);
+        candidates.push(
+            local_app_data
+                .join("Programs/Bambu Studio")
+                .join("BambuStudio.exe"),
+        );
+        candidates.push(local_app_data.join("BambuStudio/BambuStudio.exe"));
+    }
+    candidates
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{InstallationDiscovery, SYSTEM_EXECUTABLE};
+    use super::{ordered_candidates, InstallationDiscovery, SYSTEM_EXECUTABLE};
     use crate::error::AppError;
     use std::{
         fs,
@@ -236,5 +311,29 @@ mod tests {
             discovery_for(&profiles_link.app).discover(),
             Err(AppError::SlicerProfilesMissing)
         ));
+    }
+
+    #[test]
+    fn windows_candidates_keep_manual_registry_and_standard_priority() {
+        let manual = PathBuf::from(r"C:\Selected\BambuStudio.exe");
+        let registry = vec![
+            PathBuf::from(r"C:\Registry\First\BambuStudio.exe"),
+            PathBuf::from(r"C:\Registry\Second\BambuStudio.exe"),
+        ];
+        let standard = vec![
+            PathBuf::from(r"C:\Program Files\Bambu Studio\BambuStudio.exe"),
+            PathBuf::from(r"C:\Users\Robin\AppData\Local\BambuStudio\BambuStudio.exe"),
+        ];
+
+        assert_eq!(
+            ordered_candidates(Some(manual.clone()), registry.clone(), standard.clone()),
+            vec![
+                manual,
+                registry[0].clone(),
+                registry[1].clone(),
+                standard[0].clone(),
+                standard[1].clone(),
+            ]
+        );
     }
 }

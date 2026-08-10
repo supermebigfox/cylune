@@ -281,6 +281,8 @@ it("starts private metadata slicing without exposing output or profile paths", a
   await api.getSliceTask("slice-task-1");
   await api.cancelSlice("slice-task-1");
   await api.openInBambuStudio("/Users/robin/Desktop/月球灯.3mf");
+  await api.getDesktopPlatform();
+  await api.setBambuStudioPath("C:\\Apps\\Bambu Studio\\BambuStudio.exe");
 
   expect(invoke).toHaveBeenNthCalledWith(1, "inspect_3mf", {
     path: "/Users/robin/Desktop/月球灯.3mf",
@@ -302,6 +304,10 @@ it("starts private metadata slicing without exposing output or profile paths", a
   });
   expect(invoke).toHaveBeenNthCalledWith(6, "open_in_bambu_studio", {
     path: "/Users/robin/Desktop/月球灯.3mf",
+  });
+  expect(invoke).toHaveBeenNthCalledWith(7, "get_desktop_platform", undefined);
+  expect(invoke).toHaveBeenNthCalledWith(8, "set_bambu_studio_path", {
+    path: "C:\\Apps\\Bambu Studio\\BambuStudio.exe",
   });
   expect(JSON.stringify(request)).not.toContain("/profiles/");
   expect(request).not.toHaveProperty("output_path");

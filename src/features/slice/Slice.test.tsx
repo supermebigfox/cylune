@@ -111,6 +111,8 @@ function fixture({
     cancelSlice: vi.fn(cancel),
     getSliceTask: vi.fn(getTask),
     openInBambuStudio,
+    getDesktopPlatform: vi.fn(async () => "unsupported" as const),
+    setBambuStudioPath: vi.fn(async () => undefined),
   };
   const emit = <Name extends SliceEventName>(name: Name, payload: EventPayloads[Name]) => {
     handlers.get(name)?.forEach((handler) => handler(payload));
@@ -126,9 +128,12 @@ function renderSlice({
   onProjectComplete = vi.fn(),
   onSlicedFile = vi.fn(),
   onFormLockChange = vi.fn(),
+  pickBambuStudio = vi.fn(async () => null as string | null),
 } = {}) {
+  const platformProps = { pickBambuStudio };
   render(
     <Slice
+      {...platformProps}
       api={client.api}
       pickInput={pickInput}
       subscribeEvent={client.subscribeEvent}
@@ -632,6 +637,54 @@ it("keeps progress determinate and monotonic across lifecycle events before open
 
   await user.click(within(alert).getByRole("button", { name: "使用 Bambu Studio 打开" }));
   expect(client.openInBambuStudio).toHaveBeenCalledWith("/Users/robin/Desktop/月球灯.3mf");
+});
+
+it("lets Windows choose BambuStudio.exe, persists it, and retries the failed slice", async () => {
+  const client = fixture();
+  const getDesktopPlatform = vi.fn(async () => "windows");
+  const setBambuStudioPath = vi.fn(async () => undefined);
+  Object.assign(client.api, { getDesktopPlatform, setBambuStudioPath });
+  client.startSlice
+    .mockRejectedValueOnce({ code: "bambu_studio_missing" })
+    .mockResolvedValueOnce({
+      task_id: "slice-task-2",
+      state: "running",
+      phase: "preparing",
+      percent: null,
+      project_id: null,
+      error_code: null,
+    });
+  const pickBambuStudio = vi.fn(async () => "C:\\Apps\\Bambu Studio\\BambuStudio.exe");
+  renderSlice({ client, pickBambuStudio });
+  const user = await prepareReadyForm();
+
+  await user.click(screen.getByRole("button", { name: "开始后台切片" }));
+  await user.click(await screen.findByRole("button", { name: "选择 BambuStudio.exe" }));
+
+  expect(setBambuStudioPath).toHaveBeenCalledTimes(1);
+  expect(setBambuStudioPath).toHaveBeenCalledWith(
+    "C:\\Apps\\Bambu Studio\\BambuStudio.exe",
+  );
+  await waitFor(() => expect(client.startSlice).toHaveBeenCalledTimes(2));
+});
+
+it("does not render the Bambu Studio chooser on macOS", async () => {
+  const client = fixture();
+  Object.assign(client.api, {
+    getDesktopPlatform: vi.fn(async () => "macos"),
+    setBambuStudioPath: vi.fn(async () => undefined),
+  });
+  client.startSlice.mockRejectedValueOnce({ code: "bambu_studio_missing" });
+  renderSlice({
+    client,
+    pickBambuStudio: vi.fn(async () => "/Applications/BambuStudio.app"),
+  });
+  const user = await prepareReadyForm();
+
+  await user.click(screen.getByRole("button", { name: "开始后台切片" }));
+  await screen.findByRole("alert");
+
+  expect(screen.queryByRole("button", { name: "选择 BambuStudio.exe" })).not.toBeInTheDocument();
 });
 
 it("rehydrates an active background task when the user returns to the slicing page", async () => {

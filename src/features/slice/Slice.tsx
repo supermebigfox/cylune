@@ -25,6 +25,7 @@ import {
   type ReactNode,
 } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useLocale, type SupportedLocale } from "../../i18n";
 import "./Slice.css";
 
@@ -124,11 +125,14 @@ export interface SliceApi {
   cancelSlice(taskId: string): Promise<void>;
   getSliceTask(taskId: string): Promise<SliceTask>;
   openInBambuStudio(path: string): Promise<void>;
+  getDesktopPlatform(): Promise<"macos" | "windows" | "unsupported">;
+  setBambuStudioPath(path: string): Promise<void>;
 }
 
 export interface SliceProps {
   api: SliceApi;
   pickInput(): Promise<string | null>;
+  pickBambuStudio?(): Promise<string | null>;
   subscribeEvent: SliceEventSubscriber;
   subscribeFileDrop?: SliceFileDropSubscriber;
   onProjectComplete(projectId: string): void;
@@ -195,6 +199,7 @@ const COPY = {
     cancelled: "切片已取消",
     cancelledHint: "Bambu Studio 后台进程已经退出，项目设置没有被修改。",
     retry: "重新尝试",
+    chooseBambuStudio: "选择 BambuStudio.exe",
     openStudio: "使用 Bambu Studio 打开",
     failedTitle: "Bambu Studio 无法完成这个项目",
     failedHint: "可以重新尝试，或手动交给 Bambu Studio 检查；软件绝不会自动打开它。",
@@ -258,6 +263,7 @@ const COPY = {
     cancelled: "切片已取消",
     cancelledHint: "Bambu Studio 背景程序已經結束，專案設定沒有被修改。",
     retry: "重新嘗試",
+    chooseBambuStudio: "選擇 BambuStudio.exe",
     openStudio: "使用 Bambu Studio 開啟",
     failedTitle: "Bambu Studio 無法完成這個專案",
     failedHint: "可以重新嘗試，或手動交給 Bambu Studio 檢查；軟體絕不會自動開啟它。",
@@ -321,6 +327,7 @@ const COPY = {
     cancelled: "Slicing cancelled",
     cancelledHint: "The Bambu Studio background process has exited without changing the project settings.",
     retry: "Try again",
+    chooseBambuStudio: "Choose BambuStudio.exe",
     openStudio: "Open in Bambu Studio",
     failedTitle: "Bambu Studio couldn't slice this project",
     failedHint: "Try again or explicitly open it in Bambu Studio. CYLUNE never opens it automatically.",
@@ -394,6 +401,15 @@ const subscribeTauriFileDrop: SliceFileDropSubscriber = async (handler) => {
   return getCurrentWebview().onDragDropEvent((event) => handler(event.payload));
 };
 
+const pickBambuStudioExecutable = async (): Promise<string | null> => {
+  const selected = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: "BambuStudio.exe", extensions: ["exe"] }],
+  });
+  return typeof selected === "string" ? selected : null;
+};
+
 function isInsideDropZone(
   position: { x: number; y: number },
   zone: HTMLElement,
@@ -464,6 +480,7 @@ function SectionTitle({ icon, title, hint }: {
 export function Slice({
   api,
   pickInput,
+  pickBambuStudio = pickBambuStudioExecutable,
   subscribeEvent,
   subscribeFileDrop = subscribeTauriFileDrop,
   onProjectComplete,
@@ -489,7 +506,10 @@ export function Slice({
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(activeTask?.error_code ?? null);
+  const [desktopPlatform, setDesktopPlatform] = useState<"macos" | "windows" | "unsupported">("unsupported");
   const [openingStudio, setOpeningStudio] = useState(false);
+  const [settingStudio, setSettingStudio] = useState(false);
   const [progress, setProgress] = useState<{ phase: SlicePhase; percent: number }>(() => ({
     phase: activeTask?.phase ?? "preparing",
     percent: normalizedPercent(activeTask?.percent),
@@ -541,6 +561,7 @@ export function Slice({
     setInspection(null);
     setError(null);
     setErrorDetail(null);
+    setErrorCode(null);
     setMismatchConfirmed(false);
     try {
       const result = await api.inspect3mf(path);
@@ -571,6 +592,18 @@ export function Slice({
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    void api.getDesktopPlatform().then((platform) => {
+      if (!disposed) setDesktopPlatform(platform);
+    }).catch(() => {
+      if (!disposed) setDesktopPlatform("unsupported");
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [api]);
 
   useEffect(() => {
     if (!active) return;
@@ -614,7 +647,10 @@ export function Slice({
       percent,
     });
     setView(viewForTask(activeTask));
-    if (activeTask.state === "failed") setError(copy("failedTitle"));
+    if (activeTask.state === "failed") {
+      setError(copy("failedTitle"));
+      setErrorCode(activeTask.error_code);
+    }
   }, [activeTask, copy]);
 
   useEffect(() => {
@@ -722,6 +758,7 @@ export function Slice({
         publishTask(next);
         setError(copy("failedTitle"));
         setErrorDetail(event.message ?? event.code ?? null);
+        setErrorCode(event.code ?? "slicer_failed");
         setView("failed");
       }),
     ]).catch(() => undefined);
@@ -737,11 +774,11 @@ export function Slice({
     if (path) await inspectPath(path);
   };
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const startConfiguredSlice = async () => {
     if (!formValid || locked || !inputPath) return;
     setError(null);
     setErrorDetail(null);
+    setErrorCode(null);
     setProgress({ phase: "preparing", percent: 0 });
     setView("starting");
     try {
@@ -760,9 +797,39 @@ export function Slice({
       setView("running");
     } catch (startError) {
       if (!mounted.current) return;
+      const code = stableError(startError);
       setError(copy("failedTitle"));
-      setErrorDetail(stableError(startError));
+      setErrorDetail(code);
+      setErrorCode(code);
       setView("failed");
+    }
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await startConfiguredSlice();
+  };
+
+  const chooseBambuStudio = async () => {
+    if (desktopPlatform !== "windows" || errorCode !== "bambu_studio_missing" || settingStudio) {
+      return;
+    }
+    const path = await pickBambuStudio();
+    if (!path) return;
+    setSettingStudio(true);
+    try {
+      await api.setBambuStudioPath(path);
+      if (mounted.current) await startConfiguredSlice();
+    } catch (selectionError) {
+      if (mounted.current) {
+        const code = stableError(selectionError);
+        setError(copy("failedTitle"));
+        setErrorDetail(code);
+        setErrorCode(code);
+        setView("failed");
+      }
+    } finally {
+      if (mounted.current) setSettingStudio(false);
     }
   };
 
@@ -826,6 +893,7 @@ export function Slice({
   const resetFailure = () => {
     setError(null);
     setErrorDetail(null);
+    setErrorCode(null);
     setView(inspection?.kind === "unsliced" ? "ready" : "idle");
   };
 
@@ -837,6 +905,7 @@ export function Slice({
     setInspection(null);
     setError(null);
     setErrorDetail(null);
+    setErrorCode(null);
     setMismatchConfirmed(false);
     setProgress({ phase: "preparing", percent: 0 });
   };
@@ -928,6 +997,7 @@ export function Slice({
         <div><strong>{error === copy("failedTitle") ? error : copy("failedTitle")}</strong><p>{error === copy("failedTitle") ? copy("failedHint") : error}</p>{errorDetail ? <small>{errorDetail}</small> : null}</div>
         <div className="slice-error-actions">
           {inspection.kind === "unsliced" ? <button type="button" className="ghost small" onClick={resetFailure}><ArrowClockwise size={15} />{copy("retry")}</button> : null}
+          {desktopPlatform === "windows" && errorCode === "bambu_studio_missing" ? <button type="button" className="secondary small" disabled={settingStudio} onClick={() => void chooseBambuStudio()}><FolderOpen size={15} />{copy("chooseBambuStudio")}</button> : null}
           {inputPath ? <button type="button" className="secondary small" disabled={openingStudio} onClick={() => void openStudio()}><FolderOpen size={15} />{copy("openStudio")}</button> : null}
         </div>
       </div> : null}
