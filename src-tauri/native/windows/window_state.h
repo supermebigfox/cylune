@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <utility>
 #include <vector>
 
 enum class PetHit { Transparent, Drag };
@@ -111,6 +112,24 @@ inline bool PetWindowMayShow(bool requestedVisible, bool sleeping,
   return requestedVisible && !sleeping && inputRegionValid;
 }
 
+inline bool PetWindowNeedsResizeConceal(
+    bool actuallyVisible, bool rendererAvailable, uint32_t currentWidth,
+    uint32_t currentHeight, uint32_t nextWidth, uint32_t nextHeight) {
+  return actuallyVisible && rendererAvailable &&
+         (currentWidth != nextWidth || currentHeight != nextHeight);
+}
+
+template <typename PositionOperation, typename ResizeOperation,
+          typename RegionOperation>
+bool TryPositionResizeAndRegion(bool resizeRequired,
+                                PositionOperation &&position,
+                                ResizeOperation &&resize,
+                                RegionOperation &&applyRegion) {
+  if (!std::forward<PositionOperation>(position)()) return false;
+  if (resizeRequired && !std::forward<ResizeOperation>(resize)()) return false;
+  return std::forward<RegionOperation>(applyRegion)();
+}
+
 inline bool OwnerExitAfterDestroyAttempt(bool destroySucceeded,
                                          bool receivedNcDestroy) {
   return destroySucceeded || receivedNcDestroy;
@@ -119,7 +138,7 @@ inline bool OwnerExitAfterDestroyAttempt(bool destroySucceeded,
 namespace cylune_window_state {
 
 constexpr double kSafeInset = 16.0;
-constexpr double kMinimumSize = 300.0;
+constexpr double kMinimumSize = 120.0;
 constexpr double kMaximumSize = 900.0;
 
 inline bool ValidDisplay(const DisplayInfo &display) {

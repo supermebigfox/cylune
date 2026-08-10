@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <utility>
 
 template <typename Clock, typename Duration>
 std::chrono::time_point<Clock, Duration> NextRenderDeadline(
@@ -18,10 +19,146 @@ std::chrono::time_point<Clock, Duration> NextRenderDeadline(
   return frameCompleted + interval;
 }
 
+template <typename TimePoint>
+struct HiddenRenderClockState {
+  TimePoint lastFrame;
+  TimePoint nextFrame;
+};
+
+template <typename TimePoint>
+HiddenRenderClockState<TimePoint> HiddenRenderClock(TimePoint now) {
+  return {now, TimePoint::max()};
+}
+
+class SurfacePrimeState {
+ public:
+  void conceal() {
+    primed_ = false;
+    visible_ = false;
+  }
+
+  void markPrimed() { primed_ = true; }
+
+  bool reveal() {
+    visible_ = primed_;
+    return visible_;
+  }
+
+  bool primed() const { return primed_; }
+  bool canRender() const { return primed_ && visible_; }
+
+ private:
+  bool primed_ = false;
+  bool visible_ = false;
+};
+
+enum class RendererAvailability : uint32_t { Unavailable = 0, Ready = 1 };
+
+class RendererStatusState {
+ public:
+  RendererAvailability value() const { return value_; }
+
+  bool transition(RendererAvailability value) {
+    if (value == value_) return false;
+    value_ = value;
+    return true;
+  }
+
+ private:
+  RendererAvailability value_ = RendererAvailability::Unavailable;
+};
+
+class RendererRetryState {
+ public:
+  static constexpr uint32_t kMaximumAttempts = 4;
+
+  void request(uint64_t nowMilliseconds, bool resetBudget) {
+    if (resetBudget) attempts_ = 0;
+    if (attempts_ >= kMaximumAttempts) return;
+    pending_ = true;
+    deadlineMilliseconds_ = nowMilliseconds;
+  }
+
+  void failed(uint64_t nowMilliseconds) {
+    if (attempts_ < kMaximumAttempts) ++attempts_;
+    if (attempts_ >= kMaximumAttempts) {
+      pending_ = false;
+      return;
+    }
+    const uint32_t shift = attempts_ == 0 ? 0 : attempts_ - 1;
+    deadlineMilliseconds_ = nowMilliseconds + (100ULL << shift);
+    pending_ = true;
+  }
+
+  void succeeded() {
+    attempts_ = 0;
+    pending_ = false;
+    deadlineMilliseconds_ = 0;
+  }
+
+  void cancel() {
+    pending_ = false;
+    deadlineMilliseconds_ = 0;
+  }
+
+  bool due(uint64_t nowMilliseconds) const {
+    return pending_ && nowMilliseconds >= deadlineMilliseconds_;
+  }
+
+  bool pending() const { return pending_; }
+  uint32_t attempts() const { return attempts_; }
+  uint64_t deadlineMilliseconds() const { return deadlineMilliseconds_; }
+
+ private:
+  uint32_t attempts_ = 0;
+  bool pending_ = false;
+  uint64_t deadlineMilliseconds_ = 0;
+};
+
+class RenderPresentationState {
+ public:
+  void requestVisible(bool visible) {
+    requestedVisible_ = visible;
+    if (!visible) actuallyVisible_ = false;
+  }
+
+  void conceal() { actuallyVisible_ = false; }
+  void reveal() { actuallyVisible_ = requestedVisible_; }
+  bool requestedVisible() const { return requestedVisible_; }
+  bool actuallyVisible() const { return actuallyVisible_; }
+
+ private:
+  bool requestedVisible_ = false;
+  bool actuallyVisible_ = false;
+};
+
+template <typename PrimeOperation, typename ShowOperation>
+bool TryPrimeAndShow(RenderPresentationState &presentation,
+                     bool prerequisitesReady, PrimeOperation &&prime,
+                     ShowOperation &&show) {
+  if (!presentation.requestedVisible() || !prerequisitesReady ||
+      !std::forward<PrimeOperation>(prime)() ||
+      !std::forward<ShowOperation>(show)()) {
+    presentation.conceal();
+    return false;
+  }
+  presentation.reveal();
+  return presentation.actuallyVisible();
+}
+
+template <typename ConcealOperation, typename ResizeOperation>
+bool TryResizeWhileConcealed(RenderPresentationState &presentation,
+                             ConcealOperation &&conceal,
+                             ResizeOperation &&resize) {
+  presentation.conceal();
+  std::forward<ConcealOperation>(conceal)();
+  return std::forward<ResizeOperation>(resize)();
+}
+
 struct RenderConfig {
   uint32_t fps = 0;
   bool visible = false;
-  double size = 300.0;
+  double size = 220.0;
   uint32_t pendingCount = 0;
   uint8_t visualStyle = 0;
 };
@@ -50,7 +187,7 @@ class RenderState {
   void apply(RenderConfig config) {
     configuredFps_ = config.fps == 30 || config.fps == 60 ? config.fps : 0;
     visible_ = config.visible;
-    configuredDiameter_ = std::clamp(config.size, 300.0, 900.0);
+    configuredDiameter_ = std::clamp(config.size, 120.0, 900.0);
     frame_.pendingCount = config.pendingCount;
     frame_.shaderStyle = config.visualStyle == 0 ? 1u : 0u;
   }
@@ -163,7 +300,7 @@ class RenderState {
 
   uint32_t configuredFps_ = 0;
   bool visible_ = false;
-  double configuredDiameter_ = 300.0;
+  double configuredDiameter_ = 220.0;
   double hoverProgress_ = 0.0;
   double animationElapsed_ = 0.0;
   RenderVisualState visualState_ = RenderVisualState::Idle;

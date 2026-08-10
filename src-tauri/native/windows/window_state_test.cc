@@ -40,6 +40,36 @@ int main() {
   assert(!PetWindowMayShow(true, false, false));
   assert(!PetWindowMayShow(true, true, true));
 
+  assert(PetWindowNeedsResizeConceal(true, true, 220, 220, 330, 330));
+  assert(!PetWindowNeedsResizeConceal(true, true, 220, 220, 220, 220));
+  assert(!PetWindowNeedsResizeConceal(false, true, 220, 220, 330, 330));
+  assert(!PetWindowNeedsResizeConceal(true, false, 220, 220, 330, 330));
+
+  int resizeCalls = 0;
+  int regionCalls = 0;
+  assert(!TryPositionResizeAndRegion(
+      true, []() { return true; }, [&resizeCalls]() {
+        ++resizeCalls;
+        return false;
+      },
+      [&regionCalls]() {
+        ++regionCalls;
+        return true;
+      }));
+  assert(resizeCalls == 1);
+  assert(regionCalls == 0);
+  assert(TryPositionResizeAndRegion(
+      false, []() { return true; }, [&resizeCalls]() {
+        ++resizeCalls;
+        return false;
+      },
+      [&regionCalls]() {
+        ++regionCalls;
+        return true;
+      }));
+  assert(resizeCalls == 1);
+  assert(regionCalls == 1);
+
   assert(OwnerExitAfterDestroyAttempt(true, false));
   assert(OwnerExitAfterDestroyAttempt(false, true));
   assert(!OwnerExitAfterDestroyAttempt(false, false));
@@ -120,9 +150,12 @@ int main() {
   assert(removed.displayId == 10);
   assert(close_to(removed.x, 16));
 
-  const Placement minimum = ClampPetOrigin({100, 100}, 120, displays);
-  assert(close_to(minimum.size, 300));
-  const Placement maximum = ClampPetOrigin({100, 100}, 1200, displays);
+  assert(close_to(ClampPetOrigin({100, 100}, 119, displays).size, 120));
+  assert(close_to(ClampPetOrigin({100, 100}, 120, displays).size, 120));
+  assert(close_to(ClampPetOrigin({100, 100}, 220, displays).size, 220));
+  assert(close_to(ClampPetOrigin({100, 100}, 299, displays).size, 299));
+  assert(close_to(ClampPetOrigin({100, 100}, 300, displays).size, 300));
+  const Placement maximum = ClampPetOrigin({100, 100}, 901, displays);
   assert(close_to(maximum.size, 900));
 
   const Placement recovered = ClampPetOrigin(
@@ -135,9 +168,9 @@ int main() {
   const double nan = std::numeric_limits<double>::quiet_NaN();
   const Placement finite = ClampPetOrigin({nan, nan}, nan, displays);
   assert(finite.displayId == 1);
-  assert(close_to(finite.x, -1920 + (1920 - 300) * 0.5));
-  assert(close_to(finite.y, (1080 - 300) * 0.5));
-  assert(close_to(finite.size, 300));
+  assert(close_to(finite.x, -1920 + (1920 - 120) * 0.5));
+  assert(close_to(finite.y, (1080 - 120) * 0.5));
+  assert(close_to(finite.size, 120));
   assert(HitTestPet({nan, 10}, 300) == PetHit::Transparent);
   assert(HitTestPet({150, 150}, nan) == PetHit::Transparent);
 
@@ -166,5 +199,5 @@ int main() {
   assert(empty.displayId == 0);
   assert(close_to(empty.x, 0));
   assert(close_to(empty.y, 0));
-  assert(close_to(empty.size, 300));
+  assert(close_to(empty.size, 120));
 }

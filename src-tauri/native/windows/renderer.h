@@ -14,7 +14,7 @@ struct ID3D11ShaderResourceView;
 
 struct RendererFrame {
   double animationTime = 0.0;
-  double visualDiameterPixels = 300.0;
+  double visualDiameterPixels = 220.0;
   float brightness = 1.0f;
   float rotationRate = 1.0f;
   uint32_t shaderStyle = 1;
@@ -39,10 +39,12 @@ class BlackHoleRenderer {
   BlackHoleRenderer &operator=(const BlackHoleRenderer &) = delete;
 
   bool resize(uint32_t pixelWidth, uint32_t pixelHeight) noexcept;
+  bool prime() noexcept;
   bool render(const RendererFrame &frame) noexcept;
   void setVisible(bool visible) noexcept;
   void shutdown() noexcept;
   bool available() const noexcept;
+  bool primed() const noexcept;
 
  private:
   struct Impl;

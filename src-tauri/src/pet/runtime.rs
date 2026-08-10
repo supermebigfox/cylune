@@ -132,10 +132,14 @@ fn capture_status(
 
     let snapshot = CaptureState::Requested.reduce(capture_state.into());
     if renderer_state == NativeRendererState::Unavailable {
+        #[cfg(target_os = "windows")]
+        let fallback_reason = "direct3d_unavailable";
+        #[cfg(not(target_os = "windows"))]
+        let fallback_reason = "metal_unavailable";
         return PetStatus {
             effective_mode: PetMode::Lite,
             permission: snapshot.permission,
-            fallback_reason: Some("metal_unavailable".to_owned()),
+            fallback_reason: Some(fallback_reason.to_owned()),
         };
     }
 
@@ -233,6 +237,7 @@ pub enum NativeEvent {
     PermissionChanged(NativeCaptureState),
     CaptureFailed,
     RendererUnavailable,
+    RendererReady,
     Sleep,
     Wake,
 }
@@ -340,6 +345,7 @@ trait RuntimeNative: Send {
     fn hide(&self);
     fn reset(&self);
     fn signal(&self, signal: u32);
+    fn renderer_state(&self) -> NativeRendererState;
     fn finish_drop(&self, generation: u64, result: NativeDropResult);
     fn shutdown(self: Box<Self>) -> NativeShutdownState;
 }
@@ -363,6 +369,10 @@ impl RuntimeNative for NativePet {
 
     fn signal(&self, signal: u32) {
         NativePet::signal(self, signal);
+    }
+
+    fn renderer_state(&self) -> NativeRendererState {
+        NativePet::renderer_state(self)
     }
 
     fn finish_drop(&self, generation: u64, result: NativeDropResult) {
@@ -451,6 +461,22 @@ impl RuntimeMutation {
 }
 
 impl RuntimeState {
+    fn with_native(
+        pet: Box<dyn RuntimeNative>,
+        settings: PetSettings,
+        pending_count: u32,
+        capture_state: NativeCaptureState,
+    ) -> Self {
+        let renderer_state = pet.renderer_state();
+        Self {
+            pet: NativeOwner::new(pet),
+            settings,
+            pending_count,
+            capture_state,
+            renderer_state,
+        }
+    }
+
     fn config(&self, request_permission: bool) -> PetNativeConfig {
         let mut config = PetNativeConfig::from_settings(&self.settings, request_permission);
         config.set_effective_mode(self.status().effective_mode);
@@ -474,14 +500,14 @@ impl RuntimeState {
             };
         }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         return PetStatus {
             effective_mode: PetMode::Lite,
             permission: CapturePermission::Unavailable,
             fallback_reason: Some("platform_unsupported".to_owned()),
         };
 
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         return capture_status(self.settings.mode, self.capture_state, self.renderer_state);
     }
 
@@ -496,7 +522,17 @@ impl RuntimeState {
                 true
             }
             NativeEvent::RendererUnavailable => {
+                if self.renderer_state == NativeRendererState::Unavailable {
+                    return false;
+                }
                 self.renderer_state = NativeRendererState::Unavailable;
+                true
+            }
+            NativeEvent::RendererReady => {
+                if self.renderer_state == NativeRendererState::Ready {
+                    return false;
+                }
+                self.renderer_state = NativeRendererState::Ready;
                 true
             }
             _ => false,
@@ -527,13 +563,12 @@ impl PetRuntime {
         } else {
             NativeCaptureState::Unavailable
         };
-        let state = Arc::new(Mutex::new(RuntimeState {
-            pet: NativeOwner::new(Box::new(pet)),
+        let state = Arc::new(Mutex::new(RuntimeState::with_native(
+            Box::new(pet),
             settings,
-            pending_count: pending.count,
-            capture_state: initial_capture_state,
-            renderer_state: NativeRendererState::Ready,
-        }));
+            pending.count,
+            initial_capture_state,
+        )));
         let mutation = Arc::new(RuntimeMutation::default());
         let initial_settings = state
             .lock()
@@ -795,7 +830,8 @@ fn handle_native_event(
         NativeEvent::DropEntered | NativeEvent::DropExited => {}
         NativeEvent::PermissionChanged(_)
         | NativeEvent::CaptureFailed
-        | NativeEvent::RendererUnavailable => {
+        | NativeEvent::RendererUnavailable
+        | NativeEvent::RendererReady => {
             let mut state = state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -815,6 +851,7 @@ fn handle_native_event(
 struct RecordingRuntimeNative {
     configs: Arc<Mutex<Vec<PetNativeConfig>>>,
     drop_results: Arc<Mutex<Vec<(u64, NativeDropResult)>>>,
+    renderer_state: NativeRendererState,
     _identity: Arc<()>,
 }
 
@@ -832,6 +869,10 @@ impl RuntimeNative for RecordingRuntimeNative {
     fn hide(&self) {}
     fn reset(&self) {}
     fn signal(&self, _signal: u32) {}
+
+    fn renderer_state(&self) -> NativeRendererState {
+        self.renderer_state
+    }
 
     fn finish_drop(&self, generation: u64, result: NativeDropResult) {
         self.drop_results
@@ -933,6 +974,7 @@ impl RuntimeCore {
         let native = RecordingRuntimeNative {
             configs: Arc::clone(&configs),
             drop_results: Arc::clone(&drop_results),
+            renderer_state: NativeRendererState::Ready,
             _identity: Arc::clone(&native_identity),
         };
         let state = Arc::new(Mutex::new(RuntimeState {
@@ -1409,13 +1451,16 @@ fn copy_native_event(
             Some(NativeEvent::PermissionChanged(state))
         }
         PetCallbackKind::CaptureFailed => {
-            if !payload.is_null()
-                && unsafe { CStr::from_ptr(payload) }.to_bytes() == b"metal_unavailable"
-            {
-                Some(NativeEvent::RendererUnavailable)
-            } else {
-                Some(NativeEvent::CaptureFailed)
+            if !payload.is_null() {
+                match unsafe { CStr::from_ptr(payload) }.to_bytes() {
+                    b"metal_unavailable" | b"renderer_unavailable" => {
+                        return Some(NativeEvent::RendererUnavailable)
+                    }
+                    b"renderer_ready" => return Some(NativeEvent::RendererReady),
+                    _ => {}
+                }
             }
+            Some(NativeEvent::CaptureFailed)
         }
         PetCallbackKind::Sleep => Some(NativeEvent::Sleep),
         PetCallbackKind::Wake => Some(NativeEvent::Wake),
@@ -1428,8 +1473,8 @@ mod tests {
         capture_status, copy_native_event, handle_file_drop, pending_transition,
         persist_native_position, second_launch_actions, CallbackRegistration, CaptureEvent,
         CaptureState, InstanceAction, InstanceRecall, LifeAction, LifeEvent, LifeState,
-        NativeEvent, NativeOwner, PetRuntime, PetSignal, PositionMerge, RuntimeCore,
-        RuntimeMutation, RuntimeNative, RuntimeState,
+        NativeEvent, NativeOwner, PetRuntime, PetSignal, PositionMerge, RecordingRuntimeNative,
+        RuntimeCore, RuntimeMutation, RuntimeNative, RuntimeState,
     };
     use crate::pet::native::{
         NativeCaptureState, NativeDropResult, NativeRendererState, NativeShutdownState,
@@ -1817,6 +1862,48 @@ mod tests {
     }
 
     #[test]
+    fn callback_decodes_renderer_state_transitions_without_new_callback_kinds() {
+        let unavailable = CString::new("renderer_unavailable").unwrap();
+        let ready = CString::new("renderer_ready").unwrap();
+
+        assert_eq!(
+            copy_native_event(8, unavailable.as_ptr(), 0.0, 0.0, 0),
+            Some(NativeEvent::RendererUnavailable)
+        );
+        assert_eq!(
+            copy_native_event(8, ready.as_ptr(), 0.0, 0.0, 0),
+            Some(NativeEvent::RendererReady)
+        );
+    }
+
+    #[test]
+    fn runtime_state_queries_initial_native_renderer_availability() {
+        let native = RecordingRuntimeNative {
+            configs: Arc::new(Mutex::new(Vec::new())),
+            drop_results: Arc::new(Mutex::new(Vec::new())),
+            renderer_state: NativeRendererState::Unavailable,
+            _identity: Arc::new(()),
+        };
+        let state = RuntimeState::with_native(
+            Box::new(native),
+            PetSettings {
+                mode: PetMode::Real,
+                visual_style: PetVisualStyle::Gargantua,
+                size: 220,
+                fps: PetFps::Auto,
+                visible: true,
+                x: None,
+                y: None,
+                display_id: None,
+            },
+            0,
+            NativeCaptureState::Ready,
+        );
+
+        assert_eq!(state.renderer_state, NativeRendererState::Unavailable);
+    }
+
+    #[test]
     fn dropping_callback_registration_closes_the_native_event_channel() {
         let (sender, receiver) = mpsc::channel();
         let registration = CallbackRegistration::install(sender);
@@ -1852,6 +1939,9 @@ mod tests {
             fn hide(&self) {}
             fn reset(&self) {}
             fn signal(&self, _signal: u32) {}
+            fn renderer_state(&self) -> NativeRendererState {
+                NativeRendererState::Ready
+            }
             fn finish_drop(&self, _generation: u64, _result: NativeDropResult) {}
 
             fn shutdown(self: Box<Self>) -> NativeShutdownState {
@@ -2091,6 +2181,39 @@ mod tests {
             Some("metal_unavailable")
         );
         assert_eq!(core.last_native_config().effective_mode, 1);
+    }
+
+    #[test]
+    fn renderer_transitions_are_reduced_once_and_ready_recovers_real_mode() {
+        let mut core = RuntimeCore::for_test_with_mapped_fixture();
+        let initial_applies = core
+            .configs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len();
+
+        core.reduce(NativeEvent::RendererUnavailable);
+        core.reduce(NativeEvent::RendererUnavailable);
+        assert_eq!(
+            core.configs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len(),
+            initial_applies + 1
+        );
+        assert_eq!(core.status().effective_mode, PetMode::Lite);
+
+        core.reduce(NativeEvent::RendererReady);
+        core.reduce(NativeEvent::RendererReady);
+        assert_eq!(
+            core.configs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len(),
+            initial_applies + 2
+        );
+        assert_eq!(core.status().effective_mode, PetMode::Real);
+        assert_eq!(core.status().fallback_reason, None);
     }
 
     #[test]

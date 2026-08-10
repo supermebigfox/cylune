@@ -314,6 +314,7 @@
     "restartRequired": "Permission changed. Restart the app.",
     "captureFailed": "Desktop capture stopped unexpectedly; the black hole is using a compatible background",
     "metalUnavailable": "Metal is unavailable; the black hole is using a compatible background",
+    "direct3dUnavailable": "Direct3D is unavailable; the black hole is using a compatible background",
     "saveError": "Could not save desktop black hole settings"
   },
   "notifications": {

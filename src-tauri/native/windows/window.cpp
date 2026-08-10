@@ -52,6 +52,7 @@ constexpr UINT kMessageFinishDrop = WM_APP + 6;
 constexpr uint32_t kCallbackClicked = 1;
 constexpr uint32_t kCallbackMoved = 2;
 constexpr uint32_t kCallbackDisplayChanged = 6;
+constexpr uint32_t kCallbackRendererStatus = 8;
 constexpr uint32_t kCallbackSleep = 9;
 constexpr uint32_t kCallbackWake = 10;
 constexpr double kDragThreshold = 4.0;
@@ -211,8 +212,8 @@ struct PetWindow::Impl {
   std::vector<FinishDropCommand> pendingDropFinishes;
 
   std::vector<MonitorSnapshot> monitors;
-  Placement placement{0, 0.0, 0.0, 300.0};
-  bool visible = false;
+  Placement placement{0, 0.0, 0.0, 220.0};
+  RenderPresentationState presentation;
   bool sleeping = false;
   bool dragging = false;
   bool dragMoved = false;
@@ -224,7 +225,11 @@ struct PetWindow::Impl {
   uint32_t targetFps = 30;
   std::unique_ptr<BlackHoleRenderer> renderer;
   RenderState renderState;
+  RendererStatusState rendererStatus;
+  RendererRetryState rendererRetry;
   std::atomic<uint32_t> nativeRendererState{PET_RENDERER_UNAVAILABLE};
+  uint32_t rendererPixelWidth = 0;
+  uint32_t rendererPixelHeight = 0;
   std::chrono::steady_clock::time_point lastFrameTime{};
   std::chrono::steady_clock::time_point nextFrameTime{};
   HWND dpiProbe = nullptr;
@@ -246,7 +251,11 @@ struct PetWindow::Impl {
     self->dropVisualState = state;
     self->renderState.setVisualState(self->renderVisualState(state));
     self->targetFps = self->renderState.targetFps(60);
-    self->resetRenderClock();
+    if (self->presentation.actuallyVisible()) {
+      self->resetRenderClock();
+    } else {
+      self->resetHiddenRenderClock();
+    }
   }
 
   static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam,
@@ -297,14 +306,45 @@ struct PetWindow::Impl {
     nextFrameTime = now;
   }
 
+  void resetHiddenRenderClock() {
+    const auto hidden = HiddenRenderClock(std::chrono::steady_clock::now());
+    lastFrameTime = hidden.lastFrame;
+    nextFrameTime = hidden.nextFrame;
+  }
+
+  void concealWindow() {
+    presentation.conceal();
+    renderState.setVisible(false);
+    targetFps = 0;
+    resetHiddenRenderClock();
+    if (renderer != nullptr) renderer->setVisible(false);
+    if (HWND window = hwnd.load(std::memory_order_relaxed)) {
+      (void)ShowWindow(window, SW_HIDE);
+    }
+  }
+
   void updateRendererAvailability() {
-    nativeRendererState.store(
-        renderer != nullptr && renderer->available() ? PET_RENDERER_READY
-                                                     : PET_RENDERER_UNAVAILABLE,
-        std::memory_order_release);
+    const RendererAvailability availability =
+        renderer != nullptr && renderer->available()
+            ? RendererAvailability::Ready
+            : RendererAvailability::Unavailable;
+    const uint32_t nativeState = availability == RendererAvailability::Ready
+                                     ? PET_RENDERER_READY
+                                     : PET_RENDERER_UNAVAILABLE;
+    nativeRendererState.store(nativeState, std::memory_order_release);
+    if (rendererStatus.transition(availability) &&
+        !stopping.load(std::memory_order_acquire)) {
+      InvokePetCallbackNoThrow(
+          callback, kCallbackRendererStatus,
+          availability == RendererAvailability::Ready ? "renderer_ready"
+                                                      : "renderer_unavailable",
+          0.0, 0.0, placement.displayId);
+    }
   }
 
   void initializeRenderer(HWND window) {
+    rendererPixelWidth = 0;
+    rendererPixelHeight = 0;
     renderer = BlackHoleRenderer::create(window, shaderSource.c_str());
     if (renderer != nullptr && renderer->available()) {
       RECT client{};
@@ -313,31 +353,109 @@ struct PetWindow::Impl {
           !renderer->resize(static_cast<uint32_t>(client.right - client.left),
                             static_cast<uint32_t>(client.bottom - client.top))) {
         renderer->shutdown();
+      } else {
+        rendererPixelWidth = static_cast<uint32_t>(client.right - client.left);
+        rendererPixelHeight = static_cast<uint32_t>(client.bottom - client.top);
       }
     }
     if (renderer != nullptr) renderer->setVisible(false);
     updateRendererAvailability();
-    resetRenderClock();
+    if (nativeRendererState.load(std::memory_order_acquire) ==
+        PET_RENDERER_READY) {
+      rendererRetry.succeeded();
+    }
+    resetHiddenRenderClock();
   }
 
   void shutdownRenderer() {
     nativeRendererState.store(PET_RENDERER_UNAVAILABLE,
                               std::memory_order_release);
+    (void)rendererStatus.transition(RendererAvailability::Unavailable);
     if (renderer != nullptr) {
       renderer->setVisible(false);
       renderer->shutdown();
       renderer.reset();
     }
+    rendererPixelWidth = 0;
+    rendererPixelHeight = 0;
   }
 
-  void resizeRenderer(uint32_t width, uint32_t height) {
-    if (renderer == nullptr || !renderer->available()) return;
-    if (!renderer->resize(width, height)) {
+  bool resizeRenderer(uint32_t width, uint32_t height) {
+    if (renderer == nullptr || !renderer->available()) return false;
+    if (rendererPixelWidth == width && rendererPixelHeight == height) {
+      return true;
+    }
+    const bool resized = TryResizeWhileConcealed(
+        presentation, [this]() { concealWindow(); },
+        [this, width, height]() { return renderer->resize(width, height); });
+    if (!resized) {
       updateRendererAvailability();
-      if (HWND window = hwnd.load(std::memory_order_relaxed)) {
-        (void)ShowWindow(window, SW_HIDE);
+      if (presentation.requestedVisible() && !sleeping) {
+        rendererRetry.failed(GetTickCount64());
+      }
+      return false;
+    }
+    rendererPixelWidth = width;
+    rendererPixelHeight = height;
+    return true;
+  }
+
+  void requestRendererRetry(bool resetBudget) {
+    if (!presentation.requestedVisible() || sleeping ||
+        stopping.load(std::memory_order_acquire)) {
+      return;
+    }
+    rendererRetry.request(GetTickCount64(), resetBudget);
+  }
+
+  DWORD rendererRetryWaitMilliseconds(ULONGLONG now) const {
+    if (!rendererRetry.pending()) return INFINITE;
+    const uint64_t deadline = rendererRetry.deadlineMilliseconds();
+    if (deadline <= now) return 0;
+    const uint64_t remaining = deadline - now;
+    return remaining > MAXDWORD ? MAXDWORD : static_cast<DWORD>(remaining);
+  }
+
+  void recreateRendererIfDue(HWND window, ULONGLONG now) {
+    if (!rendererRetry.due(now) || !presentation.requestedVisible() || sleeping ||
+        stopping.load(std::memory_order_acquire)) {
+      return;
+    }
+    if (renderer != nullptr) {
+      renderer->setVisible(false);
+      renderer->shutdown();
+      renderer.reset();
+    }
+    rendererPixelWidth = 0;
+    rendererPixelHeight = 0;
+    renderer = BlackHoleRenderer::create(window, shaderSource.c_str());
+    bool recreated = renderer != nullptr && renderer->available();
+    if (recreated) {
+      RECT client{};
+      recreated = GetClientRect(window, &client) &&
+                  client.right > client.left && client.bottom > client.top &&
+                  renderer->resize(
+                      static_cast<uint32_t>(client.right - client.left),
+                      static_cast<uint32_t>(client.bottom - client.top));
+      if (recreated) {
+        rendererPixelWidth =
+            static_cast<uint32_t>(client.right - client.left);
+        rendererPixelHeight =
+            static_cast<uint32_t>(client.bottom - client.top);
       }
     }
+    if (recreated) {
+      renderer->setVisible(false);
+      rendererRetry.succeeded();
+      updateRendererAvailability();
+      showRequestedWindow(false);
+      return;
+    }
+    if (renderer != nullptr) renderer->shutdown();
+    rendererPixelWidth = 0;
+    rendererPixelHeight = 0;
+    updateRendererAvailability();
+    rendererRetry.failed(now);
   }
 
   DWORD renderWaitMilliseconds(
@@ -362,8 +480,9 @@ struct PetWindow::Impl {
     if (nativeRendererState.load(std::memory_order_acquire) !=
             PET_RENDERER_READY ||
         renderer == nullptr || renderState.targetFps(60) == 0) {
-      lastFrameTime = now;
-      nextFrameTime = now;
+      const auto hidden = HiddenRenderClock(now);
+      lastFrameTime = hidden.lastFrame;
+      nextFrameTime = hidden.nextFrame;
       return;
     }
     if (nextFrameTime > now) return;
@@ -394,8 +513,9 @@ struct PetWindow::Impl {
       updateRendererAvailability();
       if (nativeRendererState.load(std::memory_order_acquire) !=
           PET_RENDERER_READY) {
-        if (HWND window = hwnd.load(std::memory_order_relaxed)) {
-          (void)ShowWindow(window, SW_HIDE);
+        concealWindow();
+        if (presentation.requestedVisible() && !sleeping) {
+          rendererRetry.failed(GetTickCount64());
         }
         return;
       }
@@ -461,9 +581,12 @@ struct PetWindow::Impl {
         timeout = remaining > MAXDWORD ? MAXDWORD
                                        : static_cast<DWORD>(remaining);
       } else {
+        const ULONGLONG retryNow = GetTickCount64();
+        recreateRendererIfDue(window, retryNow);
         const auto frameNow = std::chrono::steady_clock::now();
         renderFrameIfDue(frameNow);
-        timeout = renderWaitMilliseconds(frameNow);
+        timeout = std::min(renderWaitMilliseconds(frameNow),
+                           rendererRetryWaitMilliseconds(retryNow));
       }
       const DWORD handleCount = stopRequested ? 0 : 1;
       const HANDLE *handles = stopRequested ? nullptr : &stopEvent;
@@ -537,8 +660,8 @@ struct PetWindow::Impl {
     const DWORD exStyle =
         WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP;
     HWND window = CreateWindowExW(
-        exStyle, kWindowClassName, L"CYLUNE Desktop Pet", style, 0, 0, 300,
-        300, nullptr, nullptr, GetModuleHandleW(nullptr), this);
+        exStyle, kWindowClassName, L"CYLUNE Desktop Pet", style, 0, 0, 220,
+        220, nullptr, nullptr, GetModuleHandleW(nullptr), this);
     if (window == nullptr) {
       signalReady(false);
       if (apartmentInitialized) OleUninitialize();
@@ -665,13 +788,8 @@ struct PetWindow::Impl {
     inputRegionValid = false;
     dragging = false;
     dragMoved = false;
-    renderState.setVisible(false);
-    resetRenderClock();
-    if (renderer != nullptr) renderer->setVisible(false);
+    concealWindow();
     (void)ReleaseCapture();
-    if (HWND window = hwnd.load(std::memory_order_relaxed)) {
-      (void)ShowWindow(window, SW_HIDE);
-    }
   }
 
   bool positionWindow() {
@@ -683,14 +801,25 @@ struct PetWindow::Impl {
         LogicalToPhysical({placement.x, placement.y}, monitor->logical);
     const int side =
         std::max(1, Rounded(placement.size * monitor->logical.scale));
-    if (!SetWindowPos(window, HWND_TOPMOST, Rounded(physical.x),
-                      Rounded(physical.y), side, side,
-                      SWP_NOACTIVATE | SWP_NOOWNERZORDER)) {
-      invalidateInputRegion();
-      return false;
+    const bool resizeRequired = renderer != nullptr && renderer->available();
+    if (PetWindowNeedsResizeConceal(
+            presentation.actuallyVisible(), resizeRequired,
+            rendererPixelWidth, rendererPixelHeight,
+            static_cast<uint32_t>(side), static_cast<uint32_t>(side))) {
+      concealWindow();
     }
-    resizeRenderer(static_cast<uint32_t>(side), static_cast<uint32_t>(side));
-    inputRegionValid = ApplyInputRegion(window, side);
+    inputRegionValid = TryPositionResizeAndRegion(
+        resizeRequired,
+        [window, physical, side]() {
+          return SetWindowPos(window, HWND_TOPMOST, Rounded(physical.x),
+                              Rounded(physical.y), side, side,
+                              SWP_NOACTIVATE | SWP_NOOWNERZORDER) != 0;
+        },
+        [this, side]() {
+          return resizeRenderer(static_cast<uint32_t>(side),
+                                static_cast<uint32_t>(side));
+        },
+        [window, side]() { return ApplyInputRegion(window, side); });
     if (!inputRegionValid) invalidateInputRegion();
     return inputRegionValid;
   }
@@ -706,7 +835,7 @@ struct PetWindow::Impl {
 
   void applyConfig(PetConfig config) {
     monitors = MonitorSnapshots(dpiProbe);
-    visible = config.visible != 0;
+    presentation.requestVisible(config.visible != 0);
     if (config.has_position != 0) {
       placement = clamp({config.x, config.y}, config.size, config.display_id);
     } else if (placement.displayId != 0) {
@@ -724,52 +853,65 @@ struct PetWindow::Impl {
     }
     RenderConfig rendererConfig{};
     rendererConfig.fps = config.fps;
-    rendererConfig.visible = visible && !sleeping;
+    rendererConfig.visible = false;
     rendererConfig.size = placement.size;
     rendererConfig.pendingCount = config.pending_count;
     rendererConfig.visualStyle = config.visual_style;
     renderState.apply(rendererConfig);
     renderState.setVisualState(renderVisualState(dropVisualState));
     targetFps = renderState.targetFps(60);
-    resetRenderClock();
-    visible ? showWindow() : hideWindow();
+    resetHiddenRenderClock();
+    if (presentation.requestedVisible()) {
+      showRequestedWindow(true);
+    } else {
+      hideWindow();
+    }
   }
 
-  void showWindow() {
-    visible = true;
-    renderState.setVisible(!sleeping);
-    resetRenderClock();
-    if (renderer != nullptr) renderer->setVisible(!sleeping);
-    if (!PetWindowMayShow(visible, sleeping, inputRegionValid) ||
-        nativeRendererState.load(std::memory_order_acquire) !=
-            PET_RENDERER_READY) {
-      if (HWND window = hwnd.load(std::memory_order_relaxed)) {
-        (void)ShowWindow(window, SW_HIDE);
+  void showRequestedWindow(bool resetRetryBudget) {
+    concealWindow();
+    HWND window = hwnd.load(std::memory_order_relaxed);
+    const bool prerequisitesReady =
+        window != nullptr &&
+        PetWindowMayShow(presentation.requestedVisible(), sleeping,
+                         inputRegionValid) &&
+        nativeRendererState.load(std::memory_order_acquire) ==
+            PET_RENDERER_READY &&
+        renderer != nullptr;
+    const bool shown = TryPrimeAndShow(
+        presentation, prerequisitesReady,
+        [this]() { return renderer != nullptr && renderer->prime(); },
+        [window]() {
+          return SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
+                              SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+                                  SWP_NOOWNERZORDER | SWP_SHOWWINDOW) != 0;
+        });
+    if (!shown) {
+      concealWindow();
+      updateRendererAvailability();
+      if (nativeRendererState.load(std::memory_order_acquire) ==
+          PET_RENDERER_UNAVAILABLE) {
+        requestRendererRetry(resetRetryBudget);
+      } else {
+        rendererRetry.cancel();
       }
       return;
     }
-    HWND window = hwnd.load(std::memory_order_relaxed);
-    if (window == nullptr) return;
-    (void)ShowWindow(window, SW_SHOWNOACTIVATE);
-    if (!SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
-                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
-                          SWP_NOOWNERZORDER)) {
-      (void)ShowWindow(window, SW_HIDE);
-    }
+    rendererRetry.succeeded();
+    renderState.setVisible(true);
+    targetFps = renderState.targetFps(60);
+    renderer->setVisible(true);
+    resetRenderClock();
   }
 
   void hideWindow() {
     if (dropTarget != nullptr) dropTarget->cancelHover();
     dragging = false;
     dragMoved = false;
-    visible = false;
-    renderState.setVisible(false);
-    resetRenderClock();
-    if (renderer != nullptr) renderer->setVisible(false);
-    if (HWND window = hwnd.load(std::memory_order_relaxed)) {
-      (void)ReleaseCapture();
-      (void)ShowWindow(window, SW_HIDE);
-    }
+    presentation.requestVisible(false);
+    rendererRetry.cancel();
+    concealWindow();
+    (void)ReleaseCapture();
   }
 
   void recoverForDisplays(bool emitChange) {
@@ -807,7 +949,10 @@ struct PetWindow::Impl {
       invalidateInputRegion();
       return;
     }
-    if (visible && !sleeping) showWindow();
+    if (presentation.requestedVisible() && !sleeping &&
+        !presentation.actuallyVisible()) {
+      showRequestedWindow(true);
+    }
     if (emitChange) {
       emit(kCallbackDisplayChanged, placement.x, placement.y,
            placement.displayId);
@@ -860,7 +1005,12 @@ struct PetWindow::Impl {
          static_cast<double>(dragWindowOrigin.top + dy)},
         targetDisplay);
     placement = clamp(origin, placement.size, targetId);
-    if (!positionWindow()) invalidateInputRegion();
+    const bool restoreVisibility = presentation.actuallyVisible();
+    if (!positionWindow()) {
+      invalidateInputRegion();
+    } else if (restoreVisibility && !presentation.actuallyVisible()) {
+      showRequestedWindow(false);
+    }
   }
 
   void endDrag() {
@@ -901,14 +1051,22 @@ struct PetWindow::Impl {
         return 0;
       }
       case kMessageShow:
-        showWindow();
+        presentation.requestVisible(true);
+        showRequestedWindow(true);
         return 0;
       case kMessageHide:
         hideWindow();
         return 0;
       case kMessageReset:
         monitors = MonitorSnapshots(dpiProbe);
-        if (!resetPosition()) invalidateInputRegion();
+        {
+          const bool restoreVisibility = presentation.actuallyVisible();
+          if (!resetPosition()) {
+            invalidateInputRegion();
+          } else if (restoreVisibility && !presentation.actuallyVisible()) {
+            showRequestedWindow(false);
+          }
+        }
         return 0;
       case kMessageShutdown:
         (void)signalStop();
@@ -941,9 +1099,20 @@ struct PetWindow::Impl {
       case WM_DPICHANGED: {
         const RECT *suggested = reinterpret_cast<const RECT *>(lParam);
         if (suggested != nullptr) {
+          const int suggestedWidth = suggested->right - suggested->left;
+          const int suggestedHeight = suggested->bottom - suggested->top;
+          const bool rendererAvailable =
+              renderer != nullptr && renderer->available();
+          if (suggestedWidth > 0 && suggestedHeight > 0 &&
+              PetWindowNeedsResizeConceal(
+                  presentation.actuallyVisible(), rendererAvailable,
+                  rendererPixelWidth, rendererPixelHeight,
+                  static_cast<uint32_t>(suggestedWidth),
+                  static_cast<uint32_t>(suggestedHeight))) {
+            concealWindow();
+          }
           if (!SetWindowPos(window, nullptr, suggested->left, suggested->top,
-                            suggested->right - suggested->left,
-                            suggested->bottom - suggested->top,
+                            suggestedWidth, suggestedHeight,
                           SWP_NOACTIVATE | SWP_NOZORDER)) {
             invalidateInputRegion();
             return 0;
@@ -967,18 +1136,15 @@ struct PetWindow::Impl {
           if (dropTarget != nullptr) dropTarget->cancelHover();
           dragging = false;
           dragMoved = false;
-          renderState.setVisible(false);
-          resetRenderClock();
-          if (renderer != nullptr) renderer->setVisible(false);
+          rendererRetry.cancel();
+          concealWindow();
           (void)ReleaseCapture();
-          (void)ShowWindow(window, SW_HIDE);
           emit(kCallbackSleep, 0.0, 0.0, placement.displayId);
         } else if ((wParam == PBT_APMRESUMEAUTOMATIC ||
                     wParam == PBT_APMRESUMESUSPEND) &&
                    sleeping) {
           sleeping = false;
           recoverForDisplays(true);
-          if (visible) showWindow();
           emit(kCallbackWake, 0.0, 0.0, placement.displayId);
         }
         return TRUE;

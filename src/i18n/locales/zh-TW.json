@@ -314,6 +314,7 @@
     "restartRequired": "權限已變更，請重新啟動應用程式",
     "captureFailed": "桌面擷取意外停止，黑洞正在使用相容背景",
     "metalUnavailable": "Metal 目前無法使用，黑洞正在使用相容背景",
+    "direct3dUnavailable": "Direct3D 目前無法使用，黑洞正在使用相容背景",
     "saveError": "無法儲存桌面黑洞設定"
   },
   "notifications": {

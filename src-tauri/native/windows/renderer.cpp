@@ -6,6 +6,7 @@
 #endif
 
 #include "renderer.h"
+#include "render_state.h"
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -87,7 +88,7 @@ bool CompileShader(const char *source, const char *entry, const char *target,
 struct BlackHoleRenderer::Impl {
   HWND window = nullptr;
   bool ready = false;
-  bool visible = false;
+  SurfacePrimeState surface;
   uint32_t width = 0;
   uint32_t height = 0;
   ComPtr<ID3D11Device> device;
@@ -115,6 +116,24 @@ struct BlackHoleRenderer::Impl {
     }
     return SUCCEEDED(device->CreateRenderTargetView(
         backBuffer.Get(), nullptr, renderTarget.ReleaseAndGetAddressOf()));
+  }
+
+  bool primeSurface() noexcept {
+    if (renderTarget == nullptr || swapChain == nullptr || context == nullptr) {
+      return false;
+    }
+    surface.conceal();
+    constexpr std::array<float, 4> transparent = {0.0f, 0.0f, 0.0f, 0.0f};
+    context->ClearRenderTargetView(renderTarget.Get(), transparent.data());
+    ID3D11RenderTargetView *target = renderTarget.Get();
+    context->OMSetRenderTargets(1, &target, nullptr);
+    ID3D11RenderTargetView *noTarget = nullptr;
+    context->OMSetRenderTargets(1, &noTarget, nullptr);
+    const HRESULT present = swapChain->Present(0, DXGI_PRESENT_DO_NOT_WAIT);
+    context->ClearState();
+    if (FAILED(present)) return false;
+    surface.markPrimed();
+    return true;
   }
 
   bool initialize(HWND targetWindow, const char *source) noexcept {
@@ -261,6 +280,10 @@ struct BlackHoleRenderer::Impl {
 
     width = 1;
     height = 1;
+    if (!primeSurface()) {
+      LogRendererError("transparent surface prime failed");
+      return false;
+    }
     ready = true;
     return true;
   }
@@ -278,14 +301,14 @@ struct BlackHoleRenderer::Impl {
   void fail(const char *message) noexcept {
     LogRendererError(message);
     ready = false;
-    visible = false;
+    surface.conceal();
     if (context != nullptr) context->ClearState();
     detachComposition();
   }
 
   void releaseAll() noexcept {
     ready = false;
-    visible = false;
+    surface.conceal();
     if (context != nullptr) context->ClearState();
     detachComposition();
     compositionVisual.Reset();
@@ -331,6 +354,7 @@ bool BlackHoleRenderer::resize(uint32_t pixelWidth,
     return false;
   }
   if (impl_->width == pixelWidth && impl_->height == pixelHeight) return true;
+  impl_->surface.conceal();
   impl_->context->ClearState();
   impl_->renderTarget.Reset();
   const HRESULT result = impl_->swapChain->ResizeBuffers(
@@ -341,11 +365,23 @@ bool BlackHoleRenderer::resize(uint32_t pixelWidth,
   }
   impl_->width = pixelWidth;
   impl_->height = pixelHeight;
+  if (!impl_->primeSurface()) {
+    impl_->fail("transparent surface prime after resize failed");
+    return false;
+  }
   return true;
 }
 
+bool BlackHoleRenderer::prime() noexcept {
+  if (impl_ == nullptr || !impl_->ready) return false;
+  if (impl_->surface.primed()) return true;
+  if (impl_->primeSurface()) return true;
+  impl_->fail("transparent surface prime failed");
+  return false;
+}
+
 bool BlackHoleRenderer::render(const RendererFrame &frame) noexcept {
-  if (impl_ == nullptr || !impl_->ready || !impl_->visible ||
+  if (impl_ == nullptr || !impl_->ready || !impl_->surface.canRender() ||
       impl_->renderTarget == nullptr || impl_->width == 0 || impl_->height == 0) {
     return false;
   }
@@ -412,7 +448,11 @@ bool BlackHoleRenderer::render(const RendererFrame &frame) noexcept {
 
 void BlackHoleRenderer::setVisible(bool visible) noexcept {
   if (impl_ == nullptr || !impl_->ready) return;
-  impl_->visible = visible;
+  if (visible) {
+    (void)impl_->surface.reveal();
+  } else {
+    impl_->surface.conceal();
+  }
 }
 
 void BlackHoleRenderer::shutdown() noexcept {
@@ -421,4 +461,8 @@ void BlackHoleRenderer::shutdown() noexcept {
 
 bool BlackHoleRenderer::available() const noexcept {
   return impl_ != nullptr && impl_->ready;
+}
+
+bool BlackHoleRenderer::primed() const noexcept {
+  return impl_ != nullptr && impl_->surface.primed();
 }
