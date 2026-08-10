@@ -515,6 +515,8 @@ export function Slice({
     percent: normalizedPercent(activeTask?.percent),
   }));
   const mounted = useRef(true);
+  const activeRef = useRef(active);
+  const studioOperationGeneration = useRef(0);
   const taskRef = useRef<SliceTask | null>(activeTask);
   const completedProjects = useRef(new Set<string>());
   const inputHandoffRef = useRef<string | null>(null);
@@ -592,6 +594,11 @@ export function Slice({
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
+
+  useEffect(() => {
+    activeRef.current = active;
+    studioOperationGeneration.current += 1;
+  }, [active]);
 
   useEffect(() => {
     let disposed = false;
@@ -811,17 +818,24 @@ export function Slice({
   };
 
   const chooseBambuStudio = async () => {
-    if (desktopPlatform !== "windows" || errorCode !== "bambu_studio_missing" || settingStudio) {
+    if (!active
+      || desktopPlatform !== "windows"
+      || errorCode !== "bambu_studio_missing"
+      || settingStudio) {
       return;
     }
+    const operationGeneration = ++studioOperationGeneration.current;
+    const operationIsCurrent = () => mounted.current
+      && activeRef.current
+      && studioOperationGeneration.current === operationGeneration;
     const path = await pickBambuStudio();
-    if (!mounted.current || !path) return;
+    if (!operationIsCurrent() || !path) return;
     setSettingStudio(true);
     try {
       await api.setBambuStudioPath(path);
-      if (mounted.current) await startConfiguredSlice();
+      if (operationIsCurrent()) await startConfiguredSlice();
     } catch (selectionError) {
-      if (mounted.current) {
+      if (operationIsCurrent()) {
         const code = stableError(selectionError);
         setError(copy("failedTitle"));
         setErrorDetail(code);

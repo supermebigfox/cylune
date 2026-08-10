@@ -131,19 +131,20 @@ function renderSlice({
   pickBambuStudio = vi.fn(async () => null as string | null),
 } = {}) {
   const platformProps = { pickBambuStudio };
-  const rendered = render(
+  const view = (isActive: boolean) => (
     <Slice
       {...platformProps}
       api={client.api}
       pickInput={pickInput}
       subscribeEvent={client.subscribeEvent}
       subscribeFileDrop={subscribeFileDrop}
-      active={active}
+      active={isActive}
       onProjectComplete={onProjectComplete}
       onSlicedFile={onSlicedFile}
       onFormLockChange={onFormLockChange}
-    />,
+    />
   );
+  const rendered = render(view(active));
   return {
     client,
     pickInput,
@@ -151,6 +152,7 @@ function renderSlice({
     onSlicedFile,
     onFormLockChange,
     unmount: rendered.unmount,
+    rerenderActive: (nextActive: boolean) => rendered.rerender(view(nextActive)),
   };
 }
 
@@ -700,6 +702,88 @@ it("does not persist or retry when the chooser resolves after unmount", async ()
   });
 
   expect(setBambuStudioPath).not.toHaveBeenCalled();
+  expect(client.startSlice).toHaveBeenCalledTimes(1);
+});
+
+it("does not persist or retry when the slice page becomes inactive with a chooser pending", async () => {
+  const client = fixture();
+  const setBambuStudioPath = vi.fn(async () => undefined);
+  Object.assign(client.api, {
+    getDesktopPlatform: vi.fn(async () => "windows" as const),
+    setBambuStudioPath,
+  });
+  client.startSlice.mockRejectedValueOnce({ code: "bambu_studio_missing" });
+  let resolvePick!: (path: string) => void;
+  const pickBambuStudio = vi.fn(() => new Promise<string>((resolve) => {
+    resolvePick = resolve;
+  }));
+  const { rerenderActive } = renderSlice({ client, pickBambuStudio });
+  const user = await prepareReadyForm();
+  await user.click(screen.getByRole("button", { name: "开始后台切片" }));
+  await user.click(await screen.findByRole("button", { name: "选择 BambuStudio.exe" }));
+
+  rerenderActive(false);
+  await act(async () => {
+    resolvePick("C:\\Apps\\Bambu Studio\\BambuStudio.exe");
+    await Promise.resolve();
+  });
+
+  expect(setBambuStudioPath).not.toHaveBeenCalled();
+  expect(client.startSlice).toHaveBeenCalledTimes(1);
+});
+
+it("does not resume a stale chooser after the slice page is reactivated", async () => {
+  const client = fixture();
+  const setBambuStudioPath = vi.fn(async () => undefined);
+  Object.assign(client.api, {
+    getDesktopPlatform: vi.fn(async () => "windows" as const),
+    setBambuStudioPath,
+  });
+  client.startSlice.mockRejectedValueOnce({ code: "bambu_studio_missing" });
+  let resolvePick!: (path: string) => void;
+  const pickBambuStudio = vi.fn(() => new Promise<string>((resolve) => {
+    resolvePick = resolve;
+  }));
+  const { rerenderActive } = renderSlice({ client, pickBambuStudio });
+  const user = await prepareReadyForm();
+  await user.click(screen.getByRole("button", { name: "开始后台切片" }));
+  await user.click(await screen.findByRole("button", { name: "选择 BambuStudio.exe" }));
+
+  rerenderActive(false);
+  rerenderActive(true);
+  await act(async () => {
+    resolvePick("C:\\Apps\\Bambu Studio\\BambuStudio.exe");
+    await Promise.resolve();
+  });
+
+  expect(setBambuStudioPath).not.toHaveBeenCalled();
+  expect(client.startSlice).toHaveBeenCalledTimes(1);
+});
+
+it("does not retry when the slice page becomes inactive during path persistence", async () => {
+  const client = fixture();
+  let finishPersistence!: () => void;
+  const setBambuStudioPath = vi.fn(() => new Promise<void>((resolve) => {
+    finishPersistence = resolve;
+  }));
+  Object.assign(client.api, {
+    getDesktopPlatform: vi.fn(async () => "windows" as const),
+    setBambuStudioPath,
+  });
+  client.startSlice.mockRejectedValueOnce({ code: "bambu_studio_missing" });
+  const pickBambuStudio = vi.fn(async () => "C:\\Apps\\Bambu Studio\\BambuStudio.exe");
+  const { rerenderActive } = renderSlice({ client, pickBambuStudio });
+  const user = await prepareReadyForm();
+  await user.click(screen.getByRole("button", { name: "开始后台切片" }));
+  await user.click(await screen.findByRole("button", { name: "选择 BambuStudio.exe" }));
+  expect(setBambuStudioPath).toHaveBeenCalledTimes(1);
+
+  rerenderActive(false);
+  await act(async () => {
+    finishPersistence();
+    await Promise.resolve();
+  });
+
   expect(client.startSlice).toHaveBeenCalledTimes(1);
 });
 

@@ -55,34 +55,24 @@ pub fn resolve_selected_install(
         return Err(AppError::SlicerProfilesMissing);
     }
 
-    let canonical_root = fs::canonicalize(&root).map_err(|_| AppError::BambuStudioMissing)?;
     let canonical_executable =
         fs::canonicalize(&executable).map_err(|_| AppError::BambuStudioMissing)?;
     let canonical_profiles =
         fs::canonicalize(&profiles_root).map_err(|_| AppError::SlicerProfilesMissing)?;
-    let (expected_executable, expected_profiles) = match platform {
-        InstallPlatform::MacOs => (
-            canonical_root.join("Contents/MacOS/BambuStudio"),
-            canonical_root.join("Contents/Resources/profiles"),
-        ),
-        InstallPlatform::Windows => {
-            let resources = root.join("resources");
-            if !is_real_directory(&resources)
-                || fs::canonicalize(&resources).ok() != Some(canonical_root.join("resources"))
-            {
-                return Err(AppError::SlicerProfilesMissing);
-            }
-            (
-                canonical_root.join("BambuStudio.exe"),
-                canonical_root.join("resources/profiles"),
-            )
+    if platform == InstallPlatform::Windows {
+        let canonical_root = fs::canonicalize(&root).map_err(|_| AppError::BambuStudioMissing)?;
+        let resources = root.join("resources");
+        if !is_real_directory(&resources)
+            || fs::canonicalize(&resources).ok() != Some(canonical_root.join("resources"))
+        {
+            return Err(AppError::SlicerProfilesMissing);
         }
-    };
-    if canonical_executable != expected_executable {
-        return Err(AppError::BambuStudioMissing);
-    }
-    if canonical_profiles != expected_profiles {
-        return Err(AppError::SlicerProfilesMissing);
+        if canonical_executable != canonical_root.join("BambuStudio.exe") {
+            return Err(AppError::BambuStudioMissing);
+        }
+        if canonical_profiles != canonical_root.join("resources/profiles") {
+            return Err(AppError::SlicerProfilesMissing);
+        }
     }
 
     Ok(BambuInstallation {
@@ -251,6 +241,27 @@ mod tests {
         assert_eq!(
             found.profiles_root,
             fixture.profiles_root.canonicalize().unwrap()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn macos_bundle_allows_an_intermediate_resources_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = InstallFixture::macos();
+        let linked_resources = fixture.app.join("Contents/Resources");
+        let real_resources = fixture.root.join("real-resources");
+        fs::remove_dir_all(&linked_resources).unwrap();
+        fs::create_dir_all(real_resources.join("profiles")).unwrap();
+        symlink(&real_resources, &linked_resources).unwrap();
+
+        let found = resolve_selected_install(&fixture.app, InstallPlatform::MacOs).unwrap();
+
+        assert_eq!(found.executable, fixture.executable.canonicalize().unwrap());
+        assert_eq!(
+            found.profiles_root,
+            real_resources.join("profiles").canonicalize().unwrap()
         );
     }
 
