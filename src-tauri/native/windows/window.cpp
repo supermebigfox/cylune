@@ -13,6 +13,7 @@
 
 #include "window.h"
 
+#include "callback_guard.h"
 #include "drop_target.h"
 #include "window_state.h"
 
@@ -504,8 +505,8 @@ struct PetWindow::Impl {
   }
 
   void emit(uint32_t kind, double x = 0.0, double y = 0.0,
-            uint64_t displayId = 0) const {
-    if (callback != nullptr) callback(kind, nullptr, x, y, displayId);
+            uint64_t displayId = 0) const noexcept {
+    InvokePetCallbackNoThrow(callback, kind, nullptr, x, y, displayId);
   }
 
   Placement clamp(LogicalPoint origin, double size,

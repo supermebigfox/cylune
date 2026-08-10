@@ -10,6 +10,11 @@
 
 enum class FileKind : uint32_t { None = 0, ThreeMf = 1, GCode = 2, Other = 3 };
 
+inline uint32_t ResolveDropEffect(uint32_t allowed, bool targetAccepts) {
+  constexpr uint32_t kCopy = 1;
+  return targetAccepts && (allowed & kCopy) != 0 ? kCopy : 0;
+}
+
 enum class PetDropVisualState : uint32_t {
   Idle,
   Hover,
@@ -78,6 +83,8 @@ class DropSession {
     clear();
     return true;
   }
+
+  void deactivate() { clear(); }
 
   uint64_t generation() const { return generation_; }
   FileKind fileKind() const { return kind_; }

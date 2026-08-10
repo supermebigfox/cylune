@@ -4,6 +4,13 @@
 #include <cstdint>
 
 int main() {
+  assert(ResolveDropEffect(0, true) == 0);  // NONE
+  assert(ResolveDropEffect(2, true) == 0);  // MOVE only
+  assert(ResolveDropEffect(4, true) == 0);  // LINK only
+  assert(ResolveDropEffect(1, true) == 1);  // COPY
+  assert(ResolveDropEffect(3, true) == 1);  // COPY | MOVE chooses COPY
+  assert(ResolveDropEffect(1, false) == 0); // target rejected
+
   DropSession state;
   const uint64_t generation =
       state.enter(L"C:\\prints\\mask.3mf", FileKind::ThreeMf);
@@ -21,6 +28,14 @@ int main() {
   assert(state.waitingForAck());
   assert(state.generation() == generation);
   assert(state.finish(generation, PET_DROP_ACCEPTED));
+  assert(!state.waitingForAck());
+  assert(state.generation() == 0);
+
+  const uint64_t shutdownGeneration =
+      state.enter(L"C:\\prints\\shutdown.3mf", FileKind::ThreeMf);
+  assert(state.submit(shutdownGeneration, L"C:\\prints\\shutdown.3mf"));
+  state.deactivate();
+  assert(!state.hovering());
   assert(!state.waitingForAck());
   assert(state.generation() == 0);
 

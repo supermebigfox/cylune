@@ -14,8 +14,11 @@ fn main() {
     println!("cargo:rerun-if-changed=native/mac/tiyda/capture_policy.h");
     println!("cargo:rerun-if-changed=native/windows/bridge.h");
     println!("cargo:rerun-if-changed=native/windows/pet_bridge.cpp");
+    println!("cargo:rerun-if-changed=native/windows/callback_guard.h");
+    println!("cargo:rerun-if-changed=native/windows/callback_guard_test.cc");
     println!("cargo:rerun-if-changed=native/windows/drop_target.h");
     println!("cargo:rerun-if-changed=native/windows/drop_target.cpp");
+    println!("cargo:rerun-if-changed=native/windows/drop_target_test.cc");
     println!("cargo:rerun-if-changed=native/windows/drop_state.h");
     println!("cargo:rerun-if-changed=native/windows/drop_state_test.cc");
     println!("cargo:rerun-if-changed=native/windows/window.h");

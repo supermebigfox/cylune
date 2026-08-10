@@ -13,6 +13,7 @@
 
 #include "drop_target.h"
 
+#include "callback_guard.h"
 #include "drop_state.h"
 
 #include <shellapi.h>
@@ -155,20 +156,24 @@ struct PetDropTarget::Impl {
            !stopping->load(std::memory_order_acquire);
   }
 
-  void setEffect(DWORD *effect, bool accepted) const {
-    if (effect != nullptr) *effect = accepted ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+  void setEffect(DWORD *effect, DWORD value) const {
+    if (effect != nullptr) *effect = value;
   }
 
-  void setVisual(PetDropVisualState state) const {
+  void setVisual(PetDropVisualState state) const noexcept {
     if (acceptingCallbacks() && visualCallback != nullptr) {
-      visualCallback(visualContext, state);
+      try {
+        visualCallback(visualContext, state);
+      } catch (...) {
+      }
     }
   }
 
   void emit(uint32_t kind, const char *payload = nullptr,
-            uint64_t generation = 0) const {
-    if (acceptingCallbacks() && callback != nullptr) {
-      callback(kind, payload, 0.0, 0.0, generation);
+            uint64_t generation = 0) const noexcept {
+    if (acceptingCallbacks()) {
+      InvokePetCallbackNoThrow(callback, kind, payload, 0.0, 0.0,
+                               generation);
     }
   }
 
@@ -185,7 +190,7 @@ struct PetDropTarget::Impl {
                                    static_cast<double>(clientPoint.y), side);
   }
 
-  void exitHover() {
+  void exitHover() noexcept {
     if (session.leave()) {
       emit(kCallbackDropExited);
       setVisual(PetDropVisualState::Idle);
@@ -271,8 +276,14 @@ HRESULT STDMETHODCALLTYPE PetDropTarget::DragEnter(IDataObject *dataObject,
                                                    DWORD *effect) {
   (void)keyState;
   if (effect == nullptr) return E_INVALIDARG;
-  impl_->setEffect(effect, false);
+  const DWORD allowed = *effect;
+  impl_->setEffect(effect, DROPEFFECT_NONE);
   try {
+    if (ResolveDropEffect(allowed, true) == DROPEFFECT_NONE) {
+      if (impl_->acceptingCallbacks()) impl_->exitHover();
+      impl_->clearCandidate();
+      return S_OK;
+    }
     if (!impl_->acceptingCallbacks() || impl_->session.waitingForAck()) {
       return S_OK;
     }
@@ -283,7 +294,7 @@ HRESULT STDMETHODCALLTYPE PetDropTarget::DragEnter(IDataObject *dataObject,
     }
     impl_->candidateKind = ClassifyFile(impl_->candidatePath);
     const bool accepted = impl_->updateHover(point);
-    impl_->setEffect(effect, accepted);
+    impl_->setEffect(effect, ResolveDropEffect(allowed, accepted));
     return S_OK;
   } catch (...) {
     impl_->clearCandidate();
@@ -295,10 +306,16 @@ HRESULT STDMETHODCALLTYPE PetDropTarget::DragOver(DWORD keyState, POINTL point,
                                                   DWORD *effect) {
   (void)keyState;
   if (effect == nullptr) return E_INVALIDARG;
-  impl_->setEffect(effect, false);
+  const DWORD allowed = *effect;
+  impl_->setEffect(effect, DROPEFFECT_NONE);
   try {
+    if (ResolveDropEffect(allowed, true) == DROPEFFECT_NONE) {
+      if (impl_->acceptingCallbacks()) impl_->exitHover();
+      impl_->clearCandidate();
+      return S_OK;
+    }
     const bool accepted = impl_->updateHover(point);
-    impl_->setEffect(effect, accepted);
+    impl_->setEffect(effect, ResolveDropEffect(allowed, accepted));
     return S_OK;
   } catch (...) {
     return E_OUTOFMEMORY;
@@ -316,8 +333,14 @@ HRESULT STDMETHODCALLTYPE PetDropTarget::Drop(IDataObject *dataObject,
                                               DWORD *effect) {
   (void)keyState;
   if (effect == nullptr) return E_INVALIDARG;
-  impl_->setEffect(effect, false);
+  const DWORD allowed = *effect;
+  impl_->setEffect(effect, DROPEFFECT_NONE);
   try {
+    if (ResolveDropEffect(allowed, true) == DROPEFFECT_NONE) {
+      if (impl_->acceptingCallbacks()) impl_->exitHover();
+      impl_->clearCandidate();
+      return S_OK;
+    }
     if (!impl_->acceptingCallbacks() || impl_->session.waitingForAck()) {
       return S_OK;
     }
@@ -349,7 +372,7 @@ HRESULT STDMETHODCALLTYPE PetDropTarget::Drop(IDataObject *dataObject,
     impl_->setVisual(PetDropVisualState::WaitingForAck);
     impl_->emit(kCallbackFileDropped, utf8Path.c_str(), generation);
     impl_->clearCandidate();
-    impl_->setEffect(effect, true);
+    impl_->setEffect(effect, ResolveDropEffect(allowed, true));
     return S_OK;
   } catch (...) {
     impl_->clearCandidate();
@@ -375,7 +398,9 @@ void PetDropTarget::cancelHover() {
 
 void PetDropTarget::deactivate() {
   if (impl_ == nullptr || !impl_->active) return;
-  impl_->active = false;
-  (void)impl_->session.leave();
+  impl_->exitHover();
   impl_->clearCandidate();
+  impl_->session.deactivate();
+  impl_->setVisual(PetDropVisualState::Idle);
+  impl_->active = false;
 }
