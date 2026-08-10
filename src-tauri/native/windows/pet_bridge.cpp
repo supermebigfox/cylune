@@ -50,9 +50,9 @@ void pet_signal(void *handle, uint32_t signal) {
 }
 
 void pet_finish_drop(void *handle, uint64_t generation, uint32_t result) {
-  (void)handle;
-  (void)generation;
-  (void)result;
+  if (auto *pet = from_handle(handle)) {
+    pet->finishDrop(generation, result);
+  }
 }
 
 uint32_t pet_capture_state(void *handle) {

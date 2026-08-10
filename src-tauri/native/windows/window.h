@@ -18,6 +18,7 @@ class PetWindow {
   void show();
   void hide();
   void reset();
+  void finishDrop(uint64_t generation, uint32_t result);
   uint32_t shutdown();
 
  private:

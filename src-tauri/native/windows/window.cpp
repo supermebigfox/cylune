@@ -13,6 +13,7 @@
 
 #include "window.h"
 
+#include "drop_target.h"
 #include "window_state.h"
 
 #include <windows.h>
@@ -43,6 +44,7 @@ constexpr UINT kMessageShow = WM_APP + 2;
 constexpr UINT kMessageHide = WM_APP + 3;
 constexpr UINT kMessageReset = WM_APP + 4;
 constexpr UINT kMessageShutdown = WM_APP + 5;
+constexpr UINT kMessageFinishDrop = WM_APP + 6;
 constexpr uint32_t kCallbackClicked = 1;
 constexpr uint32_t kCallbackMoved = 2;
 constexpr uint32_t kCallbackDisplayChanged = 6;
@@ -50,6 +52,11 @@ constexpr uint32_t kCallbackSleep = 9;
 constexpr uint32_t kCallbackWake = 10;
 constexpr double kDragThreshold = 4.0;
 constexpr DWORD kShutdownTimeoutMilliseconds = 2000;
+
+struct FinishDropCommand {
+  uint64_t generation;
+  uint32_t result;
+};
 
 uint64_t DisplayId(const wchar_t *device) {
   uint64_t hash = 1469598103934665603ULL;
@@ -195,6 +202,7 @@ struct PetWindow::Impl {
   std::mutex shutdownMutex;
   std::mutex commandMutex;
   std::unique_ptr<PetConfig> pendingApply;
+  std::vector<FinishDropCommand> pendingDropFinishes;
 
   std::vector<MonitorSnapshot> monitors;
   Placement placement{0, 0.0, 0.0, 300.0};
@@ -204,6 +212,11 @@ struct PetWindow::Impl {
   bool dragMoved = false;
   bool windowDestroyed = false;
   bool inputRegionValid = false;
+  PetDropTarget *dropTarget = nullptr;
+  bool dropTargetRegistered = false;
+  PetDropVisualState dropVisualState = PetDropVisualState::Idle;
+  uint32_t configuredFps = 0;
+  uint32_t targetFps = 30;
   HWND dpiProbe = nullptr;
   POINT dragCursorOrigin{};
   RECT dragWindowOrigin{};
@@ -213,6 +226,17 @@ struct PetWindow::Impl {
         static_cast<std::shared_ptr<Impl> *>(context));
     (*keepAlive)->threadMain();
     return 0;
+  }
+
+  static void DropVisualChanged(void *context, PetDropVisualState state) {
+    auto *self = static_cast<Impl *>(context);
+    if (self == nullptr || self->stopping.load(std::memory_order_acquire)) {
+      return;
+    }
+    self->dropVisualState = state;
+    self->targetFps = ResolveDropVisualActivity(
+                          self->configuredFps, self->placement.size, state)
+                          .targetFps;
   }
 
   static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam,
@@ -278,6 +302,7 @@ struct PetWindow::Impl {
       const ULONGLONG now = GetTickCount64();
       if (stopRequested && now >= nextDestroyAttempt) {
         if (!stopUiApplied) {
+          revokeDropTarget(window);
           hideWindow();
           stopUiApplied = true;
         }
@@ -337,7 +362,7 @@ struct PetWindow::Impl {
       signalReady(false);
       return;
     }
-    const HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    const HRESULT apartment = OleInitialize(nullptr);
     const bool apartmentInitialized = SUCCEEDED(apartment);
     if (!apartmentInitialized) {
       signalReady(false);
@@ -353,13 +378,13 @@ struct PetWindow::Impl {
     const ATOM atom = RegisterClassExW(&windowClass);
     if (atom == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
       signalReady(false);
-      if (apartmentInitialized) CoUninitialize();
+      if (apartmentInitialized) OleUninitialize();
       return;
     }
     if (WaitForSingleObject(stopEvent, 0) == WAIT_OBJECT_0) {
       signalReady(false);
       ownerThreadId.store(0, std::memory_order_release);
-      CoUninitialize();
+      OleUninitialize();
       return;
     }
 
@@ -371,7 +396,7 @@ struct PetWindow::Impl {
         300, nullptr, nullptr, GetModuleHandleW(nullptr), this);
     if (window == nullptr) {
       signalReady(false);
-      if (apartmentInitialized) CoUninitialize();
+      if (apartmentInitialized) OleUninitialize();
       return;
     }
     hwnd.store(window, std::memory_order_release);
@@ -381,18 +406,20 @@ struct PetWindow::Impl {
     monitors = MonitorSnapshots(dpiProbe);
     const bool stopRequested =
         WaitForSingleObject(stopEvent, 0) == WAIT_OBJECT_0;
-    const bool initialized = !stopRequested && dpiProbe != nullptr &&
-                             ConfigureWindowProtection(window) &&
-                             !monitors.empty() && resetPosition();
+    const bool initialized =
+        !stopRequested && dpiProbe != nullptr &&
+        ConfigureWindowProtection(window) && !monitors.empty() &&
+        resetPosition() && registerDropTarget(window);
     signalReady(initialized);
     runOwnerLoop(window, initialized);
+    revokeDropTarget(window);
     if (dpiProbe != nullptr) {
       (void)DestroyWindow(dpiProbe);
       dpiProbe = nullptr;
     }
     hwnd.store(nullptr, std::memory_order_release);
     ownerThreadId.store(0, std::memory_order_release);
-    CoUninitialize();
+    OleUninitialize();
   }
 
   bool post(UINT message, LPARAM lParam = 0) {
@@ -418,6 +445,62 @@ struct PetWindow::Impl {
   bool signalStop() {
     stopping.store(true, std::memory_order_release);
     return stopEvent != nullptr && SetEvent(stopEvent) != 0;
+  }
+
+  bool registerDropTarget(HWND window) {
+    if (dropTarget != nullptr || dropTargetRegistered) return false;
+    PetDropTarget *candidate = PetDropTarget::create(
+        window, callback, &Impl::DropVisualChanged, this, &stopping);
+    if (candidate == nullptr) return false;
+    const HRESULT registered = RegisterDragDrop(window, candidate);
+    if (FAILED(registered)) {
+      candidate->deactivate();
+      (void)candidate->Release();
+      return false;
+    }
+    dropTarget = candidate;
+    dropTargetRegistered = true;
+    return true;
+  }
+
+  void revokeDropTarget(HWND window) {
+    PetDropTarget *target = dropTarget;
+    dropTarget = nullptr;
+    if (target == nullptr) {
+      dropTargetRegistered = false;
+      return;
+    }
+    target->deactivate();
+    if (dropTargetRegistered && window != nullptr) {
+      (void)RevokeDragDrop(window);
+    }
+    dropTargetRegistered = false;
+    (void)target->Release();
+    dropVisualState = PetDropVisualState::Idle;
+    targetFps = ResolveDropVisualActivity(configuredFps, placement.size,
+                                          dropVisualState)
+                    .targetFps;
+  }
+
+  bool postFinishDrop(uint64_t generation, uint32_t result) {
+    if (generation == 0 ||
+        (result != PET_DROP_ACCEPTED && result != PET_DROP_REJECTED)) {
+      return false;
+    }
+    std::lock_guard<std::mutex> lock(commandMutex);
+    if (stopping.load(std::memory_order_acquire)) return false;
+    try {
+      pendingDropFinishes.push_back({generation, result});
+    } catch (...) {
+      return false;
+    }
+    HWND window = hwnd.load(std::memory_order_acquire);
+    if (window != nullptr &&
+        PostMessageW(window, kMessageFinishDrop, 0, 0) != 0) {
+      return true;
+    }
+    pendingDropFinishes.pop_back();
+    return false;
   }
 
   void emit(uint32_t kind, double x = 0.0, double y = 0.0,
@@ -472,6 +555,12 @@ struct PetWindow::Impl {
 
   void applyConfig(PetConfig config) {
     monitors = MonitorSnapshots(dpiProbe);
+    configuredFps = config.fps;
+    if (dropVisualState == PetDropVisualState::Idle) {
+      targetFps = ResolveDropVisualActivity(configuredFps, placement.size,
+                                            dropVisualState)
+                      .targetFps;
+    }
     visible = config.visible != 0;
     if (config.has_position != 0) {
       placement = clamp({config.x, config.y}, config.size, config.display_id);
@@ -510,6 +599,7 @@ struct PetWindow::Impl {
   }
 
   void hideWindow() {
+    if (dropTarget != nullptr) dropTarget->cancelHover();
     dragging = false;
     dragMoved = false;
     visible = false;
@@ -562,6 +652,7 @@ struct PetWindow::Impl {
   }
 
   void beginDrag() {
+    if (dropTarget != nullptr) dropTarget->cancelHover();
     if (!GetCursorPos(&dragCursorOrigin)) return;
     HWND window = hwnd.load(std::memory_order_relaxed);
     if (window == nullptr || !GetWindowRect(window, &dragWindowOrigin)) return;
@@ -633,6 +724,19 @@ struct PetWindow::Impl {
         if (config) applyConfig(*config);
         return 0;
       }
+      case kMessageFinishDrop: {
+        std::vector<FinishDropCommand> commands;
+        {
+          std::lock_guard<std::mutex> lock(commandMutex);
+          commands.swap(pendingDropFinishes);
+        }
+        if (dropTarget != nullptr) {
+          for (const FinishDropCommand &command : commands) {
+            (void)dropTarget->finish(command.generation, command.result);
+          }
+        }
+        return 0;
+      }
       case kMessageShow:
         showWindow();
         return 0;
@@ -691,6 +795,7 @@ struct PetWindow::Impl {
       case WM_POWERBROADCAST:
         if (wParam == PBT_APMSUSPEND && !sleeping) {
           sleeping = true;
+          if (dropTarget != nullptr) dropTarget->cancelHover();
           dragging = false;
           dragMoved = false;
           (void)ReleaseCapture();
@@ -717,6 +822,7 @@ struct PetWindow::Impl {
         (void)signalStop();
         return 0;
       case WM_NCDESTROY: {
+        revokeDropTarget(window);
         windowDestroyed = true;
         hwnd.store(nullptr, std::memory_order_release);
         SetLastError(ERROR_SUCCESS);
@@ -804,6 +910,10 @@ void PetWindow::show() { impl_->post(kMessageShow); }
 void PetWindow::hide() { impl_->post(kMessageHide); }
 
 void PetWindow::reset() { impl_->post(kMessageReset); }
+
+void PetWindow::finishDrop(uint64_t generation, uint32_t result) {
+  (void)impl_->postFinishDrop(generation, result);
+}
 
 uint32_t PetWindow::shutdown() {
   if (impl_ == nullptr) return PET_SHUTDOWN_COMPLETE;
