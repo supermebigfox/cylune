@@ -1,18 +1,14 @@
 #include "bridge.h"
+#include "window.h"
 
+#include <memory>
 #include <new>
 
 namespace {
 
 constexpr uint32_t kAbiVersion = 1;
 
-struct PetHandle {
-  PetCallback callback;
-  PetConfig config;
-  bool visible;
-};
-
-PetHandle *from_handle(void *handle) { return static_cast<PetHandle *>(handle); }
+PetWindow *from_handle(void *handle) { return static_cast<PetWindow *>(handle); }
 
 } // namespace
 
@@ -22,41 +18,36 @@ void *pet_create(PetCallback callback, const char *hlsl_source) {
   if (callback == nullptr || hlsl_source == nullptr) {
     return nullptr;
   }
-  return new (std::nothrow) PetHandle{callback, {}, false};
+  return PetWindow::create(callback).release();
 }
 
 uint32_t pet_destroy(void *handle) {
-  delete from_handle(handle);
-  return PET_SHUTDOWN_COMPLETE;
+  std::unique_ptr<PetWindow> pet(from_handle(handle));
+  if (pet == nullptr) return PET_SHUTDOWN_COMPLETE;
+  const uint32_t result = pet->shutdown();
+  if (result == PET_SHUTDOWN_STOP_TIMED_OUT) {
+    // The timed-out owner thread may still execute window callbacks. Let it
+    // retain the handle storage instead of freeing memory it can still read.
+    pet.release();
+  }
+  return result;
 }
 
 bool pet_apply(void *handle, PetConfig config) {
   auto *pet = from_handle(handle);
-  if (pet == nullptr || config.abi_version != kAbiVersion) {
-    return false;
-  }
-  pet->config = config;
-  pet->visible = config.visible != 0;
-  return true;
+  return pet != nullptr && pet->apply(config);
 }
 
 void pet_show(void *handle) {
-  if (auto *pet = from_handle(handle)) {
-    pet->visible = true;
-  }
+  if (auto *pet = from_handle(handle)) pet->show();
 }
 
 void pet_hide(void *handle) {
-  if (auto *pet = from_handle(handle)) {
-    pet->visible = false;
-  }
+  if (auto *pet = from_handle(handle)) pet->hide();
 }
 
 void pet_reset(void *handle) {
-  if (auto *pet = from_handle(handle)) {
-    pet->config = {};
-    pet->visible = false;
-  }
+  if (auto *pet = from_handle(handle)) pet->reset();
 }
 
 void pet_signal(void *handle, uint32_t signal) {

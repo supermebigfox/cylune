@@ -14,6 +14,10 @@ fn main() {
     println!("cargo:rerun-if-changed=native/mac/tiyda/capture_policy.h");
     println!("cargo:rerun-if-changed=native/windows/bridge.h");
     println!("cargo:rerun-if-changed=native/windows/pet_bridge.cpp");
+    println!("cargo:rerun-if-changed=native/windows/window.h");
+    println!("cargo:rerun-if-changed=native/windows/window.cpp");
+    println!("cargo:rerun-if-changed=native/windows/window_state.h");
+    println!("cargo:rerun-if-changed=native/windows/window_state_test.cc");
     println!("cargo:rerun-if-changed=native/windows/BlackHole.hlsl");
 
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
@@ -40,6 +44,7 @@ fn main() {
             .cpp(true)
             .std("c++17")
             .file("native/windows/pet_bridge.cpp")
+            .file("native/windows/window.cpp")
             .compile("pet_native_windows");
         for library in [
             "user32",
