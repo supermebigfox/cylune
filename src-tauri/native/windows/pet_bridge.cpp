@@ -18,7 +18,7 @@ void *pet_create(PetCallback callback, const char *hlsl_source) {
   if (callback == nullptr || hlsl_source == nullptr) {
     return nullptr;
   }
-  return PetWindow::create(callback).release();
+  return PetWindow::create(callback, hlsl_source).release();
 }
 
 uint32_t pet_destroy(void *handle) {
@@ -61,8 +61,8 @@ uint32_t pet_capture_state(void *handle) {
 }
 
 uint32_t pet_renderer_state(void *handle) {
-  (void)handle;
-  return PET_RENDERER_UNAVAILABLE;
+  auto *pet = from_handle(handle);
+  return pet == nullptr ? PET_RENDERER_UNAVAILABLE : pet->rendererState();
 }
 
 uint32_t pet_abi_version(void) { return kAbiVersion; }
