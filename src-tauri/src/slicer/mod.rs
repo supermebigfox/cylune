@@ -159,7 +159,7 @@ pub fn set_bambu_studio_path(
 
     let installation = resolve_selected_install(Path::new(&path), InstallPlatform::Windows)?;
     let canonical = installation.executable.to_string_lossy().into_owned();
-    {
+    service.set_explicit_app_after(installation.executable, || {
         let prints = prints
             .lock()
             .map_err(|_| AppError::Database("print lock poisoned".into()))?;
@@ -168,8 +168,8 @@ pub fn set_bambu_studio_path(
              ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value,updated_at=CURRENT_TIMESTAMP",
             [&canonical],
         )?;
-    }
-    service.set_explicit_app(installation.executable)
+        Ok(())
+    })
 }
 
 #[cfg(test)]

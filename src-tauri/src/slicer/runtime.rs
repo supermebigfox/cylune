@@ -170,16 +170,21 @@ impl SlicerService {
         self.inner
             .discovery
             .lock()
-            .map_err(|_| AppError::SlicerFailed)?
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .discover()
     }
 
-    pub fn set_explicit_app(&self, path: PathBuf) -> Result<()> {
-        *self
+    pub(crate) fn set_explicit_app_after<F>(&self, path: PathBuf, persist: F) -> Result<()>
+    where
+        F: FnOnce() -> Result<()>,
+    {
+        let mut discovery = self
             .inner
             .discovery
             .lock()
-            .map_err(|_| AppError::SlicerFailed)? = InstallationDiscovery::new(Some(path));
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        persist()?;
+        *discovery = InstallationDiscovery::new(Some(path));
         Ok(())
     }
 
@@ -788,7 +793,8 @@ mod tests {
         fs::{self, File},
         io::Write,
         path::{Path, PathBuf},
-        sync::{Arc, Condvar, Mutex},
+        sync::{mpsc, Arc, Condvar, Mutex},
+        thread,
         time::{Duration, Instant},
     };
     use uuid::Uuid;
@@ -1025,6 +1031,83 @@ mod tests {
 
     fn wait_for_terminal(service: &SlicerService, task_id: Uuid) -> super::SliceTask {
         wait_for_terminal_until(service, task_id, Duration::from_secs(15))
+    }
+
+    #[test]
+    fn failed_persistence_keeps_the_previous_discovery_path() {
+        let old = Fixture::success();
+        let new = Fixture::success();
+        let service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(Some(old.app.clone())),
+            old.cache.clone(),
+            Arc::new(RecordingImporter::new(Uuid::new_v4())),
+            Arc::new(RecordingEvents::default()),
+            Duration::ZERO,
+        );
+
+        let error = service
+            .set_explicit_app_after(new.app.clone(), || {
+                Err(AppError::Database("forced persistence failure".into()))
+            })
+            .unwrap_err();
+
+        assert!(matches!(error, AppError::Database(_)));
+        assert_eq!(
+            service.discover_installation().unwrap().executable,
+            old.executable.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn discovery_exposes_the_new_path_only_after_persistence_succeeds() {
+        let old = Fixture::success();
+        let new = Fixture::success();
+        let service = SlicerService::with_dependencies(
+            InstallationDiscovery::new(Some(old.app.clone())),
+            old.cache.clone(),
+            Arc::new(RecordingImporter::new(Uuid::new_v4())),
+            Arc::new(RecordingEvents::default()),
+            Duration::ZERO,
+        );
+        let (persistence_started_tx, persistence_started_rx) = mpsc::channel();
+        let (finish_persistence_tx, finish_persistence_rx) = mpsc::channel();
+        let updater = {
+            let service = service.clone();
+            let app = new.app.clone();
+            thread::spawn(move || {
+                service.set_explicit_app_after(app, || {
+                    persistence_started_tx.send(()).unwrap();
+                    finish_persistence_rx.recv().unwrap();
+                    Ok(())
+                })
+            })
+        };
+        persistence_started_rx.recv().unwrap();
+
+        let (discovered_tx, discovered_rx) = mpsc::channel();
+        let reader = {
+            let service = service.clone();
+            thread::spawn(move || {
+                discovered_tx
+                    .send(service.discover_installation().unwrap())
+                    .unwrap();
+            })
+        };
+        assert!(matches!(
+            discovered_rx.recv_timeout(Duration::from_millis(50)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+
+        finish_persistence_tx.send(()).unwrap();
+        updater.join().unwrap().unwrap();
+        assert_eq!(
+            discovered_rx
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap()
+                .executable,
+            new.executable.canonicalize().unwrap()
+        );
+        reader.join().unwrap();
     }
 
     fn wait_for_terminal_until(

@@ -12,12 +12,13 @@ pub fn resolve_selected_install(
     selected: &Path,
     platform: InstallPlatform,
 ) -> Result<BambuInstallation> {
-    let (executable, profiles_root) = match platform {
+    let (root, executable, profiles_root) = match platform {
         InstallPlatform::MacOs => {
             if !is_real_directory(selected) {
                 return Err(AppError::BambuStudioMissing);
             }
             (
+                selected.to_path_buf(),
                 selected.join("Contents/MacOS/BambuStudio"),
                 selected.join("Contents/Resources/profiles"),
             )
@@ -37,10 +38,14 @@ pub fn resolve_selected_install(
             let Some(root) = executable.parent().map(Path::to_path_buf) else {
                 return Err(AppError::BambuStudioMissing);
             };
-            (executable, root.join("resources/profiles"))
+            let profiles_root = root.join("resources/profiles");
+            (root, executable, profiles_root)
         }
     };
 
+    if !is_real_directory(&root) {
+        return Err(AppError::BambuStudioMissing);
+    }
     if !is_real_file(&executable)
         || (platform == InstallPlatform::MacOs && !has_execute_permission(&executable))
     {
@@ -50,10 +55,39 @@ pub fn resolve_selected_install(
         return Err(AppError::SlicerProfilesMissing);
     }
 
+    let canonical_root = fs::canonicalize(&root).map_err(|_| AppError::BambuStudioMissing)?;
+    let canonical_executable =
+        fs::canonicalize(&executable).map_err(|_| AppError::BambuStudioMissing)?;
+    let canonical_profiles =
+        fs::canonicalize(&profiles_root).map_err(|_| AppError::SlicerProfilesMissing)?;
+    let (expected_executable, expected_profiles) = match platform {
+        InstallPlatform::MacOs => (
+            canonical_root.join("Contents/MacOS/BambuStudio"),
+            canonical_root.join("Contents/Resources/profiles"),
+        ),
+        InstallPlatform::Windows => {
+            let resources = root.join("resources");
+            if !is_real_directory(&resources)
+                || fs::canonicalize(&resources).ok() != Some(canonical_root.join("resources"))
+            {
+                return Err(AppError::SlicerProfilesMissing);
+            }
+            (
+                canonical_root.join("BambuStudio.exe"),
+                canonical_root.join("resources/profiles"),
+            )
+        }
+    };
+    if canonical_executable != expected_executable {
+        return Err(AppError::BambuStudioMissing);
+    }
+    if canonical_profiles != expected_profiles {
+        return Err(AppError::SlicerProfilesMissing);
+    }
+
     Ok(BambuInstallation {
-        executable: fs::canonicalize(executable).map_err(|_| AppError::BambuStudioMissing)?,
-        profiles_root: fs::canonicalize(profiles_root)
-            .map_err(|_| AppError::SlicerProfilesMissing)?,
+        executable: canonical_executable,
+        profiles_root: canonical_profiles,
     })
 }
 
@@ -76,13 +110,18 @@ fn is_real_file(path: &Path) -> bool {
 #[cfg(windows)]
 fn is_reparse_point(metadata: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
-    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    has_reparse_attribute(metadata.file_attributes())
 }
 
 #[cfg(not(windows))]
 fn is_reparse_point(_metadata: &fs::Metadata) -> bool {
     false
+}
+
+#[cfg(any(windows, test))]
+const fn has_reparse_attribute(file_attributes: u32) -> bool {
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    file_attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
 }
 
 #[cfg(unix)]
@@ -98,7 +137,7 @@ fn has_execute_permission(_path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_selected_install, InstallPlatform};
+    use super::{has_reparse_attribute, resolve_selected_install, InstallPlatform};
     use crate::error::AppError;
     use std::{
         fs,
@@ -248,6 +287,83 @@ mod tests {
         symlink(&profiles_target, &profiles_link.profiles_root).unwrap();
         assert!(matches!(
             resolve_selected_install(&profiles_link.executable, InstallPlatform::Windows),
+            Err(AppError::SlicerProfilesMissing)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_an_intermediate_resources_symlink_that_escapes_the_install_root() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = InstallFixture::windows("intermediate resources link");
+        let outside_resources = fixture.temporary_root.join("outside-resources");
+        fs::create_dir_all(outside_resources.join("profiles")).unwrap();
+        fs::remove_dir_all(fixture.root.join("resources")).unwrap();
+        symlink(&outside_resources, fixture.root.join("resources")).unwrap();
+
+        assert!(matches!(
+            resolve_selected_install(&fixture.executable, InstallPlatform::Windows),
+            Err(AppError::SlicerProfilesMissing)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn allows_a_symlinked_ancestor_above_the_selected_install_root() {
+        use std::os::unix::fs::symlink;
+
+        let temporary_root =
+            std::env::temp_dir().join(format!("cylune-install-ancestor-{}", Uuid::new_v4()));
+        let real_parent = temporary_root.join("real-parent");
+        let linked_parent = temporary_root.join("linked-parent");
+        let selected = linked_parent.join("Bambu Studio");
+        fs::create_dir_all(real_parent.join("Bambu Studio/resources/profiles")).unwrap();
+        fs::write(
+            real_parent.join("Bambu Studio/BambuStudio.exe"),
+            b"windows executable fixture",
+        )
+        .unwrap();
+        symlink(&real_parent, &linked_parent).unwrap();
+
+        let found = resolve_selected_install(&selected, InstallPlatform::Windows).unwrap();
+
+        assert_eq!(
+            found.executable,
+            real_parent
+                .join("Bambu Studio/BambuStudio.exe")
+                .canonicalize()
+                .unwrap()
+        );
+        fs::remove_dir_all(temporary_root).unwrap();
+    }
+
+    #[test]
+    fn recognizes_only_the_windows_reparse_attribute_bit() {
+        assert!(has_reparse_attribute(0x400));
+        assert!(has_reparse_attribute(0x420));
+        assert!(!has_reparse_attribute(0x20));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn rejects_a_windows_directory_reparse_point_inside_the_install() {
+        use std::io::ErrorKind;
+        use std::os::windows::fs::symlink_dir;
+
+        let fixture = InstallFixture::windows("windows reparse resources");
+        let outside_resources = fixture.temporary_root.join("outside-reparse-resources");
+        fs::create_dir_all(outside_resources.join("profiles")).unwrap();
+        fs::remove_dir_all(fixture.root.join("resources")).unwrap();
+        if let Err(error) = symlink_dir(&outside_resources, fixture.root.join("resources")) {
+            if error.kind() == ErrorKind::PermissionDenied {
+                return;
+            }
+            panic!("failed to create Windows reparse fixture: {error}");
+        }
+
+        assert!(matches!(
+            resolve_selected_install(&fixture.executable, InstallPlatform::Windows),
             Err(AppError::SlicerProfilesMissing)
         ));
     }

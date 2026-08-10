@@ -1,5 +1,8 @@
 use crate::error::{AppError, Result};
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use super::install_layout::{resolve_selected_install, InstallPlatform};
 
@@ -14,6 +17,58 @@ pub struct BambuInstallation {
 pub struct InstallationDiscovery {
     explicit_app: Option<PathBuf>,
     system_executable: PathBuf,
+}
+
+#[cfg(any(target_os = "windows", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RegistryStringKind {
+    Plain,
+    Expand,
+    Unsupported,
+}
+
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn decode_registry_string<F>(
+    kind: RegistryStringKind,
+    bytes: &[u8],
+    lookup_environment: F,
+) -> Option<String>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if kind == RegistryStringKind::Unsupported || bytes.len() % 2 != 0 {
+        return None;
+    }
+    let mut units = bytes
+        .chunks_exact(2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect::<Vec<_>>();
+    while units.last() == Some(&0) {
+        units.pop();
+    }
+    if units.contains(&0) {
+        return None;
+    }
+    let decoded = String::from_utf16(&units).ok()?;
+    if kind == RegistryStringKind::Plain {
+        return Some(decoded);
+    }
+
+    let mut expanded = String::new();
+    let mut rest = decoded.as_str();
+    while let Some(start) = rest.find('%') {
+        expanded.push_str(&rest[..start]);
+        let after_start = &rest[start + 1..];
+        let end = after_start.find('%')?;
+        let name = &after_start[..end];
+        if name.is_empty() {
+            return None;
+        }
+        expanded.push_str(&lookup_environment(name)?);
+        rest = &after_start[end + 1..];
+    }
+    expanded.push_str(rest);
+    Some(expanded)
 }
 
 impl InstallationDiscovery {
@@ -73,14 +128,47 @@ impl InstallationDiscovery {
 }
 
 fn discover_from_executable(executable: &Path) -> Result<BambuInstallation> {
-    let Some(app) = executable
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-    else {
+    if !is_executable(executable) {
+        return Err(AppError::BambuStudioMissing);
+    }
+    let Some(contents) = executable.parent().and_then(Path::parent) else {
         return Err(AppError::BambuStudioMissing);
     };
-    resolve_selected_install(app, InstallPlatform::MacOs)
+    let profiles_root = contents.join("Resources/profiles");
+    if !is_directory(&profiles_root) {
+        return Err(AppError::SlicerProfilesMissing);
+    }
+
+    Ok(BambuInstallation {
+        executable: fs::canonicalize(executable).map_err(|_| AppError::BambuStudioMissing)?,
+        profiles_root: fs::canonicalize(profiles_root)
+            .map_err(|_| AppError::SlicerProfilesMissing)?,
+    })
+}
+
+fn is_directory(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .is_ok_and(|metadata| metadata.file_type().is_dir() && !metadata.file_type().is_symlink())
+}
+
+fn is_executable(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| {
+        metadata.file_type().is_file()
+            && !metadata.file_type().is_symlink()
+            && has_execute_permission(&metadata)
+    })
+}
+
+#[cfg(unix)]
+fn has_execute_permission(metadata: &fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    metadata.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn has_execute_permission(_metadata: &fs::Metadata) -> bool {
+    true
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -103,6 +191,7 @@ pub fn windows_registry_candidates() -> Vec<PathBuf> {
     use winreg::{
         enums::{
             HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY, KEY_WOW64_64KEY,
+            REG_EXPAND_SZ, REG_SZ,
         },
         RegKey,
     };
@@ -121,13 +210,37 @@ pub fn windows_registry_candidates() -> Vec<PathBuf> {
                 let Ok(entry) = uninstall.open_subkey_with_flags(&key_name, access) else {
                     continue;
                 };
-                let Ok(display_name) = entry.get_value::<String, _>("DisplayName") else {
+                let Ok(display_name) = entry.get_raw_value("DisplayName") else {
+                    continue;
+                };
+                let display_name_kind = match display_name.vtype {
+                    REG_SZ => RegistryStringKind::Plain,
+                    REG_EXPAND_SZ => RegistryStringKind::Expand,
+                    _ => RegistryStringKind::Unsupported,
+                };
+                let Some(display_name) =
+                    decode_registry_string(display_name_kind, &display_name.bytes, |name| {
+                        std::env::var(name).ok()
+                    })
+                else {
                     continue;
                 };
                 if !display_name.to_ascii_lowercase().contains("bambu studio") {
                     continue;
                 }
-                if let Ok(location) = entry.get_value::<String, _>("InstallLocation") {
+                if let Ok(location) = entry.get_raw_value("InstallLocation") {
+                    let location_kind = match location.vtype {
+                        REG_SZ => RegistryStringKind::Plain,
+                        REG_EXPAND_SZ => RegistryStringKind::Expand,
+                        _ => RegistryStringKind::Unsupported,
+                    };
+                    let Some(location) =
+                        decode_registry_string(location_kind, &location.bytes, |name| {
+                            std::env::var(name).ok()
+                        })
+                    else {
+                        continue;
+                    };
                     let location = location.trim().trim_matches('"');
                     if !location.is_empty() {
                         candidates.push(PathBuf::from(location).join("BambuStudio.exe"));
@@ -168,7 +281,10 @@ fn windows_standard_candidates() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ordered_candidates, InstallationDiscovery, SYSTEM_EXECUTABLE};
+    use super::{
+        decode_registry_string, ordered_candidates, InstallationDiscovery, RegistryStringKind,
+        SYSTEM_EXECUTABLE,
+    };
     use crate::error::AppError;
     use std::{
         fs,
@@ -288,6 +404,31 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn default_macos_executable_allows_a_symlinked_app_root() {
+        use std::os::unix::fs::symlink;
+
+        let system_bundle = TemporaryBundle::new(true);
+        let linked_app = system_bundle.root.join("linked-system.app");
+        symlink(&system_bundle.app, &linked_app).unwrap();
+        let discovery = InstallationDiscovery {
+            explicit_app: None,
+            system_executable: linked_app.join("Contents/MacOS/BambuStudio"),
+        };
+
+        let installation = discovery.discover().unwrap();
+
+        assert_eq!(
+            installation.executable,
+            fs::canonicalize(&system_bundle.executable).unwrap()
+        );
+        assert_eq!(
+            installation.profiles_root,
+            fs::canonicalize(&system_bundle.profiles_root).unwrap()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn rejects_symlinked_executables_and_profile_roots() {
         use std::os::unix::fs::symlink;
 
@@ -334,6 +475,64 @@ mod tests {
                 standard[0].clone(),
                 standard[1].clone(),
             ]
+        );
+    }
+
+    fn registry_utf16(value: &str) -> Vec<u8> {
+        value
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .flat_map(u16::to_le_bytes)
+            .collect()
+    }
+
+    #[test]
+    fn registry_plain_string_accepts_only_valid_utf16() {
+        assert_eq!(
+            decode_registry_string(
+                RegistryStringKind::Plain,
+                &registry_utf16(r"C:\Bambu Studio"),
+                |_| None,
+            ),
+            Some(r"C:\Bambu Studio".to_owned())
+        );
+        assert_eq!(
+            decode_registry_string(RegistryStringKind::Plain, &[0x00, 0xD8, 0x00, 0x00], |_| {
+                None
+            },),
+            None
+        );
+    }
+
+    #[test]
+    fn registry_expand_string_resolves_environment_variables() {
+        assert_eq!(
+            decode_registry_string(
+                RegistryStringKind::Expand,
+                &registry_utf16(r"%ProgramFiles%\Bambu Studio"),
+                |name| (name == "ProgramFiles").then(|| r"C:\Program Files".to_owned()),
+            ),
+            Some(r"C:\Program Files\Bambu Studio".to_owned())
+        );
+    }
+
+    #[test]
+    fn registry_decoder_rejects_multi_strings_and_unresolved_variables() {
+        assert_eq!(
+            decode_registry_string(
+                RegistryStringKind::Unsupported,
+                &registry_utf16("first\0second"),
+                |_| None,
+            ),
+            None
+        );
+        assert_eq!(
+            decode_registry_string(
+                RegistryStringKind::Expand,
+                &registry_utf16(r"%MISSING%\Bambu Studio"),
+                |_| None,
+            ),
+            None
         );
     }
 }

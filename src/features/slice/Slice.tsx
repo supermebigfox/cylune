@@ -815,7 +815,7 @@ export function Slice({
       return;
     }
     const path = await pickBambuStudio();
-    if (!path) return;
+    if (!mounted.current || !path) return;
     setSettingStudio(true);
     try {
       await api.setBambuStudioPath(path);

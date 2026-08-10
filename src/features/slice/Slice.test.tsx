@@ -131,7 +131,7 @@ function renderSlice({
   pickBambuStudio = vi.fn(async () => null as string | null),
 } = {}) {
   const platformProps = { pickBambuStudio };
-  render(
+  const rendered = render(
     <Slice
       {...platformProps}
       api={client.api}
@@ -144,7 +144,14 @@ function renderSlice({
       onFormLockChange={onFormLockChange}
     />,
   );
-  return { client, pickInput, onProjectComplete, onSlicedFile, onFormLockChange };
+  return {
+    client,
+    pickInput,
+    onProjectComplete,
+    onSlicedFile,
+    onFormLockChange,
+    unmount: rendered.unmount,
+  };
 }
 
 async function prepareReadyForm() {
@@ -666,6 +673,34 @@ it("lets Windows choose BambuStudio.exe, persists it, and retries the failed sli
     "C:\\Apps\\Bambu Studio\\BambuStudio.exe",
   );
   await waitFor(() => expect(client.startSlice).toHaveBeenCalledTimes(2));
+});
+
+it("does not persist or retry when the chooser resolves after unmount", async () => {
+  const client = fixture();
+  const setBambuStudioPath = vi.fn(async () => undefined);
+  Object.assign(client.api, {
+    getDesktopPlatform: vi.fn(async () => "windows" as const),
+    setBambuStudioPath,
+  });
+  client.startSlice.mockRejectedValueOnce({ code: "bambu_studio_missing" });
+  let resolvePick!: (path: string) => void;
+  const pickBambuStudio = vi.fn(() => new Promise<string>((resolve) => {
+    resolvePick = resolve;
+  }));
+  const { unmount } = renderSlice({ client, pickBambuStudio });
+  const user = await prepareReadyForm();
+  await user.click(screen.getByRole("button", { name: "开始后台切片" }));
+  await user.click(await screen.findByRole("button", { name: "选择 BambuStudio.exe" }));
+  expect(pickBambuStudio).toHaveBeenCalledTimes(1);
+
+  unmount();
+  await act(async () => {
+    resolvePick("C:\\Apps\\Bambu Studio\\BambuStudio.exe");
+    await Promise.resolve();
+  });
+
+  expect(setBambuStudioPath).not.toHaveBeenCalled();
+  expect(client.startSlice).toHaveBeenCalledTimes(1);
 });
 
 it("does not render the Bambu Studio chooser on macOS", async () => {
