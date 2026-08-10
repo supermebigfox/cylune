@@ -1,7 +1,15 @@
 use super::{
-    build_bambu_args, catalog::load_slice_preset_catalog, inspect_3mf_content,
-    progress::BambuProgressParser, project::remap_project_for_machine, resolve_fast_request,
-    FastSliceRequest, InstallationDiscovery, SlicePresetCatalog, SliceRequest,
+    build_bambu_args,
+    catalog::load_slice_preset_catalog,
+    inspect_3mf_content,
+    process_options::{
+        configure_background_command, configure_gui_command, current_process_platform,
+        NativeProcessTerminator,
+    },
+    progress::BambuProgressParser,
+    project::remap_project_for_machine,
+    resolve_fast_request, FastSliceRequest, InstallationDiscovery, SlicePresetCatalog,
+    SliceRequest,
 };
 use crate::{
     error::{AppError, Result},
@@ -85,8 +93,37 @@ pub(crate) trait SliceImporter: Send + Sync {
     fn import_project(&self, generated_path: &Path, original_path: &Path) -> Result<Uuid>;
 }
 
+trait ProcessTerminator: Send {
+    fn terminate(&mut self, child: &mut Child, process_id: u32) -> io::Result<()>;
+}
+
+trait ProcessFactory: Send + Sync {
+    fn configure(&self, command: &mut Command);
+    fn attach(&self, child: &Child) -> io::Result<Box<dyn ProcessTerminator>>;
+}
+
+struct NativeProcessFactory;
+
+impl ProcessFactory for NativeProcessFactory {
+    fn configure(&self, command: &mut Command) {
+        configure_background_command(command, current_process_platform());
+    }
+
+    fn attach(&self, child: &Child) -> io::Result<Box<dyn ProcessTerminator>> {
+        Ok(Box::new(NativeProcessTerminator::attach(child)?))
+    }
+}
+
+impl ProcessTerminator for NativeProcessTerminator {
+    fn terminate(&mut self, child: &mut Child, process_id: u32) -> io::Result<()> {
+        NativeProcessTerminator::terminate(self, child, process_id)
+    }
+}
+
 struct RunningSlice {
     child: Mutex<Child>,
+    process_id: u32,
+    process_terminator: Mutex<Box<dyn ProcessTerminator>>,
     cancel_requested: AtomicBool,
     import_started: AtomicBool,
     finished: Mutex<bool>,
@@ -95,9 +132,16 @@ struct RunningSlice {
 }
 
 impl RunningSlice {
-    fn new(child: Child, task_dir: PathBuf) -> Self {
+    fn new(
+        child: Child,
+        task_dir: PathBuf,
+        process_terminator: Box<dyn ProcessTerminator>,
+    ) -> Self {
+        let process_id = child.id();
         Self {
             child: Mutex::new(child),
+            process_id,
+            process_terminator: Mutex::new(process_terminator),
             cancel_requested: AtomicBool::new(false),
             import_started: AtomicBool::new(false),
             finished: Mutex::new(false),
@@ -121,6 +165,7 @@ struct SlicerInner {
     importer: Arc<dyn SliceImporter>,
     events: Arc<dyn SliceEventSink>,
     stability_delay: Duration,
+    process_factory: Arc<dyn ProcessFactory>,
     running: Mutex<HashMap<Uuid, Arc<RunningSlice>>>,
     tasks: Mutex<HashMap<Uuid, SliceTask>>,
 }
@@ -152,6 +197,24 @@ impl SlicerService {
         events: Arc<dyn SliceEventSink>,
         stability_delay: Duration,
     ) -> Self {
+        Self::with_dependencies_and_process_factory(
+            discovery,
+            cache_root,
+            importer,
+            events,
+            stability_delay,
+            Arc::new(NativeProcessFactory),
+        )
+    }
+
+    fn with_dependencies_and_process_factory(
+        discovery: InstallationDiscovery,
+        cache_root: PathBuf,
+        importer: Arc<dyn SliceImporter>,
+        events: Arc<dyn SliceEventSink>,
+        stability_delay: Duration,
+        process_factory: Arc<dyn ProcessFactory>,
+    ) -> Self {
         cleanup_orphaned_slice_tasks(&cache_root);
         Self {
             inner: Arc::new(SlicerInner {
@@ -160,6 +223,7 @@ impl SlicerService {
                 importer,
                 events,
                 stability_delay,
+                process_factory,
                 running: Mutex::new(HashMap::new()),
                 tasks: Mutex::new(HashMap::new()),
             }),
@@ -209,13 +273,14 @@ impl SlicerService {
     pub fn open_in_bambu_studio(&self, path: &Path) -> Result<()> {
         inspect_3mf_content(path)?;
         let installation = self.discover_installation()?;
-        let mut child = Command::new(&installation.executable)
+        let mut command = Command::new(&installation.executable);
+        command
             .arg(path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|_| AppError::SlicerFailed)?;
+            .stderr(Stdio::null());
+        configure_gui_command(&mut command, current_process_platform());
+        let mut child = command.spawn().map_err(|_| AppError::SlicerFailed)?;
         thread::spawn(move || {
             let _ = child.wait();
         });
@@ -264,22 +329,32 @@ impl SlicerService {
             );
         }
 
-        let mut child = match Command::new(&installation.executable)
+        let mut command = Command::new(&installation.executable);
+        command
             .args(&args)
             .current_dir(&task_dir)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
+            .stderr(Stdio::piped());
+        self.inner.process_factory.configure(&mut command);
+        let mut child = match command.spawn() {
             Ok(child) => child,
             Err(_) => {
                 let _ = fs::remove_dir_all(&task_dir);
                 return Err(AppError::SlicerFailed);
             }
         };
+        let process_terminator = match self.inner.process_factory.attach(&child) {
+            Ok(process_terminator) => process_terminator,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = fs::remove_dir_all(&task_dir);
+                return Err(AppError::SlicerFailed);
+            }
+        };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
-        let running = Arc::new(RunningSlice::new(child, task_dir));
+        let running = Arc::new(RunningSlice::new(child, task_dir, process_terminator));
         self.inner
             .running
             .lock()
@@ -360,7 +435,9 @@ impl SlicerService {
             running.cancel_requested.store(true, Ordering::SeqCst);
             if let Ok(mut child) = running.child.lock() {
                 if child.try_wait().ok().flatten().is_none() {
-                    let _ = child.kill();
+                    if let Ok(mut process_terminator) = running.process_terminator.lock() {
+                        let _ = process_terminator.terminate(&mut child, running.process_id);
+                    }
                 }
             }
         }
@@ -773,8 +850,8 @@ fn finish_error(inner: &Arc<SlicerInner>, task_id: Uuid, error: AppError) {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_slicer_failure, SliceComplete, SliceEventSink, SliceImporter, SlicePhase,
-        SliceProgress, SliceTaskState, SlicerService,
+        classify_slicer_failure, ProcessFactory, ProcessTerminator, SliceComplete, SliceEventSink,
+        SliceImporter, SlicePhase, SliceProgress, SliceTaskState, SlicerService,
     };
     use crate::{
         db::AppDatabase,
@@ -799,6 +876,101 @@ mod tests {
     };
     use uuid::Uuid;
     use zip::write::FileOptions;
+
+    #[cfg(unix)]
+    mod windows_cancellation {
+        use super::*;
+        use std::{io, process::Child};
+
+        struct FixtureProcessTreeFactory;
+
+        impl ProcessFactory for FixtureProcessTreeFactory {
+            fn configure(&self, command: &mut std::process::Command) {
+                use std::os::unix::process::CommandExt;
+                command.process_group(0);
+            }
+
+            fn attach(&self, child: &Child) -> io::Result<Box<dyn ProcessTerminator>> {
+                Ok(Box::new(FixtureProcessTree {
+                    process_group_id: child.id(),
+                }))
+            }
+        }
+
+        struct FixtureProcessTree {
+            process_group_id: u32,
+        }
+
+        impl ProcessTerminator for FixtureProcessTree {
+            fn terminate(&mut self, _child: &mut Child, _process_id: u32) -> io::Result<()> {
+                unsafe extern "C" {
+                    fn kill(pid: i32, signal: i32) -> i32;
+                }
+                let result = unsafe { kill(-(self.process_group_id as i32), 9) };
+                if result == 0 {
+                    Ok(())
+                } else {
+                    Err(io::Error::last_os_error())
+                }
+            }
+        }
+
+        #[test]
+        fn cancellation_terminates_the_tree_once_and_cleans_the_private_directory() {
+            let fixture = Fixture::success();
+            let descendant_survived = fixture.root.join("descendant-survived.txt");
+            let descendant_started = fixture.root.join("descendant-started.txt");
+            fixture.set_script(
+                format!(
+                    "#!/bin/sh\n(sleep 1; printf survived > '{}') &\nprintf started > '{}'\nwhile :; do sleep 1; done\n",
+                    descendant_survived.display(),
+                    descendant_started.display(),
+                )
+                .as_bytes(),
+            );
+            let importer = Arc::new(RecordingImporter::new(Uuid::new_v4()));
+            let events = Arc::new(RecordingEvents::default());
+            let service = SlicerService::with_dependencies_and_process_factory(
+                InstallationDiscovery::new(Some(fixture.app.clone())),
+                fixture.cache.clone(),
+                importer.clone(),
+                events.clone(),
+                Duration::ZERO,
+                Arc::new(FixtureProcessTreeFactory),
+            );
+
+            let started = service.start(fixture.request()).unwrap();
+            let start_deadline = Instant::now() + Duration::from_secs(5);
+            while !descendant_started.exists() {
+                assert!(
+                    Instant::now() < start_deadline,
+                    "fixture process did not create its child"
+                );
+                thread::sleep(Duration::from_millis(5));
+            }
+
+            service.cancel(started.task_id).unwrap();
+            thread::sleep(Duration::from_millis(1200));
+
+            let cancelled = service.get(started.task_id).unwrap();
+            assert_eq!(cancelled.state, SliceTaskState::Cancelled);
+            assert!(importer.imported.lock().unwrap().is_empty());
+            assert!(!descendant_survived.exists());
+            assert!(!fixture
+                .cache
+                .join("slices")
+                .join(started.task_id.to_string())
+                .exists());
+            assert_eq!(
+                events
+                    .names()
+                    .iter()
+                    .filter(|name| name.as_str() == "error:slicer_cancelled")
+                    .count(),
+                1
+            );
+        }
+    }
 
     #[derive(Default)]
     struct RecordingEvents {

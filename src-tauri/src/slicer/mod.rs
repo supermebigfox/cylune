@@ -3,6 +3,7 @@ mod command;
 mod discovery;
 mod inspect;
 mod install_layout;
+mod process_options;
 mod progress;
 mod project;
 mod runtime;
