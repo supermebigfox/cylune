@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import { setLocale } from "../../i18n";
@@ -9,10 +10,16 @@ import {
   type SliceErrorEvent,
   type SliceEventName,
   type SliceEventSubscriber,
+  type SliceFileDropEvent,
+  type SliceFileDropSubscriber,
   type SliceInspection,
   type SliceProgressEvent,
   type SliceRequest,
 } from "./Slice";
+
+vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: vi.fn() }));
+
+const defaultUserAgent = navigator.userAgent;
 
 const p2s = {
   printer_id: "printer-p2s",
@@ -114,6 +121,8 @@ function fixture({
 function renderSlice({
   client = fixture(),
   pickInput = vi.fn(async () => "/Users/robin/Desktop/月球灯.3mf"),
+  subscribeFileDrop = undefined as SliceFileDropSubscriber | undefined,
+  active = true,
   onProjectComplete = vi.fn(),
   onSlicedFile = vi.fn(),
   onFormLockChange = vi.fn(),
@@ -123,6 +132,8 @@ function renderSlice({
       api={client.api}
       pickInput={pickInput}
       subscribeEvent={client.subscribeEvent}
+      subscribeFileDrop={subscribeFileDrop}
+      active={active}
       onProjectComplete={onProjectComplete}
       onSlicedFile={onSlicedFile}
       onFormLockChange={onFormLockChange}
@@ -138,7 +149,16 @@ async function prepareReadyForm() {
   return user;
 }
 
-beforeEach(() => setLocale("zh-CN"));
+beforeEach(() => {
+  setLocale("zh-CN");
+  vi.mocked(getCurrentWebview).mockReset();
+  Reflect.deleteProperty(globalThis, "__TAURI_INTERNALS__");
+  Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 1 });
+  Object.defineProperty(navigator, "userAgent", {
+    configurable: true,
+    value: defaultUserAgent,
+  });
+});
 
 it("starts metadata slicing without asking for an output file", async () => {
   const { client } = renderSlice();
@@ -227,6 +247,201 @@ it("shows inspection state and accepts a dropped desktop file path", async () =>
   expect(client.api.inspect3mf).toHaveBeenCalledWith("/Users/robin/Desktop/月球灯.3mf");
   inspecting.resolve(inspection);
   expect(await screen.findByRole("heading", { name: "月球灯.3mf" })).toBeVisible();
+});
+
+it("accepts a Finder path from Tauri when it is dropped inside the slice zone", async () => {
+  const inspecting = deferred<SliceInspection>();
+  const client = fixture();
+  client.api.inspect3mf = vi.fn(() => inspecting.promise);
+  let emitNativeDrop: ((event: {
+    type: "drop";
+    paths: string[];
+    position: { x: number; y: number };
+  }) => void) | undefined;
+  const subscribeFileDrop: SliceFileDropSubscriber = vi.fn(async (handler) => {
+    emitNativeDrop = handler;
+    return vi.fn();
+  });
+  renderSlice({ client, subscribeFileDrop });
+
+  const zone = await screen.findByTestId("slice-drop-zone");
+  zone.getBoundingClientRect = () => ({
+    x: 20,
+    y: 30,
+    left: 20,
+    top: 30,
+    right: 420,
+    bottom: 330,
+    width: 400,
+    height: 300,
+    toJSON: () => ({}),
+  });
+  await waitFor(() => expect(subscribeFileDrop).toHaveBeenCalledTimes(1));
+
+  act(() => emitNativeDrop?.({
+    type: "drop",
+    paths: ["/Users/robin/Desktop/长弓/长弓X 2.3完整版A.3mf"],
+    position: { x: 120, y: 130 },
+  }));
+
+  expect(await screen.findByText("正在检查 3MF…")).toBeVisible();
+  expect(client.api.inspect3mf).toHaveBeenCalledWith(
+    "/Users/robin/Desktop/长弓/长弓X 2.3完整版A.3mf",
+  );
+  inspecting.resolve({ ...inspection, file_name: "长弓X 2.3完整版A.3mf" });
+  expect(await screen.findByRole("heading", { name: "长弓X 2.3完整版A.3mf" })).toBeVisible();
+});
+
+it("unwraps the real Tauri payload and preserves macOS Retina point coordinates", async () => {
+  const client = fixture();
+  let emitTauriEvent: ((event: { payload: SliceFileDropEvent }) => void) | undefined;
+  const onDragDropEvent = vi.fn(async (
+    handler: (event: { payload: SliceFileDropEvent }) => void,
+  ) => {
+    emitTauriEvent = handler;
+    return vi.fn();
+  });
+  vi.mocked(getCurrentWebview).mockReturnValue({
+    onDragDropEvent,
+  } as unknown as ReturnType<typeof getCurrentWebview>);
+  Object.defineProperty(globalThis, "__TAURI_INTERNALS__", {
+    configurable: true,
+    value: {},
+  });
+  Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 2 });
+  Object.defineProperty(navigator, "userAgent", {
+    configurable: true,
+    value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+  });
+  renderSlice({ client });
+
+  const zone = await screen.findByTestId("slice-drop-zone");
+  zone.getBoundingClientRect = () => ({
+    x: 300,
+    y: 30,
+    left: 300,
+    top: 30,
+    right: 500,
+    bottom: 330,
+    width: 200,
+    height: 300,
+    toJSON: () => ({}),
+  });
+  await waitFor(() => expect(onDragDropEvent).toHaveBeenCalledTimes(1));
+
+  act(() => emitTauriEvent?.({
+    payload: {
+      type: "drop",
+      paths: ["/Users/robin/Desktop/月球灯.3mf"],
+      position: { x: 400, y: 130 },
+    },
+  }));
+
+  expect(client.api.inspect3mf).toHaveBeenCalledWith("/Users/robin/Desktop/月球灯.3mf");
+  expect(await screen.findByRole("heading", { name: "月球灯.3mf" })).toBeVisible();
+});
+
+it("converts non-macOS Tauri physical drop coordinates to CSS pixels", async () => {
+  const client = fixture();
+  let emitNativeDrop: Parameters<SliceFileDropSubscriber>[0] | undefined;
+  const subscribeFileDrop: SliceFileDropSubscriber = vi.fn(async (handler) => {
+    emitNativeDrop = handler;
+    return vi.fn();
+  });
+  Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 2 });
+  Object.defineProperty(navigator, "userAgent", {
+    configurable: true,
+    value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+  });
+  renderSlice({ client, subscribeFileDrop });
+
+  const zone = await screen.findByTestId("slice-drop-zone");
+  zone.getBoundingClientRect = () => ({
+    x: 300,
+    y: 30,
+    left: 300,
+    top: 30,
+    right: 500,
+    bottom: 330,
+    width: 200,
+    height: 300,
+    toJSON: () => ({}),
+  });
+  await waitFor(() => expect(subscribeFileDrop).toHaveBeenCalledTimes(1));
+
+  await act(async () => {
+    emitNativeDrop?.({
+      type: "drop",
+      paths: ["C:\\Users\\robin\\Desktop\\moon.3mf"],
+      position: { x: 800, y: 260 },
+    });
+    await Promise.resolve();
+  });
+
+  expect(client.api.inspect3mf).toHaveBeenCalledWith(
+    "C:\\Users\\robin\\Desktop\\moon.3mf",
+  );
+  expect(await screen.findByRole("heading", { name: "月球灯.3mf" })).toBeVisible();
+});
+
+it("ignores native file drops outside the slice zone", async () => {
+  const client = fixture();
+  let emitNativeDrop: Parameters<SliceFileDropSubscriber>[0] | undefined;
+  const subscribeFileDrop: SliceFileDropSubscriber = vi.fn(async (handler) => {
+    emitNativeDrop = handler;
+    return vi.fn();
+  });
+  renderSlice({ client, subscribeFileDrop });
+
+  const zone = await screen.findByTestId("slice-drop-zone");
+  zone.getBoundingClientRect = () => ({
+    x: 20,
+    y: 30,
+    left: 20,
+    top: 30,
+    right: 420,
+    bottom: 330,
+    width: 400,
+    height: 300,
+    toJSON: () => ({}),
+  });
+  await waitFor(() => expect(subscribeFileDrop).toHaveBeenCalledTimes(1));
+
+  act(() => emitNativeDrop?.({
+    type: "drop",
+    paths: ["/Users/robin/Desktop/月球灯.3mf"],
+    position: { x: 900, y: 900 },
+  }));
+
+  expect(client.api.inspect3mf).not.toHaveBeenCalled();
+});
+
+it("does not subscribe to native drops while the persistent slice page is hidden", async () => {
+  const subscribeFileDrop: SliceFileDropSubscriber = vi.fn(async () => vi.fn());
+
+  renderSlice({ active: false, subscribeFileDrop });
+
+  await screen.findByTestId("slice-drop-zone");
+  expect(subscribeFileDrop).not.toHaveBeenCalled();
+});
+
+it("unsubscribes from native drops when the slice page becomes hidden", async () => {
+  const client = fixture();
+  const unlisten = vi.fn();
+  const subscribeFileDrop: SliceFileDropSubscriber = vi.fn(async () => unlisten);
+  const props = {
+    api: client.api,
+    pickInput: vi.fn(async () => null),
+    subscribeEvent: client.subscribeEvent,
+    subscribeFileDrop,
+    onProjectComplete: vi.fn(),
+  };
+  const { rerender } = render(<Slice {...props} active />);
+  await waitFor(() => expect(subscribeFileDrop).toHaveBeenCalledTimes(1));
+
+  rerender(<Slice {...props} active={false} />);
+
+  await waitFor(() => expect(unlisten).toHaveBeenCalledTimes(1));
 });
 
 it("refreshes saved printers whenever the persistent slicing page becomes active again", async () => {

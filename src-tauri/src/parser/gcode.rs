@@ -23,6 +23,11 @@ pub struct GcodeReport {
     pub declared_total_layers: Option<u32>,
 }
 
+pub(crate) struct ParsedGcode {
+    pub report: GcodeReport,
+    pub filament_tools: Option<Vec<u8>>,
+}
+
 impl GcodeReport {
     pub fn display_layer_count(&self) -> u32 {
         self.declared_total_layers
@@ -32,6 +37,10 @@ impl GcodeReport {
 }
 
 pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
+    Ok(parse_gcode_with_filament_tools(reader)?.report)
+}
+
+pub(crate) fn parse_gcode_with_filament_tools<R: BufRead>(reader: R) -> Result<ParsedGcode> {
     let mut current_tool = 0;
     let mut absolute_extrusion = true;
     let mut positions = BTreeMap::new();
@@ -41,6 +50,7 @@ pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
     let mut saw_extrusion_command = false;
     let mut declared_estimated_seconds = None;
     let mut declared_total_layers = None;
+    let mut filament_tools = None;
 
     for line in reader.lines() {
         let line = line?;
@@ -50,6 +60,14 @@ pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
             }
             if let Some(value) = comment.strip_prefix("total layer number:") {
                 declared_total_layers = value.trim().parse().ok();
+            }
+            if let Some(value) = comment.strip_prefix("filament:") {
+                let parsed = parse_filament_tools(value)?;
+                match filament_tools.as_ref() {
+                    None => filament_tools = Some(parsed),
+                    Some(existing) if existing == &parsed => {}
+                    Some(_) => return Err(AppError::InvalidFile),
+                }
             }
         }
         if let Some(layer) = layer_marker(&line, layers.len() as u32) {
@@ -129,13 +147,62 @@ pub fn parse_gcode<R: BufRead>(reader: R) -> Result<GcodeReport> {
         return Err(AppError::UnknownGcode);
     }
 
-    Ok(GcodeReport {
+    let mut report = GcodeReport {
         max_layer: layers.len() as u32,
         layers,
         totals_mm,
         declared_estimated_seconds,
         declared_total_layers,
+    };
+    if let Some(tools) = filament_tools.as_deref() {
+        remap_report_tools(&mut report, tools)?;
+    }
+    Ok(ParsedGcode {
+        report,
+        filament_tools,
     })
+}
+
+fn parse_filament_tools(value: &str) -> Result<Vec<u8>> {
+    let mut seen = std::collections::BTreeSet::new();
+    let tools = value
+        .split(',')
+        .map(str::trim)
+        .map(|value| {
+            value
+                .parse::<u16>()
+                .ok()
+                .and_then(|tool| tool.checked_sub(1))
+                .and_then(|tool| u8::try_from(tool).ok())
+                .filter(|tool| seen.insert(*tool))
+                .ok_or(AppError::InvalidFile)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    (!tools.is_empty())
+        .then_some(tools)
+        .ok_or(AppError::InvalidFile)
+}
+
+fn remap_report_tools(report: &mut GcodeReport, tools: &[u8]) -> Result<()> {
+    remap_usage(&mut report.totals_mm, tools)?;
+    for layer in &mut report.layers {
+        remap_usage(&mut layer.cumulative_mm, tools)?;
+    }
+    Ok(())
+}
+
+fn remap_usage(usage: &mut BTreeMap<u8, f64>, tools: &[u8]) -> Result<()> {
+    let local = std::mem::take(usage);
+    for (tool, value) in local {
+        let mapped = tools
+            .get(tool as usize)
+            .copied()
+            .ok_or(AppError::InvalidFile)?;
+        if usage.insert(mapped, value).is_some() {
+            return Err(AppError::InvalidFile);
+        }
+    }
+    Ok(())
 }
 
 fn parse_estimated_seconds(value: &str) -> Option<u32> {
@@ -247,6 +314,34 @@ mod tests {
         assert_eq!(report.totals_mm[&0], 2.0);
         assert_eq!(report.totals_mm[&1], 4.0);
         assert_eq!(report.totals_mm[&2], 3.0);
+    }
+
+    #[test]
+    fn maps_a_single_plate_local_tool_back_to_its_project_filament() {
+        let src = b"; filament: 2\nM83\n; LAYER:0\nG1 E5\n";
+
+        let report = parse_gcode(&src[..]).unwrap();
+
+        assert_eq!(
+            report.totals_mm,
+            std::collections::BTreeMap::from([(1, 5.0)])
+        );
+        assert_eq!(
+            report.layers[0].cumulative_mm,
+            std::collections::BTreeMap::from([(1, 5.0)]),
+        );
+    }
+
+    #[test]
+    fn maps_non_contiguous_local_tools_in_declared_filament_order() {
+        let src = b"; filament: 2,4\nM83\nT0\nG1 E2\nT1\nG1 E3\n";
+
+        let report = parse_gcode(&src[..]).unwrap();
+
+        assert_eq!(
+            report.totals_mm,
+            std::collections::BTreeMap::from([(1, 2.0), (3, 3.0)]),
+        );
     }
 
     #[test]

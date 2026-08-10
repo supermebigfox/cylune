@@ -6,7 +6,7 @@ use std::path::Path;
 use serde_json::Value;
 use zip::ZipArchive;
 
-use super::gcode::{parse_gcode, GcodeReport};
+use super::gcode::{parse_gcode_with_filament_tools, GcodeReport};
 use super::{preset_base, FilamentProfile, ParsedPlate, ParsedPrintFile, ParsedProjectV2};
 use crate::error::{AppError, Result};
 
@@ -93,9 +93,22 @@ pub fn parse_3mf_project(path: &Path) -> Result<ParsedProjectV2> {
             let gcode_entry = archive
                 .by_name(&gcode_name)
                 .map_err(|_| AppError::InvalidFile)?;
-            let mut gcode = parse_gcode(BufReader::new(gcode_entry))?;
+            let parsed_gcode = parse_gcode_with_filament_tools(BufReader::new(gcode_entry))?;
+            if parsed_gcode.filament_tools.as_ref().is_some_and(|tools| {
+                tools
+                    .iter()
+                    .any(|tool| !filaments.iter().any(|profile| profile.tool == *tool))
+            }) {
+                return Err(AppError::InvalidFile);
+            }
+            let mut gcode = parsed_gcode.report;
             if let Some(grams) = declared_filament_grams.get(&plate_index) {
-                calibrate_gcode_to_declared_grams(&mut gcode, &filaments, grams)?;
+                let grams = normalize_declared_filament_grams(
+                    grams,
+                    parsed_gcode.filament_tools.as_deref(),
+                    &gcode.totals_mm,
+                )?;
+                calibrate_gcode_to_declared_grams(&mut gcode, &filaments, &grams)?;
             }
             let display_name = plate_json
                 .get(&plate_index)
@@ -302,6 +315,55 @@ fn calibrate_gcode_to_declared_grams(
     Ok(())
 }
 
+fn normalize_declared_filament_grams(
+    declared: &BTreeMap<u8, f64>,
+    filament_tools: Option<&[u8]>,
+    measured_mm: &BTreeMap<u8, f64>,
+) -> Result<BTreeMap<u8, f64>> {
+    let Some(filament_tools) = filament_tools else {
+        return Ok(declared.clone());
+    };
+    let measured = measured_mm
+        .iter()
+        .filter_map(|(&tool, &length)| (length > 0.0).then_some(tool))
+        .collect::<BTreeSet<_>>();
+    let declared_positive = declared
+        .iter()
+        .filter_map(|(&tool, &grams)| (grams > 0.0).then_some(tool))
+        .collect::<BTreeSet<_>>();
+    let global_match = declared_positive == measured;
+    if global_match
+        && declared
+            .keys()
+            .any(|tool| *tool as usize >= filament_tools.len())
+    {
+        return Ok(declared.clone());
+    }
+
+    let mut remapped = BTreeMap::new();
+    for (&local, &grams) in declared {
+        let global = filament_tools
+            .get(local as usize)
+            .copied()
+            .ok_or(AppError::InvalidFile)?;
+        if remapped.insert(global, grams).is_some() {
+            return Err(AppError::InvalidFile);
+        }
+    }
+    let remapped_positive = remapped
+        .iter()
+        .filter_map(|(&tool, &grams)| (grams > 0.0).then_some(tool))
+        .collect::<BTreeSet<_>>();
+    let local_match = remapped_positive == measured;
+
+    match (global_match, local_match) {
+        (true, false) => Ok(declared.clone()),
+        (false, true) => Ok(remapped),
+        (true, true) if remapped == *declared => Ok(declared.clone()),
+        _ => Err(AppError::InvalidFile),
+    }
+}
+
 fn plate_metadata_value<'a>(contents: &'a str, key: &str) -> Option<&'a str> {
     contents.split("<metadata").skip(1).find_map(|element| {
         let tag = element.split('>').next()?;
@@ -440,7 +502,10 @@ mod tests {
         gcode::{GcodeReport, LayerUsage},
         parse_3mf, parse_3mf_project, FilamentProfile,
     };
-    use super::{calibrate_gcode_to_declared_grams, slice_filament_grams, slice_predictions};
+    use super::{
+        calibrate_gcode_to_declared_grams, normalize_declared_filament_grams, slice_filament_grams,
+        slice_predictions,
+    };
     use crate::domain::Confidence;
     use std::collections::BTreeMap;
     use std::fs::{self, File};
@@ -686,6 +751,163 @@ mod tests {
         assert!(
             (profile.grams_for_length_mm(report.layers[0].cumulative_mm[&0]) - 110.76).abs() < 1e-9
         );
+    }
+
+    #[test]
+    fn maps_local_slice_info_grams_to_the_project_filament_declared_by_gcode() {
+        let path = temporary_archive_path();
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = FileOptions::default();
+        archive
+            .start_file("Metadata/project_settings.config", options)
+            .unwrap();
+        archive
+            .write_all(
+                br##"{"filament_settings_id":["Generic PETG Black","Generic PETG Yellow"],"filament_type":["PETG","PETG"],"filament_colour":["#000000","#FFFF00"],"filament_diameter":["1.75","1.75"],"filament_density":["1.27","1.27"]}"##,
+            )
+            .unwrap();
+        archive
+            .start_file("Metadata/slice_info.config", options)
+            .unwrap();
+        archive
+            .write_all(
+                br#"<config><plate index="1"><filament id="1" used_g="12.34"/></plate></config>"#,
+            )
+            .unwrap();
+        archive
+            .start_file("Metadata/plate_1.gcode", options)
+            .unwrap();
+        archive
+            .write_all(b"; filament: 2\nM83\n; LAYER:0\nG1 E100\n")
+            .unwrap();
+        archive.finish().unwrap();
+
+        let plate = parse_3mf_project(&path).unwrap().plates.remove(0);
+
+        fs::remove_file(path).unwrap();
+        assert!(!plate.gcode.totals_mm.contains_key(&0));
+        assert!(plate.gcode.totals_mm.contains_key(&1));
+        assert!(
+            (plate.filaments[1].grams_for_length_mm(plate.gcode.totals_mm[&1]) - 12.34).abs()
+                < 1e-9
+        );
+        assert!(plate.gcode.layers[0].cumulative_mm.contains_key(&1));
+    }
+
+    #[test]
+    fn preserves_slice_info_that_already_uses_project_filament_ids() {
+        let declared = BTreeMap::from([(1, 12.34)]);
+        let measured = BTreeMap::from([(1, 100.0)]);
+
+        let normalized =
+            normalize_declared_filament_grams(&declared, Some(&[1]), &measured).unwrap();
+
+        assert_eq!(normalized, declared);
+    }
+
+    #[test]
+    fn rejects_a_declared_project_filament_that_has_no_profile() {
+        let path = temporary_archive_path();
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = FileOptions::default();
+        write_filament_config(&mut archive, options);
+        archive
+            .start_file("Metadata/plate_1.gcode", options)
+            .unwrap();
+        archive.write_all(b"; filament: 2\nM83\nG1 E1\n").unwrap();
+        archive.finish().unwrap();
+
+        let error = parse_3mf_project(&path).unwrap_err();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(error.code(), "invalid_file");
+    }
+
+    #[test]
+    fn rejects_an_unused_declared_filament_that_has_no_profile() {
+        let path = temporary_archive_path();
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = FileOptions::default();
+        write_filament_config(&mut archive, options);
+        archive
+            .start_file("Metadata/plate_1.gcode", options)
+            .unwrap();
+        archive
+            .write_all(b"; filament: 1,2\nM83\nT0\nG1 E1\n")
+            .unwrap();
+        archive.finish().unwrap();
+
+        let error = parse_3mf_project(&path).unwrap_err();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(error.code(), "invalid_file");
+    }
+
+    #[test]
+    fn preserves_longbow_five_plate_black_and_yellow_usage() {
+        let path = temporary_archive_path();
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = FileOptions::default();
+        archive
+            .start_file("Metadata/project_settings.config", options)
+            .unwrap();
+        archive
+            .write_all(
+                br##"{"filament_settings_id":["Generic PETG","Generic PETG"],"filament_type":["PETG","PETG"],"filament_colour":["#000000","#FFFF00"],"filament_diameter":["1.75","1.75"],"filament_density":["1.27","1.27"]}"##,
+            )
+            .unwrap();
+        let expected = [
+            (1_u32, 1_u8, 541.55_f64),
+            (2, 1, 189.28),
+            (3, 0, 379.78),
+            (4, 0, 199.34),
+            (5, 1, 69.54),
+        ];
+        let slice_info = expected
+            .iter()
+            .map(|(plate, _, grams)| {
+                format!(r#"<plate index="{plate}"><filament id="1" used_g="{grams}"/></plate>"#)
+            })
+            .collect::<String>();
+        archive
+            .start_file("Metadata/slice_info.config", options)
+            .unwrap();
+        archive
+            .write_all(format!("<config>{slice_info}</config>").as_bytes())
+            .unwrap();
+        for (plate, tool, _) in expected {
+            archive
+                .start_file(format!("Metadata/plate_{plate}.gcode"), options)
+                .unwrap();
+            archive
+                .write_all(
+                    format!("; filament: {}\nM83\n; LAYER:0\nG1 E100\n", tool + 1).as_bytes(),
+                )
+                .unwrap();
+        }
+        archive.finish().unwrap();
+
+        let project = parse_3mf_project(&path).unwrap();
+
+        fs::remove_file(path).unwrap();
+        assert_eq!(project.plates.len(), 5);
+        for (plate, (plate_index, tool, grams)) in project.plates.iter().zip(expected) {
+            assert_eq!(plate.plate_index, plate_index);
+            assert_eq!(
+                plate.gcode.totals_mm.keys().copied().collect::<Vec<_>>(),
+                [tool]
+            );
+            assert_eq!(
+                plate.filaments[tool as usize].color_hex,
+                if tool == 0 { "#000000" } else { "#FFFF00" }
+            );
+            assert!(
+                (plate.filaments[tool as usize].grams_for_length_mm(plate.gcode.totals_mm[&tool])
+                    - grams)
+                    .abs()
+                    < 1e-9
+            );
+        }
     }
 
     #[test]

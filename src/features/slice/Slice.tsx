@@ -24,6 +24,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useLocale, type SupportedLocale } from "../../i18n";
 import "./Slice.css";
 
@@ -106,6 +107,16 @@ export type SliceEventSubscriber = (
   handler: (payload: unknown) => void,
 ) => Promise<() => void> | (() => void);
 
+export type SliceFileDropEvent =
+  | { type: "enter"; paths: string[]; position: { x: number; y: number } }
+  | { type: "over"; position: { x: number; y: number } }
+  | { type: "drop"; paths: string[]; position: { x: number; y: number } }
+  | { type: "leave" };
+
+export type SliceFileDropSubscriber = (
+  handler: (event: SliceFileDropEvent) => void,
+) => Promise<() => void> | (() => void);
+
 export interface SliceApi {
   listSavedPrinters(): Promise<SlicePrinter[]>;
   inspect3mf(path: string): Promise<SliceInspection>;
@@ -119,6 +130,7 @@ export interface SliceProps {
   api: SliceApi;
   pickInput(): Promise<string | null>;
   subscribeEvent: SliceEventSubscriber;
+  subscribeFileDrop?: SliceFileDropSubscriber;
   onProjectComplete(projectId: string): void;
   onSlicedFile?(path: string): void;
   initialInputPath?: string | null;
@@ -377,6 +389,29 @@ function droppedPath(event: DragEvent<HTMLElement>): string | null {
   }
 }
 
+const subscribeTauriFileDrop: SliceFileDropSubscriber = async (handler) => {
+  if (!("__TAURI_INTERNALS__" in globalThis)) return () => undefined;
+  return getCurrentWebview().onDragDropEvent((event) => handler(event.payload));
+};
+
+function isInsideDropZone(
+  position: { x: number; y: number },
+  zone: HTMLElement,
+): boolean {
+  // Wry reports NSView point coordinates on macOS even though Tauri's public
+  // type names them PhysicalPosition. Windows reports client pixels.
+  const macOS = /Macintosh|Mac OS X/.test(navigator.userAgent);
+  const scale = macOS
+    ? 1
+    : window.devicePixelRatio > 0
+      ? window.devicePixelRatio
+      : 1;
+  const x = position.x / scale;
+  const y = position.y / scale;
+  const bounds = zone.getBoundingClientRect();
+  return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
+}
+
 function isThreeMf(path: string): boolean {
   return path.toLowerCase().endsWith(".3mf");
 }
@@ -430,6 +465,7 @@ export function Slice({
   api,
   pickInput,
   subscribeEvent,
+  subscribeFileDrop = subscribeTauriFileDrop,
   onProjectComplete,
   onSlicedFile,
   initialInputPath = null,
@@ -463,6 +499,7 @@ export function Slice({
   const completedProjects = useRef(new Set<string>());
   const inputHandoffRef = useRef<string | null>(null);
   const preferredPrinterNonceRef = useRef(-1);
+  const dropZoneRef = useRef<HTMLButtonElement | null>(null);
 
   const selectedPrinter = useMemo(
     () => printers.find((printer) => printer.printer_id === selectedPrinterId) ?? null,
@@ -594,6 +631,35 @@ export function Slice({
     onFormLockChange?.(locked);
     return () => onFormLockChange?.(false);
   }, [locked, onFormLockChange]);
+
+  useEffect(() => {
+    if (!active || locked) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void Promise.resolve(subscribeFileDrop((event) => {
+      const zone = dropZoneRef.current;
+      if (!zone) return;
+      if (event.type === "leave") {
+        setDragging(false);
+        return;
+      }
+      const inside = isInsideDropZone(event.position, zone);
+      if (event.type === "enter" || event.type === "over") {
+        setDragging(inside);
+        return;
+      }
+      setDragging(false);
+      if (inside && event.paths[0]) void inspectPath(event.paths[0]);
+    })).then((unlisten) => {
+      if (disposed) unlisten();
+      else stop = unlisten;
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+      stop?.();
+      setDragging(false);
+    };
+  }, [active, locked, subscribeFileDrop]);
 
   useEffect(() => {
     let disposed = false;
@@ -802,6 +868,7 @@ export function Slice({
     </div>
 
     {!inspection && view !== "inspecting" ? <button
+      ref={dropZoneRef}
       type="button"
       className={`slice-drop${dragging ? " is-dragging" : ""}`}
       data-testid="slice-drop-zone"

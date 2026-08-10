@@ -1450,11 +1450,15 @@ mod tests {
         let failed = wait_for_terminal(&service, started.task_id);
 
         assert_eq!(failed.state, SliceTaskState::Failed);
-        assert!(!fixture
+        let task_root = fixture
             .cache
             .join("slices")
-            .join(started.task_id.to_string())
-            .exists());
+            .join(started.task_id.to_string());
+        let cleanup_deadline = Instant::now() + Duration::from_secs(5);
+        while task_root.exists() && Instant::now() < cleanup_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!task_root.exists());
         assert_eq!(events.names().last().unwrap(), "error:slicer_failed");
     }
 

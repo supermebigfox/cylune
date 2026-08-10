@@ -162,7 +162,12 @@ fn remap_identity(
 
 fn remap_profile_name(source: &str, target_template: &str) -> String {
     let Some((source_base, _)) = source.split_once(" @") else {
-        return target_template.to_owned();
+        let source = source.trim();
+        return if source.is_empty() {
+            target_template.to_owned()
+        } else {
+            source.to_owned()
+        };
     };
     let Some((_, target_suffix)) = target_template.split_once(" @") else {
         return target_template.to_owned();
@@ -179,7 +184,15 @@ mod tests {
     use uuid::Uuid;
     use zip::{write::FileOptions, ZipArchive, ZipWriter};
 
-    use super::remap_project_for_machine;
+    use super::{remap_profile_name, remap_project_for_machine};
+
+    #[test]
+    fn preserves_portable_filament_names_without_a_machine_suffix() {
+        assert_eq!(
+            remap_profile_name("Generic PETG", "Bambu PLA Basic @BBL P2S"),
+            "Generic PETG"
+        );
+    }
 
     #[test]
     fn remaps_only_compatibility_identity_and_preserves_project_settings() {
@@ -196,11 +209,13 @@ mod tests {
             "print_compatible_printers": ["Bambu Lab X2D 0.4 nozzle"],
             "filament_settings_id": [
                 "Bambu PLA Basic @BBL X2D 0.4 nozzle",
-                "Bambu PETG HF @BBL X2D 0.4 nozzle-custom(project.3mf)"
+                "Bambu PETG HF @BBL X2D 0.4 nozzle-custom(project.3mf)",
+                "Generic PETG"
             ],
             "default_filament_profile": [
                 "Bambu PLA Basic @BBL X2D 0.4 nozzle",
-                "Bambu PETG HF @BBL X2D 0.4 nozzle"
+                "Bambu PETG HF @BBL X2D 0.4 nozzle",
+                "Generic PETG"
             ],
             "layer_height": "0.12",
             "wall_loops": "5",
@@ -241,7 +256,19 @@ mod tests {
         );
         assert_eq!(
             remapped["filament_settings_id"],
-            json!(["Bambu PLA Basic @BBL P2S", "Bambu PETG HF @BBL P2S"])
+            json!([
+                "Bambu PLA Basic @BBL P2S",
+                "Bambu PETG HF @BBL P2S",
+                "Generic PETG"
+            ])
+        );
+        assert_eq!(
+            remapped["default_filament_profile"],
+            json!([
+                "Bambu PLA Basic @BBL P2S",
+                "Bambu PETG HF @BBL P2S",
+                "Generic PETG"
+            ])
         );
         assert_eq!(remapped["layer_height"], settings["layer_height"]);
         assert_eq!(remapped["wall_loops"], settings["wall_loops"]);
