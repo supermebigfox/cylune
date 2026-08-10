@@ -17,6 +17,19 @@ use uuid::Uuid;
 
 pub use crate::pet::input::is_supported_print_path;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrayPlatform {
+    MacOs,
+    Windows,
+}
+
+pub fn tray_icon_bytes(platform: TrayPlatform) -> &'static [u8] {
+    match platform {
+        TrayPlatform::MacOs => include_bytes!("../icons/trayTemplate.png"),
+        TrayPlatform::Windows => include_bytes!("../icons/icon.png"),
+    }
+}
+
 pub struct Debouncer {
     window: Duration,
     seen: HashMap<PathBuf, Instant>,
@@ -712,10 +725,15 @@ pub fn setup(
     .build(app)?;
     let quit = MenuItemBuilder::with_id("quit", copy.quit).build(app)?;
     let menu = Menu::with_items(app, &[&open, &reset, &visibility, &quit])?;
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/trayTemplate.png"))?;
+    let platform = if cfg!(target_os = "windows") {
+        TrayPlatform::Windows
+    } else {
+        TrayPlatform::MacOs
+    };
+    let icon = tauri::image::Image::from_bytes(tray_icon_bytes(platform))?;
     let tray = TrayIconBuilder::with_id("cylune")
         .icon(icon)
-        .icon_as_template(true)
+        .icon_as_template(matches!(platform, TrayPlatform::MacOs))
         .tooltip(copy.tooltip)
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -1138,6 +1156,18 @@ mod tests {
         assert_eq!(
             take_pending_navigation_from_database(&mut service.database).unwrap(),
             None
+        );
+    }
+
+    #[test]
+    fn each_desktop_platform_keeps_its_intended_tray_art() {
+        assert_eq!(
+            super::tray_icon_bytes(super::TrayPlatform::MacOs),
+            include_bytes!("../icons/trayTemplate.png")
+        );
+        assert_eq!(
+            super::tray_icon_bytes(super::TrayPlatform::Windows),
+            include_bytes!("../icons/icon.png")
         );
     }
 }

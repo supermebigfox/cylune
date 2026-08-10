@@ -188,6 +188,18 @@ pub fn run() {
 #[cfg(test)]
 mod config_tests {
     #[test]
+    fn windows_bundle_is_isolated_from_the_sealed_macos_targets() {
+        let base: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let windows: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.windows.conf.json")).unwrap();
+
+        assert_eq!(base["bundle"]["targets"], serde_json::json!(["app", "dmg"]));
+        assert_eq!(windows["bundle"]["targets"], serde_json::json!(["nsis"]));
+        assert_eq!(windows["bundle"]["windows"]["nsis"]["installMode"], "currentUser");
+    }
+
+    #[test]
     fn asset_protocol_is_limited_to_app_data_media() {
         let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
             .expect("tauri.conf.json must remain valid JSON");
