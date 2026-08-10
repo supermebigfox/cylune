@@ -1,7 +1,7 @@
 use super::{PetFps, PetMode, PetSettings, PetVisualStyle};
 use std::{error::Error, ffi::c_char, fmt};
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::{
     ffi::{c_void, CString},
     ptr::NonNull,
@@ -366,7 +366,115 @@ mod platform {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+mod platform {
+    use super::{
+        c_char, c_void, CString, NativeCaptureState, NativeRendererState, NonNull, PetCallback,
+        PetNativeConfig,
+    };
+
+    unsafe extern "C" {
+        fn pet_create(callback: PetCallback, hlsl_source: *const c_char) -> *mut c_void;
+        fn pet_destroy(handle: *mut c_void) -> u32;
+        fn pet_apply(handle: *mut c_void, config: PetNativeConfig) -> bool;
+        fn pet_show(handle: *mut c_void);
+        fn pet_hide(handle: *mut c_void);
+        fn pet_reset(handle: *mut c_void);
+        fn pet_signal(handle: *mut c_void, signal: u32);
+        fn pet_finish_drop(handle: *mut c_void, generation: u64, result: u32);
+        fn pet_capture_state(handle: *mut c_void) -> u32;
+        fn pet_renderer_state(handle: *mut c_void) -> u32;
+        fn pet_abi_version() -> u32;
+    }
+
+    pub fn abi_version() -> u32 {
+        unsafe { pet_abi_version() }
+    }
+
+    pub struct Handle(Option<NonNull<c_void>>);
+
+    impl Handle {
+        pub fn new(callback: PetCallback) -> Option<Self> {
+            let source = CString::new(include_str!("../../native/windows/BlackHole.hlsl"))
+                .expect("embedded HLSL source contains no NUL bytes");
+            NonNull::new(unsafe { pet_create(callback, source.as_ptr()) })
+                .map(Some)
+                .map(Self)
+        }
+
+        pub fn apply(&self, config: PetNativeConfig) -> bool {
+            self.0
+                .is_some_and(|handle| unsafe { pet_apply(handle.as_ptr(), config) })
+        }
+
+        pub fn show(&self) {
+            if let Some(handle) = self.0 {
+                unsafe { pet_show(handle.as_ptr()) }
+            }
+        }
+
+        pub fn hide(&self) {
+            if let Some(handle) = self.0 {
+                unsafe { pet_hide(handle.as_ptr()) }
+            }
+        }
+
+        pub fn reset(&self) {
+            if let Some(handle) = self.0 {
+                unsafe { pet_reset(handle.as_ptr()) }
+            }
+        }
+
+        pub fn signal(&self, signal: u32) {
+            if let Some(handle) = self.0 {
+                unsafe { pet_signal(handle.as_ptr(), signal) }
+            }
+        }
+
+        pub fn finish_drop(&self, generation: u64, result: u32) {
+            if let Some(handle) = self.0 {
+                unsafe { pet_finish_drop(handle.as_ptr(), generation, result) }
+            }
+        }
+
+        pub fn capture_state(&self) -> NativeCaptureState {
+            self.0
+                .and_then(|handle| {
+                    NativeCaptureState::try_from(unsafe { pet_capture_state(handle.as_ptr()) }).ok()
+                })
+                .unwrap_or(NativeCaptureState::Failed)
+        }
+
+        pub fn renderer_state(&self) -> NativeRendererState {
+            self.0
+                .and_then(|handle| {
+                    NativeRendererState::try_from(unsafe { pet_renderer_state(handle.as_ptr()) })
+                        .ok()
+                })
+                .unwrap_or(NativeRendererState::Unavailable)
+        }
+
+        pub fn shutdown(mut self) -> super::NativeShutdownState {
+            let Some(handle) = self.0.take() else {
+                return super::NativeShutdownState::Complete;
+            };
+            super::NativeShutdownState::try_from(unsafe { pet_destroy(handle.as_ptr()) })
+                .unwrap_or(super::NativeShutdownState::StopFailed)
+        }
+    }
+
+    unsafe impl Send for Handle {}
+
+    impl Drop for Handle {
+        fn drop(&mut self) {
+            if let Some(handle) = self.0.take() {
+                let _ = unsafe { pet_destroy(handle.as_ptr()) };
+            }
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod platform {
     use super::{NativeCaptureState, NativeRendererState, PetCallback, PetNativeConfig};
 
@@ -471,6 +579,17 @@ mod tests {
         assert!(!NATIVE_RS.contains(&removed_test_renderer));
         assert!(!BRIDGE_H.contains("mac_capture_"));
         assert!(!BRIDGE_H.contains("mac_renderer_"));
+    }
+
+    #[test]
+    fn windows_and_macos_use_separate_native_sources() {
+        const BUILD_RS: &str = include_str!("../../build.rs");
+        const WINDOWS_BRIDGE: &str = include_str!("../../native/windows/bridge.h");
+        assert!(BUILD_RS.contains("native/windows/pet_bridge.cpp"));
+        assert!(WINDOWS_BRIDGE.contains("typedef struct"));
+        assert!(WINDOWS_BRIDGE.contains("uint8_t visual_style"));
+        assert!(!WINDOWS_BRIDGE.contains("metal_source"));
+        assert!(!WINDOWS_BRIDGE.contains("MetalBlackHoleView"));
     }
 
     #[test]

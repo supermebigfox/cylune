@@ -12,6 +12,9 @@ fn main() {
     println!("cargo:rerun-if-changed=native/mac/tiyda/BlackHole.metal");
     println!("cargo:rerun-if-changed=native/mac/tiyda/black_hole_params.h");
     println!("cargo:rerun-if-changed=native/mac/tiyda/capture_policy.h");
+    println!("cargo:rerun-if-changed=native/windows/bridge.h");
+    println!("cargo:rerun-if-changed=native/windows/pet_bridge.cpp");
+    println!("cargo:rerun-if-changed=native/windows/BlackHole.hlsl");
 
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         cc::Build::new()
@@ -30,6 +33,26 @@ fn main() {
             println!("cargo:rustc-link-lib=framework={framework}");
         }
         println!("cargo:rustc-link-arg=-Wl,-weak_framework,ScreenCaptureKit");
+    }
+
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        cc::Build::new()
+            .cpp(true)
+            .std("c++17")
+            .file("native/windows/pet_bridge.cpp")
+            .compile("pet_native_windows");
+        for library in [
+            "user32",
+            "ole32",
+            "shell32",
+            "d3d11",
+            "dxgi",
+            "dcomp",
+            "dwmapi",
+            "d3dcompiler",
+        ] {
+            println!("cargo:rustc-link-lib={library}");
+        }
     }
 
     tauri_build::build()
