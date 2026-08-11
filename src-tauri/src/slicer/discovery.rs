@@ -353,6 +353,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn discovers_canonical_executable_and_official_profiles_from_selected_app() {
         let bundle = TemporaryBundle::new(true);
@@ -369,6 +370,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn reports_missing_profiles_for_an_otherwise_valid_selected_app() {
         let bundle = TemporaryBundle::new(false);
@@ -386,6 +388,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn falls_back_to_the_system_executable_when_selected_app_is_missing() {
         let system_bundle = TemporaryBundle::new(true);

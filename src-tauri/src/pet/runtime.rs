@@ -1775,7 +1775,7 @@ mod tests {
         };
         assert_eq!(project_id, settled_project.project_id);
         assert_eq!(source_hash, settled_project.source_hash);
-        assert_eq!(source_path, path);
+        assert_eq!(source_path, path.canonicalize().unwrap());
         assert_eq!(plate_count, 1);
         assert_eq!(service.pending_summary().unwrap().count, 0);
         let project_count: u32 = service
@@ -2247,7 +2247,12 @@ mod tests {
 
         assert_eq!(status.effective_mode, PetMode::Lite);
         assert_eq!(status.permission, crate::pet::CapturePermission::Granted);
-        assert_eq!(status.fallback_reason.as_deref(), Some("metal_unavailable"));
+        let expected_reason = if cfg!(target_os = "windows") {
+            "direct3d_unavailable"
+        } else {
+            "metal_unavailable"
+        };
+        assert_eq!(status.fallback_reason.as_deref(), Some(expected_reason));
     }
 
     #[test]
@@ -2285,9 +2290,14 @@ mod tests {
 
         assert_eq!(core.pending_summary().unwrap().count, 0);
         assert_eq!(core.status().effective_mode, PetMode::Lite);
+        let expected_reason = if cfg!(target_os = "windows") {
+            "direct3d_unavailable"
+        } else {
+            "metal_unavailable"
+        };
         assert_eq!(
             core.status().fallback_reason.as_deref(),
-            Some("metal_unavailable")
+            Some(expected_reason)
         );
         assert_eq!(core.last_native_config().effective_mode, 1);
     }

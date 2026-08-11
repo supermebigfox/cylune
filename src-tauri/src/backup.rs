@@ -1787,6 +1787,8 @@ mod tests {
                 1,
             ))
         );
+        drop(target);
+        drop(source);
         fs::remove_file(automatic).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
@@ -1878,6 +1880,8 @@ mod tests {
             (asset_id, relative_path, bytes.len() as u64)
         );
 
+        drop(target);
+        drop(source);
         fs::remove_file(automatic).unwrap();
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(target_root).unwrap();
@@ -1901,6 +1905,7 @@ mod tests {
 
         assert!(matches!(result, Err(AppError::InvalidFile)));
         assert_no_export_artifacts(&root, &target);
+        drop(database);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1968,6 +1973,7 @@ mod tests {
         assert!(matches!(result, Err(AppError::InvalidFile)));
         assert_eq!(fs::read(&target).unwrap(), b"known-good-existing-backup");
         assert_no_temporary_export_artifacts(&root);
+        drop(database);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1999,6 +2005,8 @@ mod tests {
         let automatic = import_from_path(&mut restored, &target).unwrap();
 
         assert_eq!(fs::read(restore_root.join(relative_path)).unwrap(), png);
+        drop(restored);
+        drop(database);
         fs::remove_file(automatic).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
@@ -2108,6 +2116,8 @@ mod tests {
         );
         assert!(!target_root.join(&relative_path).exists());
 
+        drop(target);
+        drop(source);
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(target_root).unwrap();
     }
@@ -2316,6 +2326,7 @@ mod tests {
 
         assert!(matches!(result, Err(AppError::InvalidFile)));
         assert!(!target_root.join(relative_path).exists());
+        drop(target);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -2333,6 +2344,7 @@ mod tests {
 
         assert!(matches!(result, Err(AppError::InvalidFile)));
         assert!(!target_root.join(relative_path).exists());
+        drop(target);
         fs::remove_dir_all(root).unwrap();
     }
 

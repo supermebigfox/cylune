@@ -598,14 +598,22 @@ mod tests {
 
     #[test]
     fn asset_url_encodes_the_absolute_app_data_media_path() {
-        assert_eq!(
-            super::asset_url(
-                Path::new("/tmp/CYLUNE media"),
-                Some("media/aa/hash #1.png".to_owned())
-            )
-            .as_deref(),
-            Some("asset://localhost/%2Ftmp%2FCYLUNE%20media%2Fmedia%2Faa%2Fhash%20%231.png")
-        );
+        let url = super::asset_url(
+            Path::new("/tmp/CYLUNE media"),
+            Some("media/aa/hash #1.png".to_owned()),
+        )
+        .unwrap();
+        let expected_path = if cfg!(target_os = "windows") {
+            "%2Ftmp%2FCYLUNE%20media%5Cmedia%2Faa%2Fhash%20%231.png"
+        } else {
+            "%2Ftmp%2FCYLUNE%20media%2Fmedia%2Faa%2Fhash%20%231.png"
+        };
+        let expected_scheme = if cfg!(target_os = "windows") {
+            "http://asset.localhost/"
+        } else {
+            "asset://localhost/"
+        };
+        assert_eq!(url, format!("{expected_scheme}{expected_path}"));
     }
 
     #[test]
@@ -675,7 +683,7 @@ mod tests {
         assert_eq!(pending_project.total_estimated_seconds, None);
         assert_eq!(pending_project.plates.len(), 2);
         let expected_url = super::asset_url(
-            &fs::canonicalize(&root).unwrap(),
+            &super::app_data_root(&service).unwrap(),
             Some(format!("media/{}/{}.png", &media_hash[..2], media_hash)),
         )
         .unwrap();

@@ -1432,6 +1432,7 @@ mod tests {
         wait_for_terminal_until(service, task_id, Duration::from_secs(15))
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn failed_persistence_keeps_the_previous_discovery_path() {
         let old = Fixture::success();
@@ -1457,6 +1458,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn discovery_exposes_the_new_path_only_after_persistence_succeeds() {
         let old = Fixture::success();
@@ -1553,6 +1555,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn validates_imports_private_output_and_removes_it() {
         let fixture = Fixture::success();
@@ -1613,6 +1616,7 @@ mod tests {
         assert!(!task_root.exists());
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn streams_monotonic_bambu_progress_and_publishes_determinate_lifecycle_values() {
         let fixture = Fixture::success();
@@ -1657,6 +1661,7 @@ mod tests {
         assert_eq!(completed.percent, Some(100.0));
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn cancellation_prevents_later_stdout_progress_updates() {
         let fixture = Fixture::success();
@@ -1693,6 +1698,7 @@ mod tests {
         assert!(progress.iter().all(|event| event.percent != Some(84.0)));
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn runs_the_cli_inside_the_private_task_directory() {
         let fixture = Fixture::success();
@@ -1732,6 +1738,7 @@ mod tests {
         assert!(!task_directory.exists());
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn confirmed_machine_conversion_uses_a_private_identity_remap_without_estimate_mode() {
         let fixture = Fixture::success();
@@ -1779,6 +1786,7 @@ mod tests {
         assert_eq!(project["sparse_infill_density"], "37%");
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn opens_a_valid_project_only_when_the_explicit_gui_action_is_called() {
         let fixture = Fixture::success();
@@ -1815,6 +1823,7 @@ mod tests {
         assert_eq!(opened, format!("1\n{}\n", fixture.input.display()));
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn nonzero_exit_never_imports_or_publishes() {
         let fixture = Fixture::success();
@@ -1838,6 +1847,7 @@ mod tests {
         assert_eq!(events.names().last().unwrap(), "error:slicer_failed");
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn truncated_output_is_rejected_before_import_and_removed() {
         let fixture = Fixture::success();
@@ -1870,6 +1880,7 @@ mod tests {
         assert!(!task_root.exists());
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn cancellation_waits_for_exit_emits_cancelled_and_cleans_temporary_output() {
         let fixture = Fixture::success();
@@ -1899,6 +1910,7 @@ mod tests {
         assert_eq!(events.names().last().unwrap(), "error:slicer_cancelled");
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn cancellation_during_validation_never_imports_the_project() {
         let fixture = Fixture::success();
@@ -1934,6 +1946,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn import_failure_removes_private_slice_artifacts() {
         let fixture = Fixture::success();

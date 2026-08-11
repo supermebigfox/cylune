@@ -195,17 +195,18 @@ mod tests {
 
     #[test]
     fn drop_selection_is_pure_and_uses_only_the_first_supported_regular_file() {
+        let first_supported = std::env::temp_dir().join("plate.gcode.3mf");
         let files = vec![
-            DropFile::new("/tmp/readme.txt", true),
-            DropFile::new("/tmp/folder.3mf", false),
+            DropFile::new(std::env::temp_dir().join("readme.txt"), true),
+            DropFile::new(std::env::temp_dir().join("folder.3mf"), false),
             DropFile::new("relative.gcode", true),
-            DropFile::new("/tmp/plate.gcode.3mf", true),
-            DropFile::new("/tmp/second.3mf", true),
+            DropFile::new(first_supported.clone(), true),
+            DropFile::new(std::env::temp_dir().join("second.3mf"), true),
         ];
 
         assert_eq!(
             first_supported_drop(&files),
-            Some(PathBuf::from("/tmp/plate.gcode.3mf").as_path())
+            Some(first_supported.as_path())
         );
     }
 
