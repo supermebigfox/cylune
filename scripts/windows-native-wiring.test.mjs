@@ -10,6 +10,7 @@ const captureSource = readFileSync(
   resolve("src-tauri/native/windows/capture.cpp"),
   "utf8",
 );
+const buildScript = readFileSync(resolve("src-tauri/build.rs"), "utf8");
 
 function section(start, end) {
   const first = windowSource.indexOf(start);
@@ -28,6 +29,13 @@ function lastSection(start, end) {
 }
 
 describe("Windows desktop capture wiring", () => {
+  it("embeds the Common Controls v6 manifest into Rust test executables", () => {
+    expect(buildScript).toContain("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
+    expect(buildScript).toContain("Microsoft.Windows.Common-Controls");
+    expect(buildScript).toContain("version='6.0.0.0'");
+    expect(buildScript).toContain("processorArchitecture='amd64'");
+  });
+
   it("creates and sizes an independent renderer for every visual pane", () => {
     const createPanes = section(
       "bool createVisualPanes()",
