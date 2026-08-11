@@ -61,6 +61,18 @@ test("fails when a Mac native change is staged", async () => {
   );
 });
 
+test("fails when an unstaged restore hides a staged Mac native change", async () => {
+  const { root, reference } = await repository();
+  const path = join(root, "src-tauri/native/mac/pet.mm");
+  await writeFile(path, "staged\n");
+  git(root, "add", "src-tauri/native/mac/pet.mm");
+  await writeFile(path, "sealed\n");
+
+  await expect(checkMacNativeSeal({ cwd: root, reference })).rejects.toThrow(
+    "src-tauri/native/mac differs",
+  );
+});
+
 test("fails when a Mac native file is deleted", async () => {
   const { root, reference } = await repository();
   await rm(join(root, "src-tauri/native/mac/pet.mm"));

@@ -36,10 +36,15 @@ export async function checkMacNativeSeal({
     ["rev-parse", `${reference}:${MAC_NATIVE_PATH}`],
     `Cannot resolve Mac native reference ${reference}`,
   );
-  const tracked = await git(
+  const indexed = await git(
     cwd,
-    ["diff", "--name-status", reference, "--", MAC_NATIVE_PATH],
-    `Cannot compare ${MAC_NATIVE_PATH} with ${reference}`,
+    ["diff", "--cached", "--name-status", reference, "--", MAC_NATIVE_PATH],
+    `Cannot compare the index for ${MAC_NATIVE_PATH} with ${reference}`,
+  );
+  const unstaged = await git(
+    cwd,
+    ["diff", "--name-status", "--", MAC_NATIVE_PATH],
+    `Cannot compare the worktree for ${MAC_NATIVE_PATH} with the index`,
   );
   const untracked = await git(
     cwd,
@@ -47,8 +52,8 @@ export async function checkMacNativeSeal({
     `Cannot enumerate untracked paths under ${MAC_NATIVE_PATH}`,
   );
 
-  if (tracked || untracked) {
-    const paths = [tracked, untracked].filter(Boolean).join("\n");
+  if (indexed || unstaged || untracked) {
+    const paths = [indexed, unstaged, untracked].filter(Boolean).join("\n");
     throw new Error(
       `${MAC_NATIVE_PATH} differs from ${reference}${paths ? `:\n${paths}` : ""}`,
     );
