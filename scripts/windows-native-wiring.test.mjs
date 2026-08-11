@@ -47,8 +47,8 @@ describe("Windows desktop capture wiring", () => {
     );
     expect(createPanes).toContain("visualPanes.back()");
     expect(createPanes).toContain("BlackHoleRenderer::create(");
-    expect(createPanes).toContain("created.renderer->resize(");
-    expect(createPanes).toContain("created.renderer->setVisible(false)");
+    expect(createPanes).toContain("createdPane.renderer->resize(");
+    expect(createPanes).toContain("createdPane.renderer->setVisible(false)");
 
     const activatePane = section(
       "bool activateVisualPane(",

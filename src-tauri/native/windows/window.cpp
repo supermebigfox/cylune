@@ -453,18 +453,19 @@ struct PetWindow::Impl {
       panesProtected = panesProtected && protectedPane;
       visualPanes.push_back({pane, monitor.monitor, monitor.physical,
                              protectedPane, nullptr, nullptr});
-      VisualPane &created = visualPanes.back();
-      created.renderer = BlackHoleRenderer::create(
-          created.window, shaderSource.c_str(), created.monitor);
-      if (created.renderer == nullptr || !created.renderer->available() ||
-          !created.renderer->resize(static_cast<uint32_t>(width),
-                                    static_cast<uint32_t>(height))) {
+      VisualPane &createdPane = visualPanes.back();
+      createdPane.renderer = BlackHoleRenderer::create(
+          createdPane.window, shaderSource.c_str(), createdPane.monitor);
+      if (createdPane.renderer == nullptr ||
+          !createdPane.renderer->available() ||
+          !createdPane.renderer->resize(static_cast<uint32_t>(width),
+                                        static_cast<uint32_t>(height))) {
         destroyVisualPanes();
         return false;
       }
       // Every monitor owns a live DComp target and swap chain. Inactive panes
       // remain transparent and hidden until an atomic pane activation.
-      created.renderer->setVisible(false);
+      createdPane.renderer->setVisible(false);
     }
     allWindowsProtected = inputProtected && panesProtected;
     return !visualPanes.empty();

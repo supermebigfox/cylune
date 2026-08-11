@@ -266,7 +266,7 @@ void FinalizePresentationShow(
 }
 
 struct RendererSettingsInput {
-  uint8_t mode = 0;
+  uint32_t mode = 0;
   uint8_t effectiveMode = 0;
   bool hasPosition = false;
   double x = 0.0;
