@@ -53,9 +53,7 @@ jobs:
 
       - name: Run Rust tests
         shell: pwsh
-        run: |
-          npm run test:rust 2>&1 | Tee-Object -FilePath .ci-logs/rust.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: ./scripts/win-rust.ps1
 
       - name: Compile and run Windows native and HLSL tests
         shell: pwsh

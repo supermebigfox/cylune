@@ -64,6 +64,19 @@ describe("Windows release CI policy", () => {
     expect(shaderGate).toContain("D3DCompileFromFile");
   });
 
+  test("Windows Rust gate records loader diagnostics before running the suite", async () => {
+    const [workflow, gate] = await Promise.all([
+      readFile(join(root, ".github", "workflows", "windows.yml"), "utf8"),
+      readFile(join(root, "scripts", "win-rust.ps1"), "utf8"),
+    ]);
+
+    expect(workflow).toContain("./scripts/win-rust.ps1");
+    expect(gate).toContain("--no-run");
+    expect(gate).toContain("dumpbin.exe");
+    expect(gate).toContain("rust-imports.log");
+    expect(gate).toContain("failed-rust-test.exe");
+  });
+
   test("Windows installer inherits the CYLUNE identity and ships required resources", async () => {
     const [base, windows, packageJson] = await Promise.all([
       readFile(join(root, "src-tauri", "tauri.conf.json"), "utf8").then(JSON.parse),
