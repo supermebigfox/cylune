@@ -118,6 +118,16 @@ inline bool PetWindowMayShow(bool requestedVisible, bool sleeping,
   return requestedVisible && !sleeping && inputRegionValid;
 }
 
+inline bool ShouldRestorePresentationAfterResize(bool requestedVisible,
+                                                 bool sleeping) {
+  return requestedVisible && !sleeping;
+}
+
+inline bool ShouldResetPresentationRetryForPositionChange(
+    bool positionChanged, bool requestedVisible, bool sleeping) {
+  return positionChanged && requestedVisible && !sleeping;
+}
+
 inline bool PetWindowNeedsResizeConceal(
     bool actuallyVisible, bool rendererAvailable, uint32_t currentWidth,
     uint32_t currentHeight, uint32_t nextWidth, uint32_t nextHeight) {

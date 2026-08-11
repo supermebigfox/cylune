@@ -171,6 +171,7 @@ int main() {
     retry.request(100, true);
     assert(retry.due(100));
     retry.failed(100);
+    retry.request(150, false);
     assert(!retry.due(199));
     assert(retry.due(200));
     retry.failed(200);
@@ -192,6 +193,17 @@ int main() {
     retry.request(1000, false);
     retry.cancel();
     assert(!retry.pending());
+  }
+
+  {
+    PresentationStatusState status;
+    assert(!status.unavailable());
+    assert(status.transitionUnavailable());
+    assert(!status.transitionUnavailable());
+    assert(status.unavailable());
+    assert(status.transitionReady());
+    assert(!status.transitionReady());
+    assert(!status.unavailable());
   }
 
   {
@@ -305,6 +317,7 @@ int main() {
     }
     assert(showCalls == 4);
     assert(retry.exhausted());
+    assert(ShouldNotifyPresentationUnavailable(retry));
     assert(!retry.pending());
     assert(retry.waitMilliseconds(700) ==
            std::numeric_limits<uint32_t>::max());

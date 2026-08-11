@@ -111,8 +111,14 @@ class RendererRetryState {
   static constexpr uint32_t kMaximumAttempts = 4;
 
   void request(uint64_t nowMilliseconds, bool resetBudget) {
-    if (resetBudget) attempts_ = 0;
+    if (resetBudget) {
+      attempts_ = 0;
+      pending_ = true;
+      deadlineMilliseconds_ = nowMilliseconds;
+      return;
+    }
     if (attempts_ >= kMaximumAttempts) return;
+    if (pending_) return;
     pending_ = true;
     deadlineMilliseconds_ = nowMilliseconds;
   }
@@ -151,6 +157,26 @@ class RendererRetryState {
   uint32_t attempts_ = 0;
   bool pending_ = false;
   uint64_t deadlineMilliseconds_ = 0;
+};
+
+class PresentationStatusState {
+ public:
+  bool transitionUnavailable() {
+    if (unavailable_) return false;
+    unavailable_ = true;
+    return true;
+  }
+
+  bool transitionReady() {
+    if (!unavailable_) return false;
+    unavailable_ = false;
+    return true;
+  }
+
+  bool unavailable() const { return unavailable_; }
+
+ private:
+  bool unavailable_ = false;
 };
 
 class PresentationRetryState {
@@ -216,6 +242,11 @@ class PresentationRetryState {
   bool pending_ = false;
   uint64_t deadlineMilliseconds_ = 0;
 };
+
+inline bool ShouldNotifyPresentationUnavailable(
+    const PresentationRetryState &retry) {
+  return retry.exhausted();
+}
 
 struct RendererSettingsInput {
   uint8_t mode = 0;

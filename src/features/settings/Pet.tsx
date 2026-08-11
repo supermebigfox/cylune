@@ -76,6 +76,8 @@ export function Pet({ apiClient = api }: { apiClient?: TauriApi }) {
               ? copy("pet.metalUnavailable")
             : settings.fallback_reason === "direct3d_unavailable"
               ? copy("pet.direct3dUnavailable")
+            : settings.fallback_reason === "presentation_unavailable"
+              ? copy("pet.presentationUnavailable")
             : settings.fallback_reason
               ? copy("pet.captureUnavailable")
               : null;

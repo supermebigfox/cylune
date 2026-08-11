@@ -228,6 +228,7 @@ struct PetWindow::Impl {
   RendererStatusState rendererStatus;
   RendererRetryState rendererRetry;
   PresentationRetryState presentationRetry;
+  PresentationStatusState presentationStatus;
   RendererSettingsFingerprintState rendererSettings;
   std::atomic<uint32_t> nativeRendererState{PET_RENDERER_UNAVAILABLE};
   uint32_t rendererPixelWidth = 0;
@@ -344,6 +345,17 @@ struct PetWindow::Impl {
     }
   }
 
+  void updatePresentationAvailability(bool available) {
+    const bool changed = available ? presentationStatus.transitionReady()
+                                  : presentationStatus.transitionUnavailable();
+    if (changed && !stopping.load(std::memory_order_acquire)) {
+      InvokePetCallbackNoThrow(
+          callback, kCallbackRendererStatus,
+          available ? "presentation_ready" : "presentation_unavailable", 0.0,
+          0.0, placement.displayId);
+    }
+  }
+
   void initializeRenderer(HWND window) {
     rendererPixelWidth = 0;
     rendererPixelHeight = 0;
@@ -399,6 +411,19 @@ struct PetWindow::Impl {
     }
     rendererPixelWidth = width;
     rendererPixelHeight = height;
+    return true;
+  }
+
+  bool resizeTransaction(uint32_t width, uint32_t height,
+                         bool restorePresentation) {
+    const bool wasActuallyVisible = presentation.actuallyVisible();
+    if (!resizeRenderer(width, height)) return false;
+    if (restorePresentation && wasActuallyVisible &&
+        !presentation.actuallyVisible() &&
+        ShouldRestorePresentationAfterResize(presentation.requestedVisible(),
+                                             sleeping)) {
+      (void)presentationRetry.request(GetTickCount64(), false);
+    }
     return true;
   }
 
@@ -823,8 +848,8 @@ struct PetWindow::Impl {
                               SWP_NOACTIVATE | SWP_NOOWNERZORDER) != 0;
         },
         [this, side]() {
-          return resizeRenderer(static_cast<uint32_t>(side),
-                                static_cast<uint32_t>(side));
+          return resizeTransaction(static_cast<uint32_t>(side),
+                                   static_cast<uint32_t>(side), false);
         },
         [window, side]() { return ApplyInputRegion(window, side); });
     if (!inputRegionValid) invalidateInputRegion();
@@ -919,10 +944,13 @@ struct PetWindow::Impl {
           PET_RENDERER_UNAVAILABLE) {
         presentationRetry.cancel();
         requestRendererRetry(resetRetryBudget);
+      } else if (ShouldNotifyPresentationUnavailable(presentationRetry)) {
+        updatePresentationAvailability(false);
       }
       return;
     }
     presentationRetry.succeeded();
+    updatePresentationAvailability(true);
     rendererRetry.succeeded();
     renderState.setVisible(true);
     targetFps = renderState.targetFps(60);
@@ -1035,6 +1063,9 @@ struct PetWindow::Impl {
     placement = clamp(origin, placement.size, targetId);
     const bool positionChanged =
         PlacementPositionChanged(priorPlacement, placement);
+    const bool resetPresentationRetry =
+        ShouldResetPresentationRetryForPositionChange(
+            positionChanged, presentation.requestedVisible(), sleeping);
     if (positionChanged && nativeRendererState.load(std::memory_order_acquire) ==
                                PET_RENDERER_UNAVAILABLE) {
       requestRendererRetry(true);
@@ -1042,8 +1073,9 @@ struct PetWindow::Impl {
     const bool restoreVisibility = presentation.actuallyVisible();
     if (!positionWindow()) {
       invalidateInputRegion();
-    } else if (restoreVisibility && !presentation.actuallyVisible()) {
-      showRequestedWindow(false);
+    } else if ((restoreVisibility || resetPresentationRetry) &&
+               !presentation.actuallyVisible()) {
+      showRequestedWindow(resetPresentationRetry);
     }
   }
 
@@ -1094,11 +1126,19 @@ struct PetWindow::Impl {
       case kMessageReset:
         monitors = MonitorSnapshots(dpiProbe);
         {
+          const Placement priorPlacement = placement;
           const bool restoreVisibility = presentation.actuallyVisible();
           if (!resetPosition()) {
             invalidateInputRegion();
-          } else if (restoreVisibility && !presentation.actuallyVisible()) {
-            showRequestedWindow(false);
+          } else {
+            const bool resetPresentationRetry =
+                ShouldResetPresentationRetryForPositionChange(
+                    PlacementPositionChanged(priorPlacement, placement),
+                    presentation.requestedVisible(), sleeping);
+            if ((restoreVisibility || resetPresentationRetry) &&
+                !presentation.actuallyVisible()) {
+              showRequestedWindow(resetPresentationRetry);
+            }
           }
         }
         return 0;
@@ -1156,9 +1196,10 @@ struct PetWindow::Impl {
         return 0;
       }
       case WM_SIZE:
-        if (wParam != SIZE_MINIMIZED) {
-          resizeRenderer(static_cast<uint32_t>(LOWORD(lParam)),
-                         static_cast<uint32_t>(HIWORD(lParam)));
+        if (wParam != SIZE_MINIMIZED && LOWORD(lParam) != 0 &&
+            HIWORD(lParam) != 0) {
+          (void)resizeTransaction(static_cast<uint32_t>(LOWORD(lParam)),
+                                  static_cast<uint32_t>(HIWORD(lParam)), true);
         }
         return 0;
       case WM_DISPLAYCHANGE:

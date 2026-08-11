@@ -121,6 +121,7 @@ fn capture_status(
     mode: PetMode,
     capture_state: NativeCaptureState,
     renderer_state: NativeRendererState,
+    presentation_unavailable: bool,
 ) -> PetStatus {
     if mode == PetMode::Lite {
         return PetStatus {
@@ -140,6 +141,14 @@ fn capture_status(
             effective_mode: PetMode::Lite,
             permission: snapshot.permission,
             fallback_reason: Some(fallback_reason.to_owned()),
+        };
+    }
+
+    if presentation_unavailable {
+        return PetStatus {
+            effective_mode: PetMode::Lite,
+            permission: snapshot.permission,
+            fallback_reason: Some("presentation_unavailable".to_owned()),
         };
     }
 
@@ -238,6 +247,8 @@ pub enum NativeEvent {
     CaptureFailed,
     RendererUnavailable,
     RendererReady,
+    PresentationUnavailable,
+    PresentationReady,
     Sleep,
     Wake,
 }
@@ -390,6 +401,7 @@ struct RuntimeState {
     pending_count: u32,
     capture_state: NativeCaptureState,
     renderer_state: NativeRendererState,
+    presentation_unavailable: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -474,6 +486,7 @@ impl RuntimeState {
             pending_count,
             capture_state,
             renderer_state,
+            presentation_unavailable: false,
         }
     }
 
@@ -508,7 +521,12 @@ impl RuntimeState {
         };
 
         #[cfg(any(target_os = "macos", target_os = "windows"))]
-        return capture_status(self.settings.mode, self.capture_state, self.renderer_state);
+        return capture_status(
+            self.settings.mode,
+            self.capture_state,
+            self.renderer_state,
+            self.presentation_unavailable,
+        );
     }
 
     fn reduce_native_status(&mut self, event: &NativeEvent) -> bool {
@@ -533,6 +551,20 @@ impl RuntimeState {
                     return false;
                 }
                 self.renderer_state = NativeRendererState::Ready;
+                true
+            }
+            NativeEvent::PresentationUnavailable => {
+                if self.presentation_unavailable {
+                    return false;
+                }
+                self.presentation_unavailable = true;
+                true
+            }
+            NativeEvent::PresentationReady => {
+                if !self.presentation_unavailable {
+                    return false;
+                }
+                self.presentation_unavailable = false;
                 true
             }
             _ => false,
@@ -831,7 +863,9 @@ fn handle_native_event(
         NativeEvent::PermissionChanged(_)
         | NativeEvent::CaptureFailed
         | NativeEvent::RendererUnavailable
-        | NativeEvent::RendererReady => {
+        | NativeEvent::RendererReady
+        | NativeEvent::PresentationUnavailable
+        | NativeEvent::PresentationReady => {
             let mut state = state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -992,6 +1026,7 @@ impl RuntimeCore {
             pending_count: 0,
             capture_state: NativeCaptureState::Ready,
             renderer_state: NativeRendererState::Ready,
+            presentation_unavailable: false,
         }));
         state
             .lock()
@@ -1457,6 +1492,10 @@ fn copy_native_event(
                         return Some(NativeEvent::RendererUnavailable)
                     }
                     b"renderer_ready" => return Some(NativeEvent::RendererReady),
+                    b"presentation_unavailable" => {
+                        return Some(NativeEvent::PresentationUnavailable)
+                    }
+                    b"presentation_ready" => return Some(NativeEvent::PresentationReady),
                     _ => {}
                 }
             }
@@ -1865,6 +1904,8 @@ mod tests {
     fn callback_decodes_renderer_state_transitions_without_new_callback_kinds() {
         let unavailable = CString::new("renderer_unavailable").unwrap();
         let ready = CString::new("renderer_ready").unwrap();
+        let presentation_unavailable = CString::new("presentation_unavailable").unwrap();
+        let presentation_ready = CString::new("presentation_ready").unwrap();
 
         assert_eq!(
             copy_native_event(8, unavailable.as_ptr(), 0.0, 0.0, 0),
@@ -1873,6 +1914,14 @@ mod tests {
         assert_eq!(
             copy_native_event(8, ready.as_ptr(), 0.0, 0.0, 0),
             Some(NativeEvent::RendererReady)
+        );
+        assert_eq!(
+            copy_native_event(8, presentation_unavailable.as_ptr(), 0.0, 0.0, 0),
+            Some(NativeEvent::PresentationUnavailable)
+        );
+        assert_eq!(
+            copy_native_event(8, presentation_ready.as_ptr(), 0.0, 0.0, 0),
+            Some(NativeEvent::PresentationReady)
         );
     }
 
@@ -1972,6 +2021,7 @@ mod tests {
             pending_count: 0,
             capture_state: NativeCaptureState::Unavailable,
             renderer_state: NativeRendererState::Ready,
+            presentation_unavailable: false,
         }));
         let worker_state = Arc::clone(&state);
         let worker_gate = Arc::new((Mutex::new(false), Condvar::new()));
@@ -2118,6 +2168,7 @@ mod tests {
             saved.mode,
             NativeCaptureState::Ready,
             NativeRendererState::Ready,
+            false,
         );
         assert_eq!(status.effective_mode, PetMode::Real);
         assert_eq!(status.permission, CapturePermission::Granted);
@@ -2134,6 +2185,7 @@ mod tests {
             PetMode::Real,
             NativeCaptureState::Ready,
             NativeRendererState::Unavailable,
+            true,
         );
 
         assert_eq!(status.effective_mode, PetMode::Lite);
@@ -2205,6 +2257,43 @@ mod tests {
 
         core.reduce(NativeEvent::RendererReady);
         core.reduce(NativeEvent::RendererReady);
+        assert_eq!(
+            core.configs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len(),
+            initial_applies + 2
+        );
+        assert_eq!(core.status().effective_mode, PetMode::Real);
+        assert_eq!(core.status().fallback_reason, None);
+    }
+
+    #[test]
+    fn presentation_transitions_are_reduced_once_without_changing_renderer_state() {
+        let mut core = RuntimeCore::for_test_with_mapped_fixture();
+        let initial_applies = core
+            .configs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len();
+
+        core.reduce(NativeEvent::PresentationUnavailable);
+        core.reduce(NativeEvent::PresentationUnavailable);
+        assert_eq!(
+            core.configs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len(),
+            initial_applies + 1
+        );
+        assert_eq!(core.status().effective_mode, PetMode::Lite);
+        assert_eq!(
+            core.status().fallback_reason.as_deref(),
+            Some("presentation_unavailable")
+        );
+
+        core.reduce(NativeEvent::PresentationReady);
+        core.reduce(NativeEvent::PresentationReady);
         assert_eq!(
             core.configs
                 .lock()

@@ -315,6 +315,7 @@
     "captureFailed": "桌面擷取意外停止，黑洞正在使用相容背景",
     "metalUnavailable": "Metal 目前無法使用，黑洞正在使用相容背景",
     "direct3dUnavailable": "Direct3D 目前無法使用，黑洞正在使用相容背景",
+    "presentationUnavailable": "黑洞視窗暫時無法顯示，請關閉後重新開啟。",
     "saveError": "無法儲存桌面黑洞設定"
   },
   "notifications": {

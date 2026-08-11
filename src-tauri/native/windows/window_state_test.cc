@@ -39,6 +39,13 @@ int main() {
   assert(PetWindowMayShow(true, false, true));
   assert(!PetWindowMayShow(true, false, false));
   assert(!PetWindowMayShow(true, true, true));
+  assert(ShouldRestorePresentationAfterResize(true, false));
+  assert(!ShouldRestorePresentationAfterResize(false, false));
+  assert(!ShouldRestorePresentationAfterResize(true, true));
+  assert(ShouldResetPresentationRetryForPositionChange(true, true, false));
+  assert(!ShouldResetPresentationRetryForPositionChange(false, true, false));
+  assert(!ShouldResetPresentationRetryForPositionChange(true, false, false));
+  assert(!ShouldResetPresentationRetryForPositionChange(true, true, true));
 
   assert(PetWindowNeedsResizeConceal(true, true, 220, 220, 330, 330));
   assert(!PetWindowNeedsResizeConceal(true, true, 220, 220, 220, 220));

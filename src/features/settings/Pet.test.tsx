@@ -171,6 +171,7 @@ it.each([
   ["capture_failed", "granted", "Desktop capture stopped unexpectedly; the black hole is using a compatible background"],
   ["metal_unavailable", "granted", "Metal is unavailable; the black hole is using a compatible background"],
   ["direct3d_unavailable", "granted", "Direct3D is unavailable; the black hole is using a compatible background"],
+  ["presentation_unavailable", "granted", "The black hole window cannot be shown right now. Turn it off, then on again."],
 ] as const)("localizes stable fallback %s instead of rendering its raw code", async (
   fallbackReason,
   permission,
