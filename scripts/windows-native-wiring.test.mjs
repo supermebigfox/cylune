@@ -30,7 +30,11 @@ function lastSection(start, end) {
 
 describe("Windows desktop capture wiring", () => {
   it("embeds the Common Controls v6 manifest into Rust test executables", () => {
-    expect(buildScript).toContain("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
+    expect(buildScript).not.toContain("cargo:rustc-link-arg-tests=");
+    expect(buildScript).toContain("cargo:rustc-link-arg=/MANIFEST:EMBED");
+    expect(buildScript).toContain(
+      "cargo:rustc-link-arg=/MANIFESTDEPENDENCY:",
+    );
     expect(buildScript).toContain("Microsoft.Windows.Common-Controls");
     expect(buildScript).toContain("version='6.0.0.0'");
     expect(buildScript).toContain("processorArchitecture='amd64'");
