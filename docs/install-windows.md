@@ -53,12 +53,11 @@ npm ci
 npm test -- --run
 npm run test:rust
 npm run check:mac-seal
-npm run tauri build -- --bundles nsis
 npm run release:windows
 Get-AuthenticodeSignature .\发布-Windows\CYLUNE-Setup.exe
 Get-FileHash .\发布-Windows\CYLUNE-Setup.exe -Algorithm SHA256
 ```
 
-Rust/Tauri 构建缓存位于 `%LOCALAPPDATA%\CYLUNE\Cache\rust`。先用 `npm run tauri build -- --bundles nsis` 完成一次构建，再运行 `npm run release:windows` 发布该构建已经生成的产物；`release:windows` 不会再次执行 Tauri build。它从 `release\bundle\nsis` 接受唯一的普通 `*-setup.exe`，并以 no-clobber 方式发布到 `发布-Windows\CYLUNE-Setup.exe`。若目标已存在，应先人工核对并移走旧产物；发布命令不会覆盖它。
+Rust/Tauri 构建缓存位于 `%LOCALAPPDATA%\CYLUNE\Cache\rust`。`npm run release:windows` 是 fail-fast 的完整本地发布入口：它只执行一次 Tauri NSIS build，且只有该次构建退出码为 0 时才继续调用 publish-only 步骤。内部的 `npm run publish:windows` 仅发布已经成功生成的产物，不应代替完整发布入口单独使用。发布器从 `release\bundle\nsis` 接受唯一的普通 `*-setup.exe`，并以 no-clobber 方式发布到 `发布-Windows\CYLUNE-Setup.exe`。若目标已存在，应先人工核对并移走旧产物；发布命令不会覆盖它。
 
 上述命令在 macOS 上不能生成或验证真实 Windows 安装包、签名或 SHA-256 发布证据；请使用 `docs/qa-windows-release.md` 完成 required gate。

@@ -106,7 +106,6 @@ npm ci
 npm test -- --run
 npm run test:rust
 npm run check:mac-seal
-npm run tauri build -- --bundles nsis
 npm run release:windows
 Get-AuthenticodeSignature .\发布-Windows\CYLUNE-Setup.exe
 Get-FileHash .\发布-Windows\CYLUNE-Setup.exe -Algorithm SHA256

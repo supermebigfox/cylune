@@ -895,7 +895,6 @@ On Windows:
 npm ci
 npm test -- --run
 npm run test:rust
-npm run tauri build -- --bundles nsis
 npm run release:windows
 Get-FileHash .\发布-Windows\CYLUNE-Setup.exe -Algorithm SHA256
 ```

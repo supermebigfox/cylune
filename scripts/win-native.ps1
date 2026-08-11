@@ -55,6 +55,28 @@ Invoke-NativeTest `
   -Sources @("drop_target_test.cc", "drop_target.cpp") `
   -Libraries @("ole32.lib", "shell32.lib", "user32.lib", "uuid.lib")
 Invoke-NativeTest `
+  -Name "pet-bridge" `
+  -Sources @(
+    "pet_bridge_test.cc",
+    "pet_bridge.cpp",
+    "drop_target.cpp",
+    "renderer.cpp",
+    "capture.cpp",
+    "window.cpp"
+  ) `
+  -Libraries @(
+    "user32.lib",
+    "gdi32.lib",
+    "ole32.lib",
+    "uuid.lib",
+    "shell32.lib",
+    "d3d11.lib",
+    "dxgi.lib",
+    "dcomp.lib",
+    "dwmapi.lib",
+    "d3dcompiler.lib"
+  )
+Invoke-NativeTest `
   -Name "hlsl" `
   -Sources @("hlsl_compile_test.cc") `
   -Libraries @("d3dcompiler.lib") `

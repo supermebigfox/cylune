@@ -11,7 +11,8 @@
     "test:rust": "node scripts/rust.mjs cargo test --manifest-path src-tauri/Cargo.toml",
     "check:mac-seal": "node scripts/check-mac-native-seal.mjs",
     "release:mac": "node scripts/release-mac.mjs",
-    "release:windows": "node scripts/release-windows.mjs"
+    "release:windows": "node scripts/package-windows.mjs",
+    "publish:windows": "node scripts/release-windows.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

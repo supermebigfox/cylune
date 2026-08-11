@@ -35,6 +35,7 @@ describe("Windows release CI policy", () => {
       "capture_state_test.cc",
       "drop_state_test.cc",
       "drop_target_test.cc",
+      "pet_bridge_test.cc",
       "render_state_test.cc",
       "window_state_test.cc",
       "animation_test.cc",
