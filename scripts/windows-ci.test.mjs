@@ -18,6 +18,20 @@ describe("Windows release CI policy", () => {
     expect(previewStep).toContain("!startsWith(github.ref, 'refs/tags/')");
   });
 
+  test("always-uploaded gate logs include the hidden log directory", async () => {
+    const workflow = await readFile(
+      join(root, ".github", "workflows", "windows.yml"),
+      "utf8",
+    );
+    const logUploadStep = workflow.match(
+      /- name: Upload Windows gate logs([\s\S]*?)(?=\n      - name:|\s*$)/,
+    )?.[1];
+
+    expect(logUploadStep).toBeTruthy();
+    expect(logUploadStep).toContain("path: .ci-logs/");
+    expect(logUploadStep).toContain("include-hidden-files: true");
+  });
+
   test("Windows runner compiles native tests and both HLSL shader entry points", async () => {
     const [workflow, gate, shaderGate] = await Promise.all([
       readFile(join(root, ".github", "workflows", "windows.yml"), "utf8"),

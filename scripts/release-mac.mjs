@@ -1,11 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { cp, copyFile, mkdir, rm } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rustTargetDir } from "./rust.mjs";
 
 export function releaseBundleRoot(options = {}) {
-  return join(rustTargetDir(options), "release", "bundle");
+  const paths = options.platform === "win32" ? win32 : posix;
+  return paths.join(rustTargetDir(options), "release", "bundle");
 }
 
 export async function publishMacBundles({ sourceApp, sourceDmg, releaseApp, releaseDmg }) {
