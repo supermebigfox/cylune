@@ -869,7 +869,9 @@ fn handle_native_event(
             let mut state = state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if state.reduce_native_status(&event) && native_status_requires_apply(&event) {
+            if state.reduce_native_status(&event)
+                && native_status_requires_apply(&event)
+            {
                 // Keep the requested mode in the capture key while applying
                 // the effective Lite renderer after permission/capture/Metal
                 // failures. The native capture gate suppresses unchanged
@@ -1056,7 +1058,9 @@ impl RuntimeCore {
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if state.reduce_native_status(&event) && native_status_requires_apply(&event) {
+        if state.reduce_native_status(&event)
+            && native_status_requires_apply(&event)
+        {
             state.apply(false);
         }
     }
