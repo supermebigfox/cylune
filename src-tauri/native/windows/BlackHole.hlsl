@@ -176,6 +176,7 @@ float2 inwardAccretionFlow(float2 p, float plen, float rh, float t,
   float normalizedRadius = plen / safeRadius;
   float coreGuard = smoothstep(1.03, 1.32, normalizedRadius);
   float2 radial = plen > 0.0001 ? p / plen : float2(1.0, 0.0);
+  // Preserve the sealed Metal flow direction in every active state.
   float2 clockwiseTangent = float2(-radial.y, radial.x);
   float angle = atan2(p.y, p.x);
   float radialFade = 1.0 - smoothstep(3.45, 5.0, normalizedRadius);
@@ -387,6 +388,7 @@ float4 ps_main(VertexOutput input) : SV_TARGET {
       (1.0 - exp(-emission * 1.4 * S.exposure)) * P.brightness;
   float diskPeak = max(physicalDisk.r, max(physicalDisk.g, physicalDisk.b));
   float heat = clamp(length(emission) * 0.055, 0.0, 1.0);
+  // The center light remains time-varying during hover, ingest, eject, and jet.
   float luminousBreath = 0.82 + 0.18 * sin(t * 2.05);
   float3 diskLight = diskTintForStyle(P.style, heat) * diskPeak *
                      luminousBreath * (1.0 + 0.45 * ingestPulse);

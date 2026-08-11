@@ -1,6 +1,8 @@
 #ifndef CYLUNE_WINDOWS_RENDER_STATE_H
 #define CYLUNE_WINDOWS_RENDER_STATE_H
 
+#include "animation.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -411,8 +413,9 @@ class RenderState {
   void setHoverProgress(double progress) {
     const double value = std::clamp(progress, 0.0, 1.0);
     hoverProgress_ = value;
-    frame_.rotationRate = 1.0 + 1.4 * value;
-    frame_.pullGain = 1.0 + 0.7 * value;
+    const HoverUniforms hover = HoverEffect(value);
+    frame_.rotationRate = hover.rotationRate;
+    frame_.pullGain = hover.pullGain;
   }
 
   void setVisualState(RenderVisualState state) {
@@ -429,7 +432,8 @@ class RenderState {
     }
     setHover(false);
     if (continueIngest) {
-      animationElapsed_ = std::min(animationElapsed_, kSwallowDuration);
+      animationElapsed_ =
+          std::min(animationElapsed_, kSwallowDurationSeconds);
     } else {
       animationElapsed_ = 0.0;
     }
@@ -454,17 +458,13 @@ class RenderState {
   }
 
   double configuredDiameter() const { return configuredDiameter_; }
-  double visualDiameter() const { return configuredDiameter_; }
+  double visualDiameter() const {
+    return HoverVisualDiameter(configuredDiameter_, HoverEffect(hoverProgress_));
+  }
   RenderVisualState visualState() const { return visualState_; }
   const RenderFrameState &frame() const { return frame_; }
 
  private:
-  static constexpr double kSwallowDuration = 0.74;
-  static constexpr double kEjectDuration = 0.62;
-  static constexpr double kSuccessJetDuration = 0.50;
-
-  static double Unit(double value) { return std::clamp(value, 0.0, 1.0); }
-
   void resetAnimationProgress() {
     animationElapsed_ = 0.0;
     frame_.ingestProgress = 0.0;
@@ -474,38 +474,38 @@ class RenderState {
 
   void updateAnimationProgress() {
     if (visualState_ == RenderVisualState::WaitingForAck) {
-      frame_.ingestProgress = Unit(animationElapsed_ / kSwallowDuration);
-      frame_.ejectProgress = 0.0;
-      frame_.successJetProgress = 0.0;
+      applyAnimationUniforms(AnimationState::Swallow);
       return;
     }
     if (visualState_ == RenderVisualState::SwallowAndSuccessJet) {
-      if (animationElapsed_ >= kSwallowDuration + kSuccessJetDuration) {
+      if (animationElapsed_ >=
+          kSwallowDurationSeconds + kSuccessJetDurationSeconds) {
         visualState_ = RenderVisualState::Idle;
         resetAnimationProgress();
         return;
       }
-      frame_.ingestProgress = Unit(animationElapsed_ / kSwallowDuration);
-      frame_.ejectProgress = 0.0;
-      frame_.successJetProgress =
-          Unit((animationElapsed_ - kSwallowDuration) / kSuccessJetDuration);
+      applyAnimationUniforms(AnimationState::SuccessJet);
       return;
     }
     if (visualState_ == RenderVisualState::SwallowAndEject) {
-      if (animationElapsed_ >= kSwallowDuration + kEjectDuration) {
+      if (animationElapsed_ >=
+          kSwallowDurationSeconds + kEjectDurationSeconds) {
         visualState_ = RenderVisualState::Idle;
         resetAnimationProgress();
         return;
       }
-      frame_.ingestProgress = Unit(animationElapsed_ / kSwallowDuration);
-      frame_.ejectProgress =
-          Unit((animationElapsed_ - kSwallowDuration) / kEjectDuration);
-      frame_.successJetProgress = 0.0;
+      applyAnimationUniforms(AnimationState::Eject);
       return;
     }
-    frame_.ingestProgress = 0.0;
-    frame_.ejectProgress = 0.0;
-    frame_.successJetProgress = 0.0;
+    applyAnimationUniforms(AnimationState::Idle);
+  }
+
+  void applyAnimationUniforms(AnimationState state) {
+    const AnimationUniforms animation =
+        ResolveAnimation(state, animationElapsed_);
+    frame_.ingestProgress = animation.ingestProgress;
+    frame_.ejectProgress = animation.ejectProgress;
+    frame_.successJetProgress = animation.successJetProgress;
   }
 
   uint32_t configuredFps_ = 0;

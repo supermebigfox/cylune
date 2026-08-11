@@ -449,6 +449,7 @@ bool BlackHoleRenderer::render(const RendererFrame &frame) noexcept {
   params.resolution[0] = static_cast<float>(impl_->width);
   params.resolution[1] = static_cast<float>(impl_->height);
   params.time = static_cast<float>(frame.animationTime);
+  // RenderState preserves the configured diameter for every interaction state.
   params.size = static_cast<float>(frame.visualDiameterPixels /
                                    (1.05 * impl_->height));
   params.brightness = frame.brightness;

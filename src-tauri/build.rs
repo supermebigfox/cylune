@@ -31,6 +31,8 @@ fn main() {
     println!("cargo:rerun-if-changed=native/windows/capture.cpp");
     println!("cargo:rerun-if-changed=native/windows/capture_state.h");
     println!("cargo:rerun-if-changed=native/windows/capture_state_test.cc");
+    println!("cargo:rerun-if-changed=native/windows/animation.h");
+    println!("cargo:rerun-if-changed=native/windows/animation_test.cc");
     println!("cargo:rerun-if-changed=native/windows/render_state.h");
     println!("cargo:rerun-if-changed=native/windows/render_state_test.cc");
     println!("cargo:rerun-if-changed=native/windows/BlackHole.hlsl");
