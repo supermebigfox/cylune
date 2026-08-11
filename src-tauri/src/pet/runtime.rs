@@ -869,7 +869,7 @@ fn handle_native_event(
             let mut state = state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if state.reduce_native_status(&event) {
+            if state.reduce_native_status(&event) && native_status_requires_apply(&event) {
                 // Keep the requested mode in the capture key while applying
                 // the effective Lite renderer after permission/capture/Metal
                 // failures. The native capture gate suppresses unchanged
@@ -879,6 +879,13 @@ fn handle_native_event(
         }
         NativeEvent::Sleep | NativeEvent::Wake => {}
     }
+}
+
+fn native_status_requires_apply(event: &NativeEvent) -> bool {
+    !matches!(
+        event,
+        NativeEvent::PresentationUnavailable | NativeEvent::PresentationReady
+    )
 }
 
 #[cfg(test)]
@@ -1049,7 +1056,7 @@ impl RuntimeCore {
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if state.reduce_native_status(&event) {
+        if state.reduce_native_status(&event) && native_status_requires_apply(&event) {
             state.apply(false);
         }
     }
@@ -2284,7 +2291,7 @@ mod tests {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .len(),
-            initial_applies + 1
+            initial_applies
         );
         assert_eq!(core.status().effective_mode, PetMode::Lite);
         assert_eq!(
@@ -2299,7 +2306,7 @@ mod tests {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .len(),
-            initial_applies + 2
+            initial_applies
         );
         assert_eq!(core.status().effective_mode, PetMode::Real);
         assert_eq!(core.status().fallback_reason, None);

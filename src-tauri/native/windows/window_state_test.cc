@@ -46,6 +46,25 @@ int main() {
   assert(!ShouldResetPresentationRetryForPositionChange(false, true, false));
   assert(!ShouldResetPresentationRetryForPositionChange(true, false, false));
   assert(!ShouldResetPresentationRetryForPositionChange(true, true, true));
+  const bool pendingOnlyApplyShows =
+      ShouldShowRequestedWindowAfterApply(true, true);
+  const bool rendererStatusApplyShows =
+      ShouldShowRequestedWindowAfterApply(true, true);
+  const bool positionWritebackApplyShows =
+      ShouldShowRequestedWindowAfterApply(true, true);
+  assert(!pendingOnlyApplyShows);
+  assert(!rendererStatusApplyShows);
+  assert(!positionWritebackApplyShows);
+  const bool resizeConcealShows =
+      ShouldShowRequestedWindowAfterApply(true, false);
+  const bool hideThenShowShows =
+      ShouldShowRequestedWindowAfterApply(true, false);
+  const bool explicitResetAfterExhaustionShows =
+      ShouldShowRequestedWindowAfterApply(true, false);
+  assert(resizeConcealShows);
+  assert(hideThenShowShows);
+  assert(explicitResetAfterExhaustionShows);
+  assert(!ShouldShowRequestedWindowAfterApply(false, false));
 
   assert(PetWindowNeedsResizeConceal(true, true, 220, 220, 330, 330));
   assert(!PetWindowNeedsResizeConceal(true, true, 220, 220, 220, 220));

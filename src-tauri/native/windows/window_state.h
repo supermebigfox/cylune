@@ -128,6 +128,11 @@ inline bool ShouldResetPresentationRetryForPositionChange(
   return positionChanged && requestedVisible && !sleeping;
 }
 
+inline bool ShouldShowRequestedWindowAfterApply(bool requestedVisible,
+                                                bool actuallyVisible) {
+  return requestedVisible && !actuallyVisible;
+}
+
 inline bool PetWindowNeedsResizeConceal(
     bool actuallyVisible, bool rendererAvailable, uint32_t currentWidth,
     uint32_t currentHeight, uint32_t nextWidth, uint32_t nextHeight) {

@@ -3,6 +3,7 @@
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <vector>
 
 namespace {
 
@@ -204,6 +205,19 @@ int main() {
     assert(status.transitionReady());
     assert(!status.transitionReady());
     assert(!status.unavailable());
+  }
+
+  {
+    PresentationRetryState presentationRetry;
+    RendererRetryState rendererRetry;
+    std::vector<int> order;
+    FinalizePresentationShow(
+        presentationRetry, rendererRetry,
+        [&order]() { order.push_back(1); },
+        [&order]() { order.push_back(2); },
+        [&order]() { order.push_back(3); },
+        [&order]() { order.push_back(4); });
+    assert((order == std::vector<int>{1, 2, 3, 4}));
   }
 
   {

@@ -901,19 +901,24 @@ struct PetWindow::Impl {
       invalidateInputRegion();
       return;
     }
+    const bool actuallyVisibleAfterPosition = presentation.actuallyVisible();
     RenderConfig rendererConfig{};
     rendererConfig.fps = config.fps;
-    rendererConfig.visible = false;
+    rendererConfig.visible = actuallyVisibleAfterPosition;
     rendererConfig.size = placement.size;
     rendererConfig.pendingCount = config.pending_count;
     rendererConfig.visualStyle = config.visual_style;
     renderState.apply(rendererConfig);
     renderState.setVisualState(renderVisualState(dropVisualState));
     targetFps = renderState.targetFps(60);
-    resetHiddenRenderClock();
-    if (presentation.requestedVisible()) {
+    if (actuallyVisibleAfterPosition) {
+      resetRenderClock();
+    } else if (ShouldShowRequestedWindowAfterApply(
+                   presentation.requestedVisible(), actuallyVisibleAfterPosition)) {
+      resetHiddenRenderClock();
       showRequestedWindow(resetRendererRetry);
     } else {
+      resetHiddenRenderClock();
       hideWindow();
     }
   }
@@ -949,13 +954,15 @@ struct PetWindow::Impl {
       }
       return;
     }
-    presentationRetry.succeeded();
-    updatePresentationAvailability(true);
-    rendererRetry.succeeded();
-    renderState.setVisible(true);
-    targetFps = renderState.targetFps(60);
-    renderer->setVisible(true);
-    resetRenderClock();
+    FinalizePresentationShow(
+        presentationRetry, rendererRetry,
+        [this]() {
+          renderState.setVisible(true);
+          targetFps = renderState.targetFps(60);
+        },
+        [this]() { renderer->setVisible(true); },
+        [this]() { resetRenderClock(); },
+        [this]() { updatePresentationAvailability(true); });
   }
 
   void hideWindow() {

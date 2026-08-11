@@ -248,6 +248,21 @@ inline bool ShouldNotifyPresentationUnavailable(
   return retry.exhausted();
 }
 
+template <typename RenderVisibleOperation, typename RendererVisibleOperation,
+          typename ResetClockOperation, typename NotifyReadyOperation>
+void FinalizePresentationShow(
+    PresentationRetryState &presentationRetry, RendererRetryState &rendererRetry,
+    RenderVisibleOperation &&setRenderVisible,
+    RendererVisibleOperation &&setRendererVisible,
+    ResetClockOperation &&resetClock, NotifyReadyOperation &&notifyReady) {
+  presentationRetry.succeeded();
+  rendererRetry.succeeded();
+  std::forward<RenderVisibleOperation>(setRenderVisible)();
+  std::forward<RendererVisibleOperation>(setRendererVisible)();
+  std::forward<ResetClockOperation>(resetClock)();
+  std::forward<NotifyReadyOperation>(notifyReady)();
+}
+
 struct RendererSettingsInput {
   uint8_t mode = 0;
   uint8_t effectiveMode = 0;
