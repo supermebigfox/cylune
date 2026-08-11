@@ -532,6 +532,9 @@ impl RuntimeState {
     fn reduce_native_status(&mut self, event: &NativeEvent) -> bool {
         match event {
             NativeEvent::PermissionChanged(capture_state) => {
+                if self.capture_state == *capture_state {
+                    return false;
+                }
                 self.capture_state = *capture_state;
                 true
             }
@@ -1899,6 +1902,49 @@ mod tests {
         assert_eq!(
             event,
             NativeEvent::PermissionChanged(NativeCaptureState::RestartRequired)
+        );
+    }
+
+    #[test]
+    fn callback_decodes_windows_capture_ready_and_failed_status_payloads() {
+        let ready = CString::new("ready").unwrap();
+        let failed = CString::new("failed").unwrap();
+
+        assert_eq!(
+            copy_native_event(7, ready.as_ptr(), 0.0, 0.0, 0),
+            Some(NativeEvent::PermissionChanged(NativeCaptureState::Ready))
+        );
+        assert_eq!(
+            copy_native_event(7, failed.as_ptr(), 0.0, 0.0, 0),
+            Some(NativeEvent::PermissionChanged(NativeCaptureState::Failed))
+        );
+    }
+
+    #[test]
+    fn repeated_kind_seven_capture_status_applies_once_per_transition() {
+        let mut core = RuntimeCore::for_test_with_mapped_fixture();
+        let initial_applies = core
+            .configs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len();
+        let failed = CString::new("failed").unwrap();
+        let event = copy_native_event(7, failed.as_ptr(), 0.0, 0.0, 0).unwrap();
+
+        core.reduce(event.clone());
+        core.reduce(event);
+
+        assert_eq!(
+            core.configs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len(),
+            initial_applies + 1
+        );
+        assert_eq!(core.status().effective_mode, PetMode::Lite);
+        assert_eq!(
+            core.status().fallback_reason.as_deref(),
+            Some("capture_failed")
         );
     }
 

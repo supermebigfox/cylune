@@ -56,8 +56,8 @@ void pet_finish_drop(void *handle, uint64_t generation, uint32_t result) {
 }
 
 uint32_t pet_capture_state(void *handle) {
-  (void)handle;
-  return PET_CAPTURE_UNAVAILABLE;
+  auto *pet = from_handle(handle);
+  return pet == nullptr ? PET_CAPTURE_UNAVAILABLE : pet->captureState();
 }
 
 uint32_t pet_renderer_state(void *handle) {

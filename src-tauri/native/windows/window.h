@@ -21,6 +21,7 @@ class PetWindow {
   void reset();
   void finishDrop(uint64_t generation, uint32_t result);
   uint32_t rendererState() const;
+  uint32_t captureState() const;
   uint32_t shutdown();
 
  private:

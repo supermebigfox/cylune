@@ -81,6 +81,32 @@ struct OwnerDestroyDecision {
   uint32_t delayMilliseconds;
 };
 
+enum class OwnerResourceStopAction {
+  RetryAfterDelay,
+  DestroyVisualsThenInput,
+};
+
+struct OwnerResourceStopDecision {
+  OwnerResourceStopAction action;
+  uint64_t deadlineMilliseconds;
+};
+
+inline OwnerResourceStopDecision NextOwnerResourceStopDecision(
+    bool resourcesStopped, uint64_t nowMilliseconds) {
+  return {resourcesStopped
+              ? OwnerResourceStopAction::DestroyVisualsThenInput
+              : OwnerResourceStopAction::RetryAfterDelay,
+          resourcesStopped ? nowMilliseconds : nowMilliseconds + 25U};
+}
+
+inline uint32_t OwnerResourceStopWaitMilliseconds(
+    const OwnerResourceStopDecision &decision, uint64_t nowMilliseconds) {
+  if (decision.deadlineMilliseconds <= nowMilliseconds) return 0;
+  const uint64_t remaining = decision.deadlineMilliseconds - nowMilliseconds;
+  return remaining > UINT32_MAX ? UINT32_MAX
+                                : static_cast<uint32_t>(remaining);
+}
+
 constexpr uint32_t kOwnerDestroyMaximumAttempts = 5;
 
 inline OwnerDestroyDecision NextOwnerDestroyDecision(

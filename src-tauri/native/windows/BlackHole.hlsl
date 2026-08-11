@@ -12,7 +12,8 @@ struct Params {
   float ejectProgress;
   float pullGain;
   float successJetProgress;
-  float2 padding1;
+  uint desktopRotation;
+  float padding1;
 };
 
 struct VertexOutput {
@@ -116,14 +117,22 @@ float2 wallpaperUV(float2 u, float2 resolution) {
   uint textureHeight = 0;
   desktop.GetDimensions(textureWidth, textureHeight);
   float screenAspect = resolution.x / resolution.y;
-  float textureAspect =
-      (float) textureWidth / (float) max(textureHeight, 1u);
+  float textureAspect = (P.desktopRotation == 90u || P.desktopRotation == 270u)
+      ? (float) textureHeight / (float) max(textureWidth, 1u)
+      : (float) textureWidth / (float) max(textureHeight, 1u);
   if (textureAspect > screenAspect) {
     u.x = 0.5 + (u.x - 0.5) * (screenAspect / textureAspect);
   } else {
     u.y = 0.5 + (u.y - 0.5) * (textureAspect / screenAspect);
   }
   return clamp(u, 0.0, 1.0);
+}
+
+float2 desktopUV(float2 u) {
+  if (P.desktopRotation == 90u) return float2(u.y, 1.0 - u.x);
+  if (P.desktopRotation == 180u) return float2(1.0 - u.x, 1.0 - u.y);
+  if (P.desktopRotation == 270u) return float2(1.0 - u.y, u.x);
+  return u;
 }
 
 float2 rot(float2 p, float a) {
@@ -271,7 +280,7 @@ float4 ps_main(VertexOutput input) : SV_TARGET {
         center + (p + spacetimeFlow - normalize(p) * deflection) /
                      float2(aspect, 1.0));
     return float4(desktop.Sample(linearSampler,
-                                 wallpaperUV(sampleUv, res)).rgb +
+                                 desktopUV(wallpaperUV(sampleUv, res))).rgb +
                       jet.rgb,
                   max(mask, jet.a));
   }
@@ -352,7 +361,7 @@ float4 ps_main(VertexOutput input) : SV_TARGET {
   float2 flowingUv =
       center + (p + spacetimeFlow) / float2(aspect, 1.0);
   float3 background =
-      desktop.Sample(linearSampler, wallpaperUV(flowingUv, res)).rgb;
+      desktop.Sample(linearSampler, desktopUV(wallpaperUV(flowingUv, res))).rgb;
   bool shadow = captured && plen < rh * 1.06;
   float2 starUv = uv;
   if (!shadow && !captured) {
@@ -366,7 +375,7 @@ float4 ps_main(VertexOutput input) : SV_TARGET {
               float2(aspect, 1.0));
       starUv = sampleUv;
       background =
-          desktop.Sample(linearSampler, wallpaperUV(sampleUv, res)).rgb;
+          desktop.Sample(linearSampler, desktopUV(wallpaperUV(sampleUv, res))).rgb;
     }
   }
   if (S.starGain > 0.0) {

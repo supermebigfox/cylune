@@ -27,6 +27,10 @@ fn main() {
     println!("cargo:rerun-if-changed=native/windows/window_state_test.cc");
     println!("cargo:rerun-if-changed=native/windows/renderer.h");
     println!("cargo:rerun-if-changed=native/windows/renderer.cpp");
+    println!("cargo:rerun-if-changed=native/windows/capture.h");
+    println!("cargo:rerun-if-changed=native/windows/capture.cpp");
+    println!("cargo:rerun-if-changed=native/windows/capture_state.h");
+    println!("cargo:rerun-if-changed=native/windows/capture_state_test.cc");
     println!("cargo:rerun-if-changed=native/windows/render_state.h");
     println!("cargo:rerun-if-changed=native/windows/render_state_test.cc");
     println!("cargo:rerun-if-changed=native/windows/BlackHole.hlsl");
@@ -57,6 +61,7 @@ fn main() {
             .file("native/windows/pet_bridge.cpp")
             .file("native/windows/drop_target.cpp")
             .file("native/windows/renderer.cpp")
+            .file("native/windows/capture.cpp")
             .file("native/windows/window.cpp")
             .compile("pet_native_windows");
         for library in [

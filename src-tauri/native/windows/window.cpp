@@ -14,6 +14,8 @@
 #include "window.h"
 
 #include "callback_guard.h"
+#include "capture.h"
+#include "capture_state.h"
 #include "drop_target.h"
 #include "renderer.h"
 #include "render_state.h"
@@ -52,6 +54,7 @@ constexpr UINT kMessageFinishDrop = WM_APP + 6;
 constexpr uint32_t kCallbackClicked = 1;
 constexpr uint32_t kCallbackMoved = 2;
 constexpr uint32_t kCallbackDisplayChanged = 6;
+constexpr uint32_t kCallbackCaptureStatus = 7;
 constexpr uint32_t kCallbackRendererStatus = 8;
 constexpr uint32_t kCallbackSleep = 9;
 constexpr uint32_t kCallbackWake = 10;
@@ -103,6 +106,15 @@ struct MonitorSnapshot {
   RECT physical;
   DisplayInfo logical;
   bool primary;
+};
+
+struct VisualPane {
+  HWND window = nullptr;
+  HMONITOR monitor = nullptr;
+  RECT physical{};
+  bool protectedFromCapture = false;
+  std::unique_ptr<BlackHoleRenderer> renderer;
+  std::unique_ptr<DesktopCapture> capture;
 };
 
 struct MonitorCollectionContext {
@@ -204,6 +216,13 @@ struct PetWindow::Impl {
   bool ready = false;
   bool created = false;
   std::atomic<HWND> hwnd{nullptr};
+  std::vector<VisualPane> visualPanes;
+  VisualPane *activePane = nullptr;
+  HWND activeVisual = nullptr;
+  HMONITOR activeVisualMonitor = nullptr;
+  bool allWindowsProtected = true;
+  DesktopCapture *capture = nullptr;
+  std::atomic<uint32_t> nativeCaptureState{PET_CAPTURE_UNAVAILABLE};
   std::atomic<DWORD> ownerThreadId{0};
   std::atomic<bool> stopping{false};
   std::mutex shutdownMutex;
@@ -215,21 +234,27 @@ struct PetWindow::Impl {
   Placement placement{0, 0.0, 0.0, 220.0};
   RenderPresentationState presentation;
   bool sleeping = false;
+  bool displayRecoveryPending = false;
+  bool displayRecoveryEmitChange = false;
+  ULONGLONG displayRecoveryDeadline = 0;
   bool dragging = false;
   bool dragMoved = false;
   bool windowDestroyed = false;
+  bool inputWindowGone = false;
   bool inputRegionValid = false;
   PetDropTarget *dropTarget = nullptr;
   bool dropTargetRegistered = false;
   PetDropVisualState dropVisualState = PetDropVisualState::Idle;
   uint32_t targetFps = 30;
-  std::unique_ptr<BlackHoleRenderer> renderer;
+  BlackHoleRenderer *renderer = nullptr;
   RenderState renderState;
   RendererStatusState rendererStatus;
   RendererRetryState rendererRetry;
   PresentationRetryState presentationRetry;
   PresentationStatusState presentationStatus;
   RendererSettingsFingerprintState rendererSettings;
+  CaptureRetryState captureRetry;
+  CaptureStopRetryState captureStopRetry;
   std::atomic<uint32_t> nativeRendererState{PET_RENDERER_UNAVAILABLE};
   uint32_t rendererPixelWidth = 0;
   uint32_t rendererPixelHeight = 0;
@@ -263,19 +288,22 @@ struct PetWindow::Impl {
 
   static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam,
                                      LPARAM lParam) {
-    Impl *self = reinterpret_cast<Impl *>(
-        GetWindowLongPtrW(window, GWLP_USERDATA));
+    LONG_PTR stored = GetWindowLongPtrW(window, GWLP_USERDATA);
+    Impl *self = reinterpret_cast<Impl *>(stored & ~static_cast<LONG_PTR>(1));
+    bool visualRole = (stored & 1) != 0;
     if (message == WM_NCCREATE) {
       const auto *create = reinterpret_cast<CREATESTRUCTW *>(lParam);
-      self = static_cast<Impl *>(create->lpCreateParams);
+      stored = reinterpret_cast<LONG_PTR>(create->lpCreateParams);
+      visualRole = (stored & 1) != 0;
+      self = reinterpret_cast<Impl *>(stored & ~static_cast<LONG_PTR>(1));
       SetLastError(ERROR_SUCCESS);
       const LONG_PTR previous = SetWindowLongPtrW(
-          window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+          window, GWLP_USERDATA, stored);
       if (previous == 0 && GetLastError() != ERROR_SUCCESS) return FALSE;
     }
     return self == nullptr ? DefWindowProcW(window, message, wParam, lParam)
                            : self->handleMessage(window, message, wParam,
-                                                 lParam);
+                                                 lParam, visualRole);
   }
 
   void signalReady(bool success) {
@@ -324,6 +352,9 @@ struct PetWindow::Impl {
     if (HWND window = hwnd.load(std::memory_order_relaxed)) {
       (void)ShowWindow(window, SW_HIDE);
     }
+    for (const VisualPane &pane : visualPanes) {
+      if (pane.window != nullptr) (void)ShowWindow(pane.window, SW_HIDE);
+    }
   }
 
   void updateRendererAvailability() {
@@ -345,6 +376,17 @@ struct PetWindow::Impl {
     }
   }
 
+  void updateCaptureAvailability(uint32_t state) {
+    const uint32_t previous = nativeCaptureState.exchange(
+        state, std::memory_order_acq_rel);
+    if (previous != state && !stopping.load(std::memory_order_acquire)) {
+      InvokePetCallbackNoThrow(callback, kCallbackCaptureStatus,
+          state == PET_CAPTURE_READY ? "ready" :
+          (state == PET_CAPTURE_UNAVAILABLE ? "unavailable" : "failed"), 0.0, 0.0,
+          placement.displayId);
+    }
+  }
+
   void updatePresentationAvailability(bool available) {
     const bool changed = available ? presentationStatus.transitionReady()
                                   : presentationStatus.transitionUnavailable();
@@ -356,22 +398,234 @@ struct PetWindow::Impl {
     }
   }
 
+  bool isVisualPane(HWND window) const {
+    return std::any_of(visualPanes.begin(), visualPanes.end(),
+                       [window](const VisualPane &pane) {
+                         return pane.window == window;
+                       });
+  }
+
+  void releasePaneRenderers() {
+    for (VisualPane &pane : visualPanes) {
+      if (pane.renderer != nullptr) {
+        pane.renderer->setContextMutex(nullptr);
+        pane.renderer->setVisible(false);
+        pane.renderer->shutdown();
+        pane.renderer.reset();
+      }
+    }
+    renderer = nullptr;
+  }
+
+  void destroyVisualPanes() {
+    activePane = nullptr;
+    capture = nullptr;
+    releasePaneRenderers();
+    for (VisualPane &pane : visualPanes) {
+      if (pane.window != nullptr) (void)DestroyWindow(pane.window);
+    }
+    visualPanes.clear();
+    activeVisual = nullptr;
+    activeVisualMonitor = nullptr;
+  }
+
+  bool createVisualPanes() {
+    destroyVisualPanes();
+    const bool inputProtected = allWindowsProtected;
+    bool panesProtected = true;
+    const DWORD exStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE |
+                          WS_EX_NOREDIRECTIONBITMAP | WS_EX_TRANSPARENT;
+    for (const MonitorSnapshot &monitor : monitors) {
+      const int width = monitor.physical.right - monitor.physical.left;
+      const int height = monitor.physical.bottom - monitor.physical.top;
+      HWND pane = CreateWindowExW(exStyle, kWindowClassName,
+                                  L"CYLUNE Desktop Pet Visual", WS_POPUP,
+                                  monitor.physical.left, monitor.physical.top,
+                                  width, height, nullptr, nullptr,
+                                  GetModuleHandleW(nullptr),
+                                  reinterpret_cast<void *>(
+                                      reinterpret_cast<LONG_PTR>(this) | 1));
+      if (pane == nullptr) {
+        destroyVisualPanes();
+        return false;
+      }
+      const bool protectedPane = ConfigureWindowProtection(pane);
+      panesProtected = panesProtected && protectedPane;
+      visualPanes.push_back({pane, monitor.monitor, monitor.physical,
+                             protectedPane, nullptr, nullptr});
+      VisualPane &created = visualPanes.back();
+      created.renderer = BlackHoleRenderer::create(
+          created.window, shaderSource.c_str(), created.monitor);
+      if (created.renderer == nullptr || !created.renderer->available() ||
+          !created.renderer->resize(static_cast<uint32_t>(width),
+                                    static_cast<uint32_t>(height))) {
+        destroyVisualPanes();
+        return false;
+      }
+      // Every monitor owns a live DComp target and swap chain. Inactive panes
+      // remain transparent and hidden until an atomic pane activation.
+      created.renderer->setVisible(false);
+    }
+    allWindowsProtected = inputProtected && panesProtected;
+    return !visualPanes.empty();
+  }
+
+  bool retireCapture() {
+    if (capture == nullptr) return true;
+    if (!capture->stop(32)) return false;
+    if (renderer != nullptr) renderer->setContextMutex(nullptr);
+    if (activePane != nullptr) activePane->capture.reset();
+    capture = nullptr;
+    return true;
+  }
+
+  void retryCaptureStopIfDue(ULONGLONG now) {
+    if (!captureStopRetry.due(now)) return;
+    if (!retireCapture()) {
+      updateCaptureAvailability(PET_CAPTURE_FAILED);
+      captureStopRetry.failed(now);
+      return;
+    }
+    captureStopRetry.succeeded();
+    if (presentation.requestedVisible() && !sleeping &&
+        !stopping.load(std::memory_order_acquire)) {
+      (void)captureRetry.request(now, true);
+    }
+  }
+
+  void requestCapturePause(bool resetRetryBudget) {
+    captureRetry.cancel();
+    const ULONGLONG now = GetTickCount64();
+    if (capture == nullptr) {
+      captureStopRetry.succeeded();
+      return;
+    }
+    if (captureStopRetry.request(now, resetRetryBudget)) {
+      retryCaptureStopIfDue(now);
+    }
+  }
+
+  DWORD captureStopRetryWaitMilliseconds(ULONGLONG now) const {
+    return static_cast<DWORD>(captureStopRetry.waitMilliseconds(now));
+  }
+
+  bool ensureCaptureActive(bool resetRetryBudget) {
+    const ULONGLONG now = GetTickCount64();
+    if (!presentation.requestedVisible() || sleeping || renderer == nullptr ||
+        !renderer->available() || activePane == nullptr ||
+        activeVisualMonitor == nullptr || !allWindowsProtected) {
+      captureRetry.cancel();
+      return false;
+    }
+    if (capture != nullptr && capture->ready()) {
+      captureRetry.succeeded();
+      return true;
+    }
+    if (!captureRetry.request(now, resetRetryBudget) ||
+        !captureRetry.due(now)) {
+      return false;
+    }
+    if (!retireCapture()) {
+      (void)captureStopRetry.request(now, resetRetryBudget);
+      captureStopRetry.failed(now);
+      updateCaptureAvailability(PET_CAPTURE_FAILED);
+      captureRetry.failed(now);
+      return false;
+    }
+    captureStopRetry.succeeded();
+    activePane->capture =
+        DesktopCapture::create(renderer->device(), renderer->context());
+    capture = activePane->capture.get();
+    if (capture == nullptr || !capture->start(activeVisualMonitor)) {
+      updateCaptureAvailability(PET_CAPTURE_FAILED);
+      if (!retireCapture()) {
+        (void)captureStopRetry.request(now, true);
+        captureStopRetry.failed(now);
+      } else {
+        captureStopRetry.succeeded();
+      }
+      captureRetry.failed(now);
+      return false;
+    }
+    renderer->setContextMutex(capture->contextMutex());
+    updateCaptureAvailability(PET_CAPTURE_READY);
+    captureRetry.succeeded();
+    return true;
+  }
+
+  void retryCaptureIfDue(ULONGLONG now) {
+    if (!captureRetry.due(now)) return;
+    (void)ensureCaptureActive(false);
+  }
+
+  DWORD captureRetryWaitMilliseconds(ULONGLONG now) const {
+    return static_cast<DWORD>(captureRetry.waitMilliseconds(now));
+  }
+
+  DWORD displayRecoveryWaitMilliseconds(ULONGLONG now) const {
+    if (!displayRecoveryPending) return INFINITE;
+    const OwnerResourceStopDecision decision{
+        OwnerResourceStopAction::RetryAfterDelay, displayRecoveryDeadline};
+    return OwnerResourceStopWaitMilliseconds(decision, now);
+  }
+
+  void retryDisplayRecoveryIfDue(ULONGLONG now) {
+    if (!displayRecoveryPending || now < displayRecoveryDeadline) return;
+    const bool emitChange = displayRecoveryEmitChange;
+    displayRecoveryPending = false;
+    displayRecoveryEmitChange = false;
+    recoverForDisplays(emitChange);
+  }
+
+  bool activateVisualPane(const MonitorSnapshot *monitor) {
+    if (monitor == nullptr) return false;
+    const auto found = std::find_if(
+        visualPanes.begin(), visualPanes.end(), [monitor](const VisualPane &pane) {
+          return pane.monitor == monitor->monitor;
+        });
+    if (found == visualPanes.end()) return false;
+    if (activeVisual == found->window) return true;
+    // A monitor migration is a presentation transaction: retire the old
+    // visible surface before changing the DComp target, then let the normal
+    // prime/show retry reveal exactly one new pane.
+    if (activeVisual != nullptr) concealWindow();
+    if (!retireCapture()) return false;
+    captureStopRetry.succeeded();
+    if (renderer != nullptr) renderer->setVisible(false);
+    activeVisual = found->window;
+    activeVisualMonitor = found->monitor;
+    activePane = &*found;
+    rendererPixelWidth = 0;
+    rendererPixelHeight = 0;
+    renderer = activePane->renderer.get();
+    if (renderer == nullptr || !renderer->available()) {
+      updateRendererAvailability();
+      return false;
+    }
+    const uint32_t width = static_cast<uint32_t>(
+        std::max(1L, monitor->physical.right - monitor->physical.left));
+    const uint32_t height = static_cast<uint32_t>(
+        std::max(1L, monitor->physical.bottom - monitor->physical.top));
+    if (!renderer->resize(width, height)) {
+      updateRendererAvailability();
+      return false;
+    }
+    rendererPixelWidth = width;
+    rendererPixelHeight = height;
+    renderer->setVisible(false);
+    if (!allWindowsProtected) {
+      updateCaptureAvailability(PET_CAPTURE_FAILED);
+    }
+    updateRendererAvailability();
+    return true;
+  }
+
   void initializeRenderer(HWND window) {
     rendererPixelWidth = 0;
     rendererPixelHeight = 0;
-    renderer = BlackHoleRenderer::create(window, shaderSource.c_str());
-    if (renderer != nullptr && renderer->available()) {
-      RECT client{};
-      if (!GetClientRect(window, &client) || client.right <= client.left ||
-          client.bottom <= client.top ||
-          !renderer->resize(static_cast<uint32_t>(client.right - client.left),
-                            static_cast<uint32_t>(client.bottom - client.top))) {
-        renderer->shutdown();
-      } else {
-        rendererPixelWidth = static_cast<uint32_t>(client.right - client.left);
-        rendererPixelHeight = static_cast<uint32_t>(client.bottom - client.top);
-      }
-    }
+    const MonitorSnapshot *monitor = FindMonitor(monitors, placement.displayId);
+    (void)window;
+    if (monitor != nullptr) (void)activateVisualPane(monitor);
     if (renderer != nullptr) renderer->setVisible(false);
     updateRendererAvailability();
     if (nativeRendererState.load(std::memory_order_acquire) ==
@@ -381,17 +635,24 @@ struct PetWindow::Impl {
     resetHiddenRenderClock();
   }
 
-  void shutdownRenderer() {
+  void releaseRenderersAfterCaptureStop(bool finalShutdown) {
+    updateCaptureAvailability(CaptureAvailabilityAfterRendererRebuild(
+        nativeCaptureState.load(std::memory_order_acquire), finalShutdown));
+    captureRetry.cancel();
+    captureStopRetry.succeeded();
     nativeRendererState.store(PET_RENDERER_UNAVAILABLE,
                               std::memory_order_release);
     (void)rendererStatus.transition(RendererAvailability::Unavailable);
-    if (renderer != nullptr) {
-      renderer->setVisible(false);
-      renderer->shutdown();
-      renderer.reset();
-    }
+    releasePaneRenderers();
     rendererPixelWidth = 0;
     rendererPixelHeight = 0;
+  }
+
+  bool shutdownRenderer(bool finalShutdown = false) {
+    // The worker is stopped before releasing any D3D/DComp owner device.
+    if (!retireCapture()) return false;
+    releaseRenderersAfterCaptureStop(finalShutdown);
+    return true;
   }
 
   bool resizeRenderer(uint32_t width, uint32_t height) {
@@ -452,18 +713,28 @@ struct PetWindow::Impl {
         stopping.load(std::memory_order_acquire)) {
       return;
     }
+    if (!retireCapture()) {
+      rendererRetry.failed(now);
+      return;
+    }
+    captureRetry.cancel();
     if (renderer != nullptr) {
       renderer->setVisible(false);
       renderer->shutdown();
-      renderer.reset();
+      activePane->renderer.reset();
+      renderer = nullptr;
     }
     rendererPixelWidth = 0;
     rendererPixelHeight = 0;
-    renderer = BlackHoleRenderer::create(window, shaderSource.c_str());
+    activePane->renderer = BlackHoleRenderer::create(
+        activeVisual == nullptr ? window : activeVisual, shaderSource.c_str(),
+        activeVisualMonitor);
+    renderer = activePane->renderer.get();
     bool recreated = renderer != nullptr && renderer->available();
     if (recreated) {
       RECT client{};
-      recreated = GetClientRect(window, &client) &&
+      recreated = GetClientRect(activeVisual == nullptr ? window : activeVisual,
+                                &client) &&
                   client.right > client.left && client.bottom > client.top &&
                   renderer->resize(
                       static_cast<uint32_t>(client.right - client.left),
@@ -537,6 +808,60 @@ struct PetWindow::Impl {
     frame.successJetProgress =
         static_cast<float>(state.successJetProgress);
     frame.pendingCount = state.pendingCount;
+    if (monitor != nullptr) {
+      const LogicalPoint globalCenter = LogicalToPhysical(
+          {placement.x + placement.size * 0.5,
+           placement.y + placement.size * 0.5}, monitor->logical);
+      const double monitorWidth =
+          std::max(1L, monitor->physical.right - monitor->physical.left);
+      const double monitorHeight =
+          std::max(1L, monitor->physical.bottom - monitor->physical.top);
+      frame.centerX = static_cast<float>((globalCenter.x - monitor->physical.left) /
+                                         monitorWidth);
+      frame.centerY = static_cast<float>((globalCenter.y - monitor->physical.top) /
+                                         monitorHeight);
+    }
+    if (capture != nullptr) {
+      DesktopCaptureFrame captured{};
+      const DesktopCaptureStatus status = capture->acquire(0, &captured);
+      const LUID rendererAdapter = renderer->adapterLuid();
+      const CaptureFrameIdentity ownerIdentity{
+          capture->generation(),
+          static_cast<uint64_t>(reinterpret_cast<uintptr_t>(activeVisualMonitor)),
+          rendererAdapter.LowPart, rendererAdapter.HighPart};
+      const CaptureFrameIdentity frameIdentity{
+          captured.generation,
+          static_cast<uint64_t>(reinterpret_cast<uintptr_t>(captured.monitor)),
+          captured.adapterLuid.LowPart, captured.adapterLuid.HighPart};
+      const bool frameMatchesOwner =
+          status == DesktopCaptureStatus::Frame &&
+          CaptureFrameMatchesOwner(ownerIdentity, frameIdentity);
+      if (frameMatchesOwner) {
+        frame.desktop = captured.view.Get();
+        frame.desktopRotation = captured.rotation;
+      } else if (status == DesktopCaptureStatus::Frame ||
+                 status == DesktopCaptureStatus::RecoverableFailure ||
+                 status == DesktopCaptureStatus::DeviceRemoved ||
+                 status == DesktopCaptureStatus::Failed) {
+        // Capture has its own recovery/fallback state.  Keep D3D ready and
+        // render procedural particles instead of reporting renderer failure.
+        updateCaptureAvailability(PET_CAPTURE_FAILED);
+        const ULONGLONG retryNow = GetTickCount64();
+        const bool retryAlreadyPending = captureRetry.pending();
+        const bool captureRetired =
+            retryAlreadyPending ? false : retireCapture();
+        // Duplication loss is capture-only: retain a healthy renderer and use
+        // the existing bounded retry clock to re-enter activateVisualPane.
+        if (status == DesktopCaptureStatus::DeviceRemoved && captureRetired) {
+          captureRetry.cancel();
+          if (renderer != nullptr) renderer->shutdown();
+          updateRendererAvailability();
+          rendererRetry.request(retryNow, true);
+        } else if (!retryAlreadyPending) {
+          captureRetry.failed(retryNow);
+        }
+      }
+    }
     if (!renderer->render(frame)) {
       updateRendererAvailability();
       if (nativeRendererState.load(std::memory_order_acquire) !=
@@ -563,7 +888,7 @@ struct PetWindow::Impl {
     ++attempts;
     const bool destroyed = DestroyWindow(window) != 0;
     const OwnerDestroyDecision decision =
-        NextOwnerDestroyDecision(attempts, destroyed, windowDestroyed);
+        NextOwnerDestroyDecision(attempts, destroyed, inputWindowGone);
     if (decision.action == OwnerDestroyAction::Complete) return true;
     if (decision.action == OwnerDestroyAction::RetryAfterDelay) {
       retryDelay = decision.delayMilliseconds;
@@ -581,44 +906,88 @@ struct PetWindow::Impl {
     bool stopRequested =
         !initialized || stopping.load(std::memory_order_acquire) ||
         WaitForSingleObject(stopEvent, 0) == WAIT_OBJECT_0;
-    bool stopUiApplied = false;
+    bool stopUiPrepared = false;
+    bool resourcesStopped = false;
+    ULONGLONG nextResourceStopAttempt = 0;
     uint32_t destroyAttempts = 0;
     ULONGLONG nextDestroyAttempt = 0;
 
     while (!windowDestroyed) {
       const ULONGLONG now = GetTickCount64();
-      if (stopRequested && now >= nextDestroyAttempt) {
-        if (!stopUiApplied) {
-          revokeDropTarget(window);
-          hideWindow();
-          shutdownRenderer();
-          stopUiApplied = true;
+      if (stopRequested) {
+        if (!stopUiPrepared) {
+          rendererRetry.cancel();
+          presentationRetry.cancel();
+          captureRetry.cancel();
+          concealWindow();
+          (void)ReleaseCapture();
+          stopUiPrepared = true;
         }
-        DWORD retryDelay = 0;
-        if (attemptWindowDestroy(window, destroyAttempts, retryDelay)) break;
-        nextDestroyAttempt = GetTickCount64() + retryDelay;
+        if (!resourcesStopped && now >= nextResourceStopAttempt) {
+          const OwnerResourceStopDecision decision =
+              NextOwnerResourceStopDecision(retireCapture(), now);
+          if (decision.action == OwnerResourceStopAction::RetryAfterDelay) {
+            updateCaptureAvailability(PET_CAPTURE_FAILED);
+            nextResourceStopAttempt = decision.deadlineMilliseconds;
+          } else {
+            // Strict lifetime order: join capture, revoke the sole input OLE
+            // target, detach DComp/D3D, destroy visuals, then input below.
+            revokeDropTarget(window);
+            releaseRenderersAfterCaptureStop(true);
+            destroyVisualPanes();
+            resourcesStopped = true;
+          }
+        }
+        if (resourcesStopped && inputWindowGone) {
+          windowDestroyed = true;
+          break;
+        }
+        if (resourcesStopped && now >= nextDestroyAttempt) {
+          DWORD retryDelay = 0;
+          if (attemptWindowDestroy(window, destroyAttempts, retryDelay)) break;
+          nextDestroyAttempt = GetTickCount64() + retryDelay;
+        }
       }
 
       DWORD timeout = INFINITE;
       if (stopRequested) {
         const ULONGLONG current = GetTickCount64();
-        const ULONGLONG remaining = nextDestroyAttempt > current
-                                        ? nextDestroyAttempt - current
-                                        : 0;
-        timeout = remaining > MAXDWORD ? MAXDWORD
-                                       : static_cast<DWORD>(remaining);
+        if (!resourcesStopped) {
+          const OwnerResourceStopDecision decision{
+              OwnerResourceStopAction::RetryAfterDelay,
+              nextResourceStopAttempt};
+          timeout = OwnerResourceStopWaitMilliseconds(decision, current);
+        } else {
+          const ULONGLONG remaining = nextDestroyAttempt > current
+                                          ? nextDestroyAttempt - current
+                                          : 0;
+          timeout = remaining > MAXDWORD ? MAXDWORD
+                                         : static_cast<DWORD>(remaining);
+        }
       } else {
         const ULONGLONG retryNow = GetTickCount64();
-        recreateRendererIfDue(window, retryNow);
-        retryPresentationIfDue(GetTickCount64());
-        const auto frameNow = std::chrono::steady_clock::now();
-        renderFrameIfDue(frameNow);
-        const auto waitNow = std::chrono::steady_clock::now();
-        const ULONGLONG waitRetryNow = GetTickCount64();
-        timeout = std::min(
-            renderWaitMilliseconds(waitNow),
-            std::min(rendererRetryWaitMilliseconds(waitRetryNow),
-                     presentationRetryWaitMilliseconds(waitRetryNow)));
+        retryDisplayRecoveryIfDue(retryNow);
+        if (displayRecoveryPending) {
+          timeout = displayRecoveryWaitMilliseconds(GetTickCount64());
+        } else {
+          recreateRendererIfDue(window, retryNow);
+          retryCaptureStopIfDue(GetTickCount64());
+          retryCaptureIfDue(GetTickCount64());
+          retryPresentationIfDue(GetTickCount64());
+          const auto frameNow = std::chrono::steady_clock::now();
+          renderFrameIfDue(frameNow);
+          const auto waitNow = std::chrono::steady_clock::now();
+          const ULONGLONG waitRetryNow = GetTickCount64();
+          timeout = std::min(
+              renderWaitMilliseconds(waitNow),
+              std::min(rendererRetryWaitMilliseconds(waitRetryNow),
+                       std::min(
+                           captureStopRetryWaitMilliseconds(waitRetryNow),
+                           std::min(
+                               captureRetryWaitMilliseconds(waitRetryNow),
+                               presentationRetryWaitMilliseconds(
+                                   waitRetryNow)))));
+        }
       }
       const DWORD handleCount = stopRequested ? 0 : 1;
       const HANDLE *handles = stopRequested ? nullptr : &stopEvent;
@@ -706,16 +1075,24 @@ struct PetWindow::Impl {
     monitors = MonitorSnapshots(dpiProbe);
     const bool stopRequested =
         WaitForSingleObject(stopEvent, 0) == WAIT_OBJECT_0;
+    // WDA failure only disables desktop sampling; it must not prevent the
+    // procedural pet from opening. Every top-level window is still attempted.
+    allWindowsProtected = ConfigureWindowProtection(window);
     const bool windowInitialized =
-        !stopRequested && dpiProbe != nullptr &&
-        ConfigureWindowProtection(window) && !monitors.empty() &&
-        resetPosition();
+        !stopRequested && dpiProbe != nullptr && !monitors.empty() &&
+        createVisualPanes() && resetPosition();
     if (windowInitialized) initializeRenderer(window);
     const bool initialized = windowInitialized && registerDropTarget(window);
     signalReady(initialized);
     runOwnerLoop(window, initialized);
-    revokeDropTarget(window);
-    shutdownRenderer();
+    // The normal owner loop has already completed this sequence. Keep the
+    // cleanup idempotent while preserving the same order on early startup
+    // failures.
+    if (retireCapture()) {
+      revokeDropTarget(window);
+      releaseRenderersAfterCaptureStop(true);
+      destroyVisualPanes();
+    }
     if (dpiProbe != nullptr) {
       (void)DestroyWindow(dpiProbe);
       dpiProbe = nullptr;
@@ -829,17 +1206,14 @@ struct PetWindow::Impl {
     if (window == nullptr) return false;
     const MonitorSnapshot *monitor = FindMonitor(monitors, placement.displayId);
     if (monitor == nullptr) return false;
+    if (activeVisualMonitor != monitor->monitor && !activateVisualPane(monitor)) {
+      return false;
+    }
     const LogicalPoint physical =
         LogicalToPhysical({placement.x, placement.y}, monitor->logical);
     const int side =
         std::max(1, Rounded(placement.size * monitor->logical.scale));
-    const bool resizeRequired = renderer != nullptr && renderer->available();
-    if (PetWindowNeedsResizeConceal(
-            presentation.actuallyVisible(), resizeRequired,
-            rendererPixelWidth, rendererPixelHeight,
-            static_cast<uint32_t>(side), static_cast<uint32_t>(side))) {
-      concealWindow();
-    }
+    const bool resizeRequired = false;  // only the input target is resized here.
     inputRegionValid = TryPositionResizeAndRegion(
         resizeRequired,
         [window, physical, side]() {
@@ -926,6 +1300,7 @@ struct PetWindow::Impl {
   void showRequestedWindow(bool resetRetryBudget) {
     concealWindow();
     HWND window = hwnd.load(std::memory_order_relaxed);
+    (void)ensureCaptureActive(resetRetryBudget);
     const bool prerequisitesReady =
         window != nullptr &&
         PetWindowMayShow(presentation.requestedVisible(), sleeping,
@@ -937,7 +1312,13 @@ struct PetWindow::Impl {
         presentation, presentationRetry, GetTickCount64(), prerequisitesReady,
         resetRetryBudget,
         [this]() { return renderer != nullptr && renderer->prime(); },
-        [window]() {
+        [this, window]() {
+          if (activeVisual == nullptr ||
+              !SetWindowPos(activeVisual, HWND_TOPMOST, 0, 0, 0, 0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+                                SWP_NOOWNERZORDER | SWP_SHOWWINDOW)) {
+            return false;
+          }
           return SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
                               SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
                                   SWP_NOOWNERZORDER | SWP_SHOWWINDOW) != 0;
@@ -972,6 +1353,7 @@ struct PetWindow::Impl {
     presentation.requestVisible(false);
     rendererRetry.cancel();
     presentationRetry.cancel();
+    requestCapturePause(true);
     concealWindow();
     (void)ReleaseCapture();
   }
@@ -982,6 +1364,25 @@ struct PetWindow::Impl {
     const bool haveRect = window != nullptr && GetWindowRect(window, &rect);
     const uint64_t priorDisplay = placement.displayId;
     monitors = MonitorSnapshots(dpiProbe);
+    // Rebuild full-monitor panes as one display generation.  The input target
+    // remains the sole OLE/drag HWND; its geometry is restored below.
+    concealWindow();
+    if (!shutdownRenderer()) {
+      const OwnerResourceStopDecision decision =
+          NextOwnerResourceStopDecision(false, GetTickCount64());
+      displayRecoveryPending = true;
+      displayRecoveryEmitChange = displayRecoveryEmitChange || emitChange;
+      displayRecoveryDeadline = decision.deadlineMilliseconds;
+      return;
+    }
+    displayRecoveryPending = false;
+    displayRecoveryEmitChange = false;
+    allWindowsProtected = ConfigureWindowProtection(
+        hwnd.load(std::memory_order_relaxed));
+    if (!createVisualPanes()) {
+      updateCaptureAvailability(PET_CAPTURE_FAILED);
+      return;
+    }
     LogicalPoint origin{placement.x, placement.y};
     if (haveRect) {
       HMONITOR active = MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST);
@@ -1099,7 +1500,25 @@ struct PetWindow::Impl {
   }
 
   LRESULT handleMessage(HWND window, UINT message, WPARAM wParam,
-                        LPARAM lParam) {
+                        LPARAM lParam, bool visualRole = false) {
+    if (visualRole) {
+      switch (message) {
+        case WM_NCHITTEST:
+          return HTTRANSPARENT;
+        case WM_ERASEBKGND:
+          return 1;
+        case WM_SIZE:
+        case WM_DPICHANGED:
+        case WM_DISPLAYCHANGE:
+          return 0;
+        case WM_NCDESTROY:
+          // Visual panes are deliberately not owner-loop windows. Their
+          // teardown must never revoke input OLE or post the global quit.
+          return DefWindowProcW(window, message, wParam, lParam);
+        default:
+          return DefWindowProcW(window, message, wParam, lParam);
+      }
+    }
     switch (message) {
       case kMessageApply: {
         std::unique_ptr<PetConfig> config;
@@ -1203,11 +1622,8 @@ struct PetWindow::Impl {
         return 0;
       }
       case WM_SIZE:
-        if (wParam != SIZE_MINIMIZED && LOWORD(lParam) != 0 &&
-            HIWORD(lParam) != 0) {
-          (void)resizeTransaction(static_cast<uint32_t>(LOWORD(lParam)),
-                                  static_cast<uint32_t>(HIWORD(lParam)), true);
-        }
+        // WM_SIZE here belongs to the small InputTarget. VisualPane swap
+        // chains are full-monitor and are recreated only as display panes.
         return 0;
       case WM_DISPLAYCHANGE:
         recoverForDisplays(true);
@@ -1221,6 +1637,7 @@ struct PetWindow::Impl {
           rendererRetry.cancel();
           presentationRetry.cancel();
           concealWindow();
+          requestCapturePause(true);
           (void)ReleaseCapture();
           emit(kCallbackSleep, 0.0, 0.0, placement.displayId);
         } else if ((wParam == PBT_APMRESUMEAUTOMATIC ||
@@ -1243,15 +1660,18 @@ struct PetWindow::Impl {
         (void)signalStop();
         return 0;
       case WM_NCDESTROY: {
-        revokeDropTarget(window);
-        shutdownRenderer();
-        windowDestroyed = true;
+        // Normal owner destruction reaches here after resources were released.
+        // If Windows destroys the input HWND unexpectedly, keep capture/pane
+        // ownership intact and wake the owner so its bounded stop loop can
+        // converge before releasing DComp/D3D. Do not post WM_QUIT here.
+        inputWindowGone = true;
+        stopping.store(true, std::memory_order_release);
+        if (stopEvent != nullptr) (void)SetEvent(stopEvent);
         hwnd.store(nullptr, std::memory_order_release);
         SetLastError(ERROR_SUCCESS);
         const LONG_PTR previous = SetWindowLongPtrW(window, GWLP_USERDATA, 0);
         (void)previous;
         (void)GetLastError();
-        PostQuitMessage(0);
         return DefWindowProcW(window, message, wParam, lParam);
       }
       default:
@@ -1342,6 +1762,11 @@ uint32_t PetWindow::rendererState() const {
   return impl_ == nullptr
              ? PET_RENDERER_UNAVAILABLE
              : impl_->nativeRendererState.load(std::memory_order_acquire);
+}
+
+uint32_t PetWindow::captureState() const {
+  if (impl_ == nullptr) return PET_CAPTURE_UNAVAILABLE;
+  return impl_->nativeCaptureState.load(std::memory_order_acquire);
 }
 
 uint32_t PetWindow::shutdown() {

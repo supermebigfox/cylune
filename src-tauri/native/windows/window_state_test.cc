@@ -14,6 +14,19 @@ bool close_to(double lhs, double rhs) {
 } // namespace
 
 int main() {
+  const OwnerResourceStopDecision captureStopBlocked =
+      NextOwnerResourceStopDecision(false, 1000);
+  assert(captureStopBlocked.action ==
+         OwnerResourceStopAction::RetryAfterDelay);
+  assert(captureStopBlocked.deadlineMilliseconds == 1025);
+  assert(OwnerResourceStopWaitMilliseconds(captureStopBlocked, 1000) == 25);
+  assert(OwnerResourceStopWaitMilliseconds(captureStopBlocked, 1025) == 0);
+  const OwnerResourceStopDecision captureStopComplete =
+      NextOwnerResourceStopDecision(true, 1000);
+  assert(captureStopComplete.action ==
+         OwnerResourceStopAction::DestroyVisualsThenInput);
+  assert(captureStopComplete.deadlineMilliseconds == 1000);
+
   const OwnerDestroyDecision destroyRetry =
       NextOwnerDestroyDecision(1, false, false);
   assert(destroyRetry.action == OwnerDestroyAction::RetryAfterDelay);

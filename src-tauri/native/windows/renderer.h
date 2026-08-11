@@ -9,8 +9,11 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 
 struct ID3D11ShaderResourceView;
+struct ID3D11Device;
+struct ID3D11DeviceContext;
 
 struct RendererFrame {
   double animationTime = 0.0;
@@ -26,12 +29,14 @@ struct RendererFrame {
   float successJetProgress = 0.0f;
   uint32_t pendingCount = 0;
   ID3D11ShaderResourceView *desktop = nullptr;
+  uint32_t desktopRotation = 0;
 };
 
 class BlackHoleRenderer {
  public:
   static std::unique_ptr<BlackHoleRenderer> create(HWND window,
-                                                    const char *hlslSource);
+                                                    const char *hlslSource,
+                                                    HMONITOR monitor = nullptr);
 
   ~BlackHoleRenderer();
 
@@ -42,9 +47,13 @@ class BlackHoleRenderer {
   bool prime() noexcept;
   bool render(const RendererFrame &frame) noexcept;
   void setVisible(bool visible) noexcept;
+  void setContextMutex(std::shared_ptr<std::mutex> mutex) noexcept;
   void shutdown() noexcept;
   bool available() const noexcept;
   bool primed() const noexcept;
+  ID3D11Device *device() const noexcept;
+  ID3D11DeviceContext *context() const noexcept;
+  LUID adapterLuid() const noexcept;
 
  private:
   struct Impl;

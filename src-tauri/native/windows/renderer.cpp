@@ -17,6 +17,7 @@
 #include <array>
 #include <cstring>
 #include <new>
+#include <mutex>
 #include <string>
 
 using Microsoft::WRL::ComPtr;
@@ -36,7 +37,8 @@ struct alignas(16) ShaderParams {
   float ejectProgress;
   float pullGain;
   float successJetProgress;
-  float padding1[2];
+  uint32_t desktopRotation;
+  float padding1;
 };
 
 static_assert(sizeof(ShaderParams) == 64, "HLSL constant layout changed");
@@ -91,6 +93,7 @@ struct BlackHoleRenderer::Impl {
   SurfacePrimeState surface;
   uint32_t width = 0;
   uint32_t height = 0;
+  LUID adapterLuid{};
   ComPtr<ID3D11Device> device;
   ComPtr<ID3D11DeviceContext> context;
   ComPtr<IDXGISwapChain1> swapChain;
@@ -106,6 +109,7 @@ struct BlackHoleRenderer::Impl {
   ComPtr<IDCompositionDevice> compositionDevice;
   ComPtr<IDCompositionTarget> compositionTarget;
   ComPtr<IDCompositionVisual> compositionVisual;
+  std::shared_ptr<std::mutex> contextMutex;
 
   bool createRenderTarget() noexcept {
     renderTarget.Reset();
@@ -138,13 +142,49 @@ struct BlackHoleRenderer::Impl {
     return disposition;
   }
 
-  bool initialize(HWND targetWindow, const char *source) noexcept {
+  bool initialize(HWND targetWindow, const char *source,
+                  HMONITOR monitor) noexcept {
     window = targetWindow;
     if (window == nullptr || source == nullptr) return false;
 
+    ComPtr<IDXGIAdapter1> selectedAdapter;
+    if (monitor != nullptr) {
+      ComPtr<IDXGIFactory1> enumerationFactory;
+      if (SUCCEEDED(CreateDXGIFactory1(
+              IID_PPV_ARGS(enumerationFactory.ReleaseAndGetAddressOf())))) {
+        for (UINT adapterIndex = 0; selectedAdapter == nullptr; ++adapterIndex) {
+          ComPtr<IDXGIAdapter1> candidate;
+          if (enumerationFactory->EnumAdapters1(
+                  adapterIndex, candidate.ReleaseAndGetAddressOf()) ==
+              DXGI_ERROR_NOT_FOUND) {
+            break;
+          }
+          for (UINT outputIndex = 0;; ++outputIndex) {
+            ComPtr<IDXGIOutput> output;
+            if (candidate->EnumOutputs(outputIndex,
+                                       output.ReleaseAndGetAddressOf()) ==
+                DXGI_ERROR_NOT_FOUND) {
+              break;
+            }
+            DXGI_OUTPUT_DESC desc{};
+            if (SUCCEEDED(output->GetDesc(&desc)) && desc.Monitor == monitor) {
+              selectedAdapter = candidate;
+              break;
+            }
+          }
+        }
+      }
+      if (selectedAdapter == nullptr) {
+        LogRendererError("no DXGI adapter owns visual monitor");
+        return false;
+      }
+    }
     UINT deviceFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
     if (FAILED(D3D11CreateDevice(
-            nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, deviceFlags, nullptr, 0,
+            selectedAdapter.Get(),
+            selectedAdapter == nullptr ? D3D_DRIVER_TYPE_HARDWARE
+                                       : D3D_DRIVER_TYPE_UNKNOWN,
+            nullptr, deviceFlags, nullptr, 0,
             D3D11_SDK_VERSION, device.ReleaseAndGetAddressOf(), nullptr,
             context.ReleaseAndGetAddressOf()))) {
       LogRendererError("D3D11 device creation failed");
@@ -157,6 +197,9 @@ struct BlackHoleRenderer::Impl {
     if (FAILED(dxgiDevice->GetAdapter(adapter.ReleaseAndGetAddressOf()))) {
       return false;
     }
+    DXGI_ADAPTER_DESC adapterDescription{};
+    if (FAILED(adapter->GetDesc(&adapterDescription))) return false;
+    adapterLuid = adapterDescription.AdapterLuid;
     ComPtr<IDXGIFactory2> factory;
     if (FAILED(adapter->GetParent(
             IID_PPV_ARGS(factory.ReleaseAndGetAddressOf())))) {
@@ -339,11 +382,11 @@ BlackHoleRenderer::BlackHoleRenderer() : impl_(new (std::nothrow) Impl) {}
 BlackHoleRenderer::~BlackHoleRenderer() { shutdown(); }
 
 std::unique_ptr<BlackHoleRenderer> BlackHoleRenderer::create(
-    HWND window, const char *hlslSource) {
+    HWND window, const char *hlslSource, HMONITOR monitor) {
   std::unique_ptr<BlackHoleRenderer> renderer(
       new (std::nothrow) BlackHoleRenderer());
   if (renderer == nullptr || renderer->impl_ == nullptr) return nullptr;
-  if (!renderer->impl_->initialize(window, hlslSource)) {
+  if (!renderer->impl_->initialize(window, hlslSource, monitor)) {
     renderer->impl_->releaseAll();
   }
   return renderer;
@@ -351,6 +394,10 @@ std::unique_ptr<BlackHoleRenderer> BlackHoleRenderer::create(
 
 bool BlackHoleRenderer::resize(uint32_t pixelWidth,
                                uint32_t pixelHeight) noexcept {
+  std::unique_lock<std::mutex> contextLock;
+  if (impl_ != nullptr && impl_->contextMutex != nullptr) {
+    contextLock = std::unique_lock<std::mutex>(*impl_->contextMutex);
+  }
   if (impl_ == nullptr || !impl_->ready || pixelWidth == 0 ||
       pixelHeight == 0) {
     return false;
@@ -376,6 +423,10 @@ bool BlackHoleRenderer::resize(uint32_t pixelWidth,
 }
 
 bool BlackHoleRenderer::prime() noexcept {
+  std::unique_lock<std::mutex> contextLock;
+  if (impl_ != nullptr && impl_->contextMutex != nullptr) {
+    contextLock = std::unique_lock<std::mutex>(*impl_->contextMutex);
+  }
   if (impl_ == nullptr || !impl_->ready) return false;
   const PresentDisposition disposition = impl_->primeSurface();
   if (disposition == PresentDisposition::Presented) return true;
@@ -385,6 +436,10 @@ bool BlackHoleRenderer::prime() noexcept {
 }
 
 bool BlackHoleRenderer::render(const RendererFrame &frame) noexcept {
+  std::unique_lock<std::mutex> contextLock;
+  if (impl_ != nullptr && impl_->contextMutex != nullptr) {
+    contextLock = std::unique_lock<std::mutex>(*impl_->contextMutex);
+  }
   if (impl_ == nullptr || !impl_->ready || !impl_->surface.canRender() ||
       impl_->renderTarget == nullptr || impl_->width == 0 || impl_->height == 0) {
     return false;
@@ -406,6 +461,7 @@ bool BlackHoleRenderer::render(const RendererFrame &frame) noexcept {
   params.ejectProgress = frame.ejectProgress;
   params.pullGain = frame.pullGain;
   params.successJetProgress = frame.successJetProgress;
+  params.desktopRotation = frame.desktopRotation;
   impl_->context->UpdateSubresource(impl_->constantBuffer.Get(), 0, nullptr,
                                     &params, 0, 0);
 
@@ -462,7 +518,16 @@ void BlackHoleRenderer::setVisible(bool visible) noexcept {
   }
 }
 
+void BlackHoleRenderer::setContextMutex(
+    std::shared_ptr<std::mutex> mutex) noexcept {
+  if (impl_ != nullptr) impl_->contextMutex = std::move(mutex);
+}
+
 void BlackHoleRenderer::shutdown() noexcept {
+  std::unique_lock<std::mutex> contextLock;
+  if (impl_ != nullptr && impl_->contextMutex != nullptr) {
+    contextLock = std::unique_lock<std::mutex>(*impl_->contextMutex);
+  }
   if (impl_ != nullptr) impl_->releaseAll();
 }
 
@@ -472,4 +537,16 @@ bool BlackHoleRenderer::available() const noexcept {
 
 bool BlackHoleRenderer::primed() const noexcept {
   return impl_ != nullptr && impl_->surface.primed();
+}
+
+ID3D11Device *BlackHoleRenderer::device() const noexcept {
+  return impl_ == nullptr ? nullptr : impl_->device.Get();
+}
+
+ID3D11DeviceContext *BlackHoleRenderer::context() const noexcept {
+  return impl_ == nullptr ? nullptr : impl_->context.Get();
+}
+
+LUID BlackHoleRenderer::adapterLuid() const noexcept {
+  return impl_ == nullptr ? LUID{} : impl_->adapterLuid;
 }
