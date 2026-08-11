@@ -124,6 +124,10 @@ int main() {
     assert(surface.canRender());
 
     surface.conceal();
+    assert(surface.primed());
+    assert(surface.reveal());
+    surface.conceal();
+    surface.invalidatePrime();
     assert(!surface.primed());
     assert(!surface.reveal());
     assert(!surface.canRender());
@@ -131,6 +135,26 @@ int main() {
     surface.markPrimed();
     assert(surface.reveal());
     assert(surface.canRender());
+  }
+
+  {
+    constexpr int32_t busyResult =
+        static_cast<int32_t>(static_cast<uint32_t>(0x887A000A));
+    constexpr int32_t fatalResult =
+        static_cast<int32_t>(static_cast<uint32_t>(0x80004005));
+    assert(ClassifyPresentResult(0, busyResult) ==
+           PresentDisposition::Presented);
+    assert(ClassifyPresentResult(busyResult, busyResult) ==
+           PresentDisposition::Retry);
+    assert(ClassifyPresentResult(fatalResult, busyResult) ==
+           PresentDisposition::DeviceFailure);
+
+    SurfacePrimeState surface;
+    surface.applyPrimePresent(PresentDisposition::Retry);
+    assert(!surface.primed());
+    assert(!surface.canRender());
+    surface.applyPrimePresent(PresentDisposition::Presented);
+    assert(surface.primed());
   }
 
   {
@@ -171,14 +195,149 @@ int main() {
   }
 
   {
+    RendererSettingsInput input{};
+    input.mode = 1;
+    input.effectiveMode = 1;
+    input.hasPosition = true;
+    input.x = 100.0;
+    input.y = 200.0;
+    input.size = 220.0;
+    input.displayId = 7;
+    input.fps = 30;
+    input.visible = true;
+    input.reduceMotion = false;
+    input.visualStyle = 1;
+
+    RendererSettingsFingerprintState settings;
+    assert(settings.shouldResetRetry(input));
+    assert(!settings.shouldResetRetry(input));
+
+    input.pendingCount = 3;
+    assert(!settings.shouldResetRetry(input));
+    input.requestPermission = true;
+    assert(!settings.shouldResetRetry(input));
+
+    input.effectiveMode = 0;
+    assert(!settings.shouldResetRetry(input));
+    input.x = 101.0;
+    assert(!settings.shouldResetRetry(input));
+    input.y = 201.0;
+    assert(!settings.shouldResetRetry(input));
+    input.displayId = 8;
+    assert(!settings.shouldResetRetry(input));
+    input.hasPosition = false;
+    assert(!settings.shouldResetRetry(input));
+
+    input.fps = 60;
+    assert(settings.shouldResetRetry(input));
+    input.visible = false;
+    assert(settings.shouldResetRetry(input));
+    input.mode = 0;
+    assert(settings.shouldResetRetry(input));
+    input.size = 300.0;
+    assert(settings.shouldResetRetry(input));
+    input.visualStyle = 0;
+    assert(settings.shouldResetRetry(input));
+    input.reduceMotion = true;
+    assert(settings.shouldResetRetry(input));
+  }
+
+  {
+    RenderPresentationState presentation;
+    presentation.requestVisible(true);
+    PresentationRetryState retry;
+    int primeCalls = 0;
+    int showCalls = 0;
+
+    const bool first = TryPrimeAndShowWithRetry(
+        presentation, retry, 0, true, false,
+        [&primeCalls]() {
+          ++primeCalls;
+          return true;
+        },
+        [&showCalls]() {
+          ++showCalls;
+          return false;
+        });
+    assert(!first);
+    assert(!presentation.actuallyVisible());
+    assert(primeCalls == 1);
+    assert(showCalls == 1);
+    assert(!retry.due(99));
+    assert(retry.due(100));
+
+    const bool recovered = TryPrimeAndShowWithRetry(
+        presentation, retry, 100, true, false,
+        [&primeCalls]() {
+          ++primeCalls;
+          return true;
+        },
+        [&showCalls]() {
+          ++showCalls;
+          return true;
+        });
+    assert(recovered);
+    assert(presentation.actuallyVisible());
+    assert(primeCalls == 2);
+    assert(showCalls == 2);
+    assert(!retry.pending());
+    assert(retry.attempts() == 0);
+
+    retry.request(200, false);
+    retry.failed(200);
+    assert(!retry.due(201));
+    assert(retry.request(201, true));
+    assert(retry.due(201));
+  }
+
+  {
+    RenderPresentationState presentation;
+    presentation.requestVisible(true);
+    PresentationRetryState retry;
+    int showCalls = 0;
+    for (uint64_t now : {0ULL, 100ULL, 300ULL, 700ULL}) {
+      assert(!TryPrimeAndShowWithRetry(
+          presentation, retry, now, true, false, []() { return true; },
+          [&showCalls]() {
+            ++showCalls;
+            return false;
+          }));
+    }
+    assert(showCalls == 4);
+    assert(retry.exhausted());
+    assert(!retry.pending());
+    assert(retry.waitMilliseconds(700) ==
+           std::numeric_limits<uint32_t>::max());
+    assert(!TryPrimeAndShowWithRetry(
+        presentation, retry, 1000, true, false, []() { return true; },
+        [&showCalls]() {
+          ++showCalls;
+          return true;
+        }));
+    assert(showCalls == 4);
+  }
+
+  {
     using Clock = std::chrono::steady_clock;
-    const Clock::time_point completed(std::chrono::milliseconds(10000));
-    const Clock::time_point deadline = NextRenderDeadline(completed, 60);
-    assert(deadline > completed);
+    const Clock::time_point started(std::chrono::milliseconds(10000));
+    const Clock::time_point deadline = NextRenderDeadline(started, 60);
+    assert(deadline > started);
     assert(std::chrono::duration_cast<std::chrono::milliseconds>(
-               deadline - completed)
+               deadline - started)
                .count() == 16);
-    assert(NextRenderDeadline(completed, 0) == Clock::time_point::max());
+    assert(NextRenderDeadline(started, 0) == Clock::time_point::max());
+  }
+
+  {
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point renderStarted(std::chrono::milliseconds(10000));
+    const Clock::time_point renderCompleted =
+        renderStarted + std::chrono::milliseconds(10);
+    const Clock::time_point deadline = NextRenderDeadline(renderStarted, 60);
+    assert(FrameWaitMilliseconds(deadline, renderCompleted) == 6);
+    const Clock::time_point lateCompletion =
+        renderStarted + std::chrono::milliseconds(20);
+    assert(FrameWaitMilliseconds(deadline, lateCompletion) == 0);
   }
 
   {

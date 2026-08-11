@@ -227,6 +227,8 @@ struct PetWindow::Impl {
   RenderState renderState;
   RendererStatusState rendererStatus;
   RendererRetryState rendererRetry;
+  PresentationRetryState presentationRetry;
+  RendererSettingsFingerprintState rendererSettings;
   std::atomic<uint32_t> nativeRendererState{PET_RENDERER_UNAVAILABLE};
   uint32_t rendererPixelWidth = 0;
   uint32_t rendererPixelHeight = 0;
@@ -416,6 +418,10 @@ struct PetWindow::Impl {
     return remaining > MAXDWORD ? MAXDWORD : static_cast<DWORD>(remaining);
   }
 
+  DWORD presentationRetryWaitMilliseconds(ULONGLONG now) const {
+    return static_cast<DWORD>(presentationRetry.waitMilliseconds(now));
+  }
+
   void recreateRendererIfDue(HWND window, ULONGLONG now) {
     if (!rendererRetry.due(now) || !presentation.requestedVisible() || sleeping ||
         stopping.load(std::memory_order_acquire)) {
@@ -458,6 +464,11 @@ struct PetWindow::Impl {
     rendererRetry.failed(now);
   }
 
+  void retryPresentationIfDue(ULONGLONG now) {
+    if (!presentationRetry.due(now)) return;
+    showRequestedWindow(false);
+  }
+
   DWORD renderWaitMilliseconds(
       std::chrono::steady_clock::time_point now) const {
     if (nativeRendererState.load(std::memory_order_acquire) !=
@@ -465,15 +476,7 @@ struct PetWindow::Impl {
         renderState.targetFps(60) == 0) {
       return INFINITE;
     }
-    if (nextFrameTime <= now) return 0;
-    const auto remaining = nextFrameTime - now;
-    const auto milliseconds =
-        std::chrono::duration_cast<std::chrono::milliseconds>(remaining)
-            .count();
-    if (milliseconds <= 0) return 1;
-    return milliseconds > static_cast<int64_t>(MAXDWORD)
-               ? MAXDWORD
-               : static_cast<DWORD>(milliseconds);
+    return static_cast<DWORD>(FrameWaitMilliseconds(nextFrameTime, now));
   }
 
   void renderFrameIfDue(std::chrono::steady_clock::time_point now) {
@@ -521,8 +524,7 @@ struct PetWindow::Impl {
       }
     }
     targetFps = renderState.targetFps(60);
-    nextFrameTime = NextRenderDeadline(std::chrono::steady_clock::now(),
-                                       targetFps);
+    nextFrameTime = NextRenderDeadline(now, targetFps);
   }
 
   bool detachWindowUserData(HWND window) {
@@ -583,10 +585,15 @@ struct PetWindow::Impl {
       } else {
         const ULONGLONG retryNow = GetTickCount64();
         recreateRendererIfDue(window, retryNow);
+        retryPresentationIfDue(GetTickCount64());
         const auto frameNow = std::chrono::steady_clock::now();
         renderFrameIfDue(frameNow);
-        timeout = std::min(renderWaitMilliseconds(frameNow),
-                           rendererRetryWaitMilliseconds(retryNow));
+        const auto waitNow = std::chrono::steady_clock::now();
+        const ULONGLONG waitRetryNow = GetTickCount64();
+        timeout = std::min(
+            renderWaitMilliseconds(waitNow),
+            std::min(rendererRetryWaitMilliseconds(waitRetryNow),
+                     presentationRetryWaitMilliseconds(waitRetryNow)));
       }
       const DWORD handleCount = stopRequested ? 0 : 1;
       const HANDLE *handles = stopRequested ? nullptr : &stopEvent;
@@ -834,7 +841,21 @@ struct PetWindow::Impl {
   }
 
   void applyConfig(PetConfig config) {
+    RendererSettingsInput settings{};
+    settings.mode = config.mode;
+    settings.hasPosition = config.has_position != 0;
+    settings.x = config.x;
+    settings.y = config.y;
+    settings.size = config.size;
+    settings.displayId = config.display_id;
+    settings.fps = config.fps;
+    settings.visible = config.visible != 0;
+    settings.reduceMotion = config.reduce_motion != 0;
+    settings.pendingCount = config.pending_count;
+    settings.requestPermission = config.request_permission != 0;
+    settings.visualStyle = config.visual_style;
     monitors = MonitorSnapshots(dpiProbe);
+    const Placement priorPlacement = placement;
     presentation.requestVisible(config.visible != 0);
     if (config.has_position != 0) {
       placement = clamp({config.x, config.y}, config.size, config.display_id);
@@ -847,6 +868,10 @@ struct PetWindow::Impl {
            std::numeric_limits<double>::quiet_NaN()},
           config.size);
     }
+    const bool positionChanged =
+        PlacementPositionChanged(priorPlacement, placement);
+    const bool resetRendererRetry =
+        rendererSettings.shouldResetRetry(settings) || positionChanged;
     if (!positionWindow()) {
       invalidateInputRegion();
       return;
@@ -862,7 +887,7 @@ struct PetWindow::Impl {
     targetFps = renderState.targetFps(60);
     resetHiddenRenderClock();
     if (presentation.requestedVisible()) {
-      showRequestedWindow(true);
+      showRequestedWindow(resetRendererRetry);
     } else {
       hideWindow();
     }
@@ -878,8 +903,9 @@ struct PetWindow::Impl {
         nativeRendererState.load(std::memory_order_acquire) ==
             PET_RENDERER_READY &&
         renderer != nullptr;
-    const bool shown = TryPrimeAndShow(
-        presentation, prerequisitesReady,
+    const bool shown = TryPrimeAndShowWithRetry(
+        presentation, presentationRetry, GetTickCount64(), prerequisitesReady,
+        resetRetryBudget,
         [this]() { return renderer != nullptr && renderer->prime(); },
         [window]() {
           return SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
@@ -891,12 +917,12 @@ struct PetWindow::Impl {
       updateRendererAvailability();
       if (nativeRendererState.load(std::memory_order_acquire) ==
           PET_RENDERER_UNAVAILABLE) {
+        presentationRetry.cancel();
         requestRendererRetry(resetRetryBudget);
-      } else {
-        rendererRetry.cancel();
       }
       return;
     }
+    presentationRetry.succeeded();
     rendererRetry.succeeded();
     renderState.setVisible(true);
     targetFps = renderState.targetFps(60);
@@ -910,6 +936,7 @@ struct PetWindow::Impl {
     dragMoved = false;
     presentation.requestVisible(false);
     rendererRetry.cancel();
+    presentationRetry.cancel();
     concealWindow();
     (void)ReleaseCapture();
   }
@@ -1004,7 +1031,14 @@ struct PetWindow::Impl {
         {static_cast<double>(dragWindowOrigin.left + dx),
          static_cast<double>(dragWindowOrigin.top + dy)},
         targetDisplay);
+    const Placement priorPlacement = placement;
     placement = clamp(origin, placement.size, targetId);
+    const bool positionChanged =
+        PlacementPositionChanged(priorPlacement, placement);
+    if (positionChanged && nativeRendererState.load(std::memory_order_acquire) ==
+                               PET_RENDERER_UNAVAILABLE) {
+      requestRendererRetry(true);
+    }
     const bool restoreVisibility = presentation.actuallyVisible();
     if (!positionWindow()) {
       invalidateInputRegion();
@@ -1137,6 +1171,7 @@ struct PetWindow::Impl {
           dragging = false;
           dragMoved = false;
           rendererRetry.cancel();
+          presentationRetry.cancel();
           concealWindow();
           (void)ReleaseCapture();
           emit(kCallbackSleep, 0.0, 0.0, placement.displayId);

@@ -118,11 +118,11 @@ struct BlackHoleRenderer::Impl {
         backBuffer.Get(), nullptr, renderTarget.ReleaseAndGetAddressOf()));
   }
 
-  bool primeSurface() noexcept {
+  PresentDisposition primeSurface() noexcept {
     if (renderTarget == nullptr || swapChain == nullptr || context == nullptr) {
-      return false;
+      return PresentDisposition::DeviceFailure;
     }
-    surface.conceal();
+    surface.invalidatePrime();
     constexpr std::array<float, 4> transparent = {0.0f, 0.0f, 0.0f, 0.0f};
     context->ClearRenderTargetView(renderTarget.Get(), transparent.data());
     ID3D11RenderTargetView *target = renderTarget.Get();
@@ -131,9 +131,11 @@ struct BlackHoleRenderer::Impl {
     context->OMSetRenderTargets(1, &noTarget, nullptr);
     const HRESULT present = swapChain->Present(0, DXGI_PRESENT_DO_NOT_WAIT);
     context->ClearState();
-    if (FAILED(present)) return false;
-    surface.markPrimed();
-    return true;
+    const PresentDisposition disposition = ClassifyPresentResult(
+        static_cast<int32_t>(present),
+        static_cast<int32_t>(DXGI_ERROR_WAS_STILL_DRAWING));
+    surface.applyPrimePresent(disposition);
+    return disposition;
   }
 
   bool initialize(HWND targetWindow, const char *source) noexcept {
@@ -280,7 +282,7 @@ struct BlackHoleRenderer::Impl {
 
     width = 1;
     height = 1;
-    if (!primeSurface()) {
+    if (primeSurface() == PresentDisposition::DeviceFailure) {
       LogRendererError("transparent surface prime failed");
       return false;
     }
@@ -301,14 +303,14 @@ struct BlackHoleRenderer::Impl {
   void fail(const char *message) noexcept {
     LogRendererError(message);
     ready = false;
-    surface.conceal();
+    surface.invalidatePrime();
     if (context != nullptr) context->ClearState();
     detachComposition();
   }
 
   void releaseAll() noexcept {
     ready = false;
-    surface.conceal();
+    surface.invalidatePrime();
     if (context != nullptr) context->ClearState();
     detachComposition();
     compositionVisual.Reset();
@@ -354,7 +356,7 @@ bool BlackHoleRenderer::resize(uint32_t pixelWidth,
     return false;
   }
   if (impl_->width == pixelWidth && impl_->height == pixelHeight) return true;
-  impl_->surface.conceal();
+  impl_->surface.invalidatePrime();
   impl_->context->ClearState();
   impl_->renderTarget.Reset();
   const HRESULT result = impl_->swapChain->ResizeBuffers(
@@ -365,7 +367,8 @@ bool BlackHoleRenderer::resize(uint32_t pixelWidth,
   }
   impl_->width = pixelWidth;
   impl_->height = pixelHeight;
-  if (!impl_->primeSurface()) {
+  const PresentDisposition disposition = impl_->primeSurface();
+  if (disposition == PresentDisposition::DeviceFailure) {
     impl_->fail("transparent surface prime after resize failed");
     return false;
   }
@@ -374,8 +377,9 @@ bool BlackHoleRenderer::resize(uint32_t pixelWidth,
 
 bool BlackHoleRenderer::prime() noexcept {
   if (impl_ == nullptr || !impl_->ready) return false;
-  if (impl_->surface.primed()) return true;
-  if (impl_->primeSurface()) return true;
+  const PresentDisposition disposition = impl_->primeSurface();
+  if (disposition == PresentDisposition::Presented) return true;
+  if (disposition == PresentDisposition::Retry) return false;
   impl_->fail("transparent surface prime failed");
   return false;
 }
@@ -438,8 +442,11 @@ bool BlackHoleRenderer::render(const RendererFrame &frame) noexcept {
   impl_->context->OMSetRenderTargets(1, &noTarget, nullptr);
   const HRESULT present = impl_->swapChain->Present(0, DXGI_PRESENT_DO_NOT_WAIT);
   impl_->context->ClearState();
-  if (present == DXGI_ERROR_WAS_STILL_DRAWING) return true;
-  if (FAILED(present)) {
+  const PresentDisposition disposition = ClassifyPresentResult(
+      static_cast<int32_t>(present),
+      static_cast<int32_t>(DXGI_ERROR_WAS_STILL_DRAWING));
+  if (disposition == PresentDisposition::Retry) return true;
+  if (disposition == PresentDisposition::DeviceFailure) {
     impl_->fail("swap chain present failed");
     return false;
   }

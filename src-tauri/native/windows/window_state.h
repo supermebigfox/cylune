@@ -57,6 +57,12 @@ struct Placement {
   double size;
 };
 
+inline bool PlacementPositionChanged(const Placement &before,
+                                     const Placement &after) {
+  return before.displayId != after.displayId || before.x != after.x ||
+         before.y != after.y;
+}
+
 struct PixelRegionBounds {
   int left;
   int top;

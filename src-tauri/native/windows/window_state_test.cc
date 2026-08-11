@@ -91,6 +91,13 @@ int main() {
   assert(placed.y <= 2160 - 600 - 16);
   assert(close_to(placed.size, 600));
 
+  const Placement echoedPosition{2, 100.0, 200.0, 220.0};
+  assert(!PlacementPositionChanged(echoedPosition, echoedPosition));
+  assert(PlacementPositionChanged(
+      echoedPosition, Placement{2, 101.0, 200.0, 220.0}));
+  assert(PlacementPositionChanged(
+      echoedPosition, Placement{3, 100.0, 200.0, 220.0}));
+
   assert(HitTestPet({300, 300}, 600) == PetHit::Drag);
   assert(HitTestPet({5, 5}, 600) == PetHit::Transparent);
   assert(HitTestPet({588, 300}, 600) == PetHit::Drag);

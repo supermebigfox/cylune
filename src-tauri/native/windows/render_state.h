@@ -4,11 +4,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <utility>
 
 template <typename Clock, typename Duration>
 std::chrono::time_point<Clock, Duration> NextRenderDeadline(
-    std::chrono::time_point<Clock, Duration> frameCompleted,
+    std::chrono::time_point<Clock, Duration> frameStarted,
     uint32_t framesPerSecond) {
   if (framesPerSecond == 0) {
     return std::chrono::time_point<Clock, Duration>::max();
@@ -16,7 +17,7 @@ std::chrono::time_point<Clock, Duration> NextRenderDeadline(
   Duration interval = std::chrono::duration_cast<Duration>(
       std::chrono::duration<double>(1.0 / framesPerSecond));
   if (interval <= Duration::zero()) interval = Duration(1);
-  return frameCompleted + interval;
+  return frameStarted + interval;
 }
 
 template <typename TimePoint>
@@ -30,14 +31,51 @@ HiddenRenderClockState<TimePoint> HiddenRenderClock(TimePoint now) {
   return {now, TimePoint::max()};
 }
 
+template <typename TimePoint>
+uint32_t FrameWaitMilliseconds(TimePoint nextFrame, TimePoint now) {
+  if (nextFrame == TimePoint::max()) return std::numeric_limits<uint32_t>::max();
+  if (nextFrame <= now) return 0;
+  const auto milliseconds =
+      std::chrono::duration_cast<std::chrono::milliseconds>(nextFrame - now)
+          .count();
+  if (milliseconds <= 0) return 1;
+  const auto maximum = std::numeric_limits<uint32_t>::max();
+  return milliseconds > static_cast<decltype(milliseconds)>(maximum)
+             ? maximum
+             : static_cast<uint32_t>(milliseconds);
+}
+
+enum class PresentDisposition : uint32_t {
+  Presented,
+  Retry,
+  DeviceFailure,
+};
+
+inline PresentDisposition ClassifyPresentResult(int32_t result,
+                                                int32_t busyResult) {
+  if (result == busyResult) return PresentDisposition::Retry;
+  return result >= 0 ? PresentDisposition::Presented
+                     : PresentDisposition::DeviceFailure;
+}
+
 class SurfacePrimeState {
  public:
-  void conceal() {
+  void conceal() { visible_ = false; }
+
+  void invalidatePrime() {
     primed_ = false;
     visible_ = false;
   }
 
   void markPrimed() { primed_ = true; }
+
+  void applyPrimePresent(PresentDisposition disposition) {
+    if (disposition == PresentDisposition::Presented) {
+      markPrimed();
+    } else {
+      invalidatePrime();
+    }
+  }
 
   bool reveal() {
     visible_ = primed_;
@@ -115,6 +153,105 @@ class RendererRetryState {
   uint64_t deadlineMilliseconds_ = 0;
 };
 
+class PresentationRetryState {
+ public:
+  static constexpr uint32_t kMaximumAttempts = 4;
+
+  bool request(uint64_t nowMilliseconds, bool resetBudget) {
+    if (resetBudget) {
+      attempts_ = 0;
+      pending_ = true;
+      deadlineMilliseconds_ = nowMilliseconds;
+      return true;
+    }
+    if (attempts_ >= kMaximumAttempts) return false;
+    if (!pending_) {
+      pending_ = true;
+      deadlineMilliseconds_ = nowMilliseconds;
+    }
+    return true;
+  }
+
+  void failed(uint64_t nowMilliseconds) {
+    if (attempts_ < kMaximumAttempts) ++attempts_;
+    if (attempts_ >= kMaximumAttempts) {
+      pending_ = false;
+      return;
+    }
+    const uint32_t shift = attempts_ == 0 ? 0 : attempts_ - 1;
+    deadlineMilliseconds_ = nowMilliseconds + (100ULL << shift);
+    pending_ = true;
+  }
+
+  void succeeded() {
+    attempts_ = 0;
+    pending_ = false;
+    deadlineMilliseconds_ = 0;
+  }
+
+  void cancel() {
+    pending_ = false;
+    deadlineMilliseconds_ = 0;
+  }
+
+  bool due(uint64_t nowMilliseconds) const {
+    return pending_ && nowMilliseconds >= deadlineMilliseconds_;
+  }
+
+  uint32_t waitMilliseconds(uint64_t nowMilliseconds) const {
+    if (!pending_) return std::numeric_limits<uint32_t>::max();
+    if (deadlineMilliseconds_ <= nowMilliseconds) return 0;
+    const uint64_t remaining = deadlineMilliseconds_ - nowMilliseconds;
+    return remaining > std::numeric_limits<uint32_t>::max()
+               ? std::numeric_limits<uint32_t>::max()
+               : static_cast<uint32_t>(remaining);
+  }
+
+  bool pending() const { return pending_; }
+  uint32_t attempts() const { return attempts_; }
+  bool exhausted() const { return attempts_ >= kMaximumAttempts; }
+
+ private:
+  uint32_t attempts_ = 0;
+  bool pending_ = false;
+  uint64_t deadlineMilliseconds_ = 0;
+};
+
+struct RendererSettingsInput {
+  uint8_t mode = 0;
+  uint8_t effectiveMode = 0;
+  bool hasPosition = false;
+  double x = 0.0;
+  double y = 0.0;
+  double size = 220.0;
+  uint64_t displayId = 0;
+  uint32_t fps = 0;
+  bool visible = false;
+  bool reduceMotion = false;
+  uint32_t pendingCount = 0;
+  bool requestPermission = false;
+  uint8_t visualStyle = 0;
+};
+
+class RendererSettingsFingerprintState {
+ public:
+  bool shouldResetRetry(RendererSettingsInput input) {
+    const bool changed =
+        !initialized_ || input.mode != value_.mode ||
+        input.size != value_.size || input.fps != value_.fps ||
+        input.visible != value_.visible ||
+        input.reduceMotion != value_.reduceMotion ||
+        input.visualStyle != value_.visualStyle;
+    value_ = input;
+    initialized_ = true;
+    return changed;
+  }
+
+ private:
+  bool initialized_ = false;
+  RendererSettingsInput value_{};
+};
+
 class RenderPresentationState {
  public:
   void requestVisible(bool visible) {
@@ -142,6 +279,33 @@ bool TryPrimeAndShow(RenderPresentationState &presentation,
     presentation.conceal();
     return false;
   }
+  presentation.reveal();
+  return presentation.actuallyVisible();
+}
+
+template <typename PrimeOperation, typename ShowOperation>
+bool TryPrimeAndShowWithRetry(RenderPresentationState &presentation,
+                              PresentationRetryState &retry,
+                              uint64_t nowMilliseconds,
+                              bool prerequisitesReady, bool resetBudget,
+                              PrimeOperation &&prime, ShowOperation &&show) {
+  if (!presentation.requestedVisible() || !prerequisitesReady) {
+    presentation.conceal();
+    retry.cancel();
+    return false;
+  }
+  if (!retry.request(nowMilliseconds, resetBudget) ||
+      !retry.due(nowMilliseconds)) {
+    presentation.conceal();
+    return false;
+  }
+  if (!std::forward<PrimeOperation>(prime)() ||
+      !std::forward<ShowOperation>(show)()) {
+    presentation.conceal();
+    retry.failed(nowMilliseconds);
+    return false;
+  }
+  retry.succeeded();
   presentation.reveal();
   return presentation.actuallyVisible();
 }
