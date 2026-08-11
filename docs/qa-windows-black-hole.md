@@ -18,6 +18,32 @@ sealed Mac implementation to make a Windows recording pass.
   approved macOS clip and the Windows candidate together so the comparison can
   be repeated.
 
+### Pinned evidence protocol
+
+- Use `docs/qa-assets/windows-parity-checkerboard.html` at browser zoom 100%,
+  full-screen 3840×2160. It is the moving-checkerboard source of record: 64 px
+  cells inside a 128 px repeat, translating right at 96 px/s and down at
+  48 px/s. Record its Git blob hash with each clip.
+- Use `brand/poster-final-4k.png` as the static color/detail source and record
+  its Git blob hash. The white-browser scene is a blank local HTML page with
+  black 32 px system text in 96 px rows; scroll downward at 480 px/s using an
+  automated input tool whose name/version/script is saved with the evidence.
+- The Explorer scene uses a clean folder containing exactly four copies of the
+  same fixture named `01.gcode.3mf`, `02.3mf`, `03.gcode`, and `04.txt`, laid
+  out as large icons in one row. The approved Mac Finder scene uses the same
+  bytes, names, order, icon size, and window bounds. Save fixture SHA-256 values;
+  do not commit user print files.
+- Interaction path: begin with the black-hole center at normalized
+  `(0.25, 0.50)`; capture 5.0 s idle, hover 2.0 s, then drag linearly to
+  `(0.75, 0.50)` over 4.0 s. For ingest/eject/jet clips, wait 5.0 s idle and
+  release the fixture at the normalized center. Record input automation and
+  timestamps beside the clip.
+- Capture losslessly with FFmpeg `ffv1` level 3 in Matroska at 3840×2160/60;
+  save the exact `ffmpeg -version`, capture-device enumeration and command.
+  Do not compare H.264/HEVC proxy files. A proxy may accompany, but never
+  replace, the `.mkv` source. Record the monitor color profile and whether HDR
+  is disabled; both platforms must use the same SDR condition.
+
 ## Capture matrix
 
 | Scene | Required action | Evidence to inspect |

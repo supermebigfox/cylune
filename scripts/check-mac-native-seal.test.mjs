@@ -61,6 +61,32 @@ test("fails when a Mac native change is staged", async () => {
   );
 });
 
+test("fails when a committed Mac native mutation leaves a clean worktree", async () => {
+  const { root, reference } = await repository();
+  await writeFile(join(root, "src-tauri/native/mac/pet.mm"), "committed\n");
+  git(root, "add", "src-tauri/native/mac/pet.mm");
+  git(root, "commit", "--quiet", "-m", "mutate sealed Mac native file");
+  expect(git(root, "status", "--short")).toBe("");
+
+  await expect(checkMacNativeSeal({ cwd: root, reference })).rejects.toThrow(
+    "src-tauri/native/mac differs",
+  );
+});
+
+test("fails when a sealed index masks a committed Mac native mutation", async () => {
+  const { root, reference } = await repository();
+  const path = join(root, "src-tauri/native/mac/pet.mm");
+  await writeFile(path, "committed\n");
+  git(root, "add", "src-tauri/native/mac/pet.mm");
+  git(root, "commit", "--quiet", "-m", "mutate sealed Mac native file");
+  await writeFile(path, "sealed\n");
+  git(root, "add", "src-tauri/native/mac/pet.mm");
+
+  await expect(checkMacNativeSeal({ cwd: root, reference })).rejects.toThrow(
+    "src-tauri/native/mac differs",
+  );
+});
+
 test("fails when an unstaged restore hides a staged Mac native change", async () => {
   const { root, reference } = await repository();
   const path = join(root, "src-tauri/native/mac/pet.mm");
@@ -88,6 +114,16 @@ test("fails when an untracked Mac native path is present", async () => {
 
   await expect(checkMacNativeSeal({ cwd: root, reference })).rejects.toThrow(
     "untracked.h",
+  );
+});
+
+test("fails when an ignored Mac native path is present", async () => {
+  const { root, reference } = await repository();
+  await writeFile(join(root, ".gitignore"), "src-tauri/native/mac/ignored.h\n");
+  await writeFile(join(root, "src-tauri/native/mac/ignored.h"), "ignored\n");
+
+  await expect(checkMacNativeSeal({ cwd: root, reference })).rejects.toThrow(
+    "ignored.h",
   );
 });
 

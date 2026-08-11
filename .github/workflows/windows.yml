@@ -1,0 +1,181 @@
+name: Windows release gate
+
+on:
+  push:
+    branches: [codex/windows-port]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows 2022 x64
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Prepare logs
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force .ci-logs | Out-Null
+
+      - name: Install JavaScript dependencies
+        shell: pwsh
+        run: |
+          npm ci 2>&1 | Tee-Object -FilePath .ci-logs/npm-ci.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run frontend and release tests
+        shell: pwsh
+        run: |
+          npm test -- --run 2>&1 | Tee-Object -FilePath .ci-logs/vitest.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Rust and native tests
+        shell: pwsh
+        run: |
+          npm run test:rust 2>&1 | Tee-Object -FilePath .ci-logs/rust.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify the sealed Mac tree
+        shell: pwsh
+        run: |
+          npm run check:mac-seal 2>&1 | Tee-Object -FilePath .ci-logs/mac-seal.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build unsigned preview NSIS bundle
+        shell: pwsh
+        run: |
+          npm run tauri build -- --bundles nsis 2>&1 | Tee-Object -FilePath .ci-logs/nsis-preview-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Import release signing certificate
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64) -or
+              [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD) -or
+              [string]::IsNullOrWhiteSpace($env:WINDOWS_TIMESTAMP_URL)) {
+            throw "Tagged releases require the Windows signing certificate, password, and timestamp URL secrets."
+          }
+          $pfxPath = Join-Path $env:RUNNER_TEMP "cylune-signing.pfx"
+          $configPath = Join-Path $env:RUNNER_TEMP "cylune-signing.json"
+          [IO.File]::WriteAllBytes(
+            $pfxPath,
+            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
+          )
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate `
+            -FilePath $pfxPath `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password $password
+          if ($null -eq $certificate) { throw "The Windows signing certificate could not be imported." }
+          @{
+            bundle = @{
+              windows = @{
+                certificateThumbprint = $certificate.Thumbprint
+                digestAlgorithm = "sha256"
+                timestampUrl = $env:WINDOWS_TIMESTAMP_URL
+              }
+            }
+          } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8NoBOM $configPath
+          "CYLUNE_SIGNING_CONFIG=$configPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CYLUNE_SIGNING_PFX=$pfxPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CYLUNE_SIGNING_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Rebuild signed NSIS bundle for tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          npm run tauri build -- --bundles nsis --config "$env:CYLUNE_SIGNING_CONFIG" 2>&1 | Tee-Object -FilePath .ci-logs/nsis-signed-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Publish the uniquely named setup
+        shell: pwsh
+        run: |
+          $bundleRoot = Join-Path $env:LOCALAPPDATA "CYLUNE\Cache\rust\release\bundle"
+          $releaseRoot = Join-Path $PWD "发布-Windows"
+          node --input-type=module -e "import { releaseWindowsBundle } from './scripts/release-windows.mjs'; await releaseWindowsBundle({ bundleRoot: process.argv[1], releaseRoot: process.argv[2] });" $bundleRoot $releaseRoot 2>&1 | Tee-Object -FilePath .ci-logs/publish.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify tagged release signatures
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $targetRoot = Join-Path $env:LOCALAPPDATA "CYLUNE\Cache\rust\release"
+          $targets = @(
+            (Join-Path $PWD "发布-Windows\CYLUNE-Setup.exe"),
+            (Join-Path $targetRoot "bambu-pools.exe")
+          )
+          foreach ($target in $targets) {
+            if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+              throw "Required signed release file is missing: $target"
+            }
+            $signature = Get-AuthenticodeSignature -FilePath $target
+            @(
+              "File: $target"
+              "Status: $($signature.Status)"
+              "StatusMessage: $($signature.StatusMessage)"
+              "Signer: $($signature.SignerCertificate.Subject)"
+              "SignerThumbprint: $($signature.SignerCertificate.Thumbprint)"
+              "Timestamp: $($signature.TimeStamperCertificate.Subject)"
+              "TimestampThumbprint: $($signature.TimeStamperCertificate.Thumbprint)"
+              ""
+            ) | Add-Content -Encoding utf8 .ci-logs/authenticode.log
+            if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+              throw "Authenticode verification failed for $target: $($signature.StatusMessage)"
+            }
+            if ($null -eq $signature.SignerCertificate -or
+                $null -eq $signature.TimeStamperCertificate) {
+              throw "A signer and timestamp are required for tagged release file: $target"
+            }
+          }
+
+      - name: Upload CYLUNE setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: CYLUNE-Windows-${{ github.ref_type == 'tag' && 'signed' || 'preview' }}
+          path: 发布-Windows/CYLUNE-Setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove temporary signing material
+        if: always() && startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:CYLUNE_SIGNING_THUMBPRINT)) {
+            Remove-Item "Cert:\CurrentUser\My\$env:CYLUNE_SIGNING_THUMBPRINT" -Force -ErrorAction SilentlyContinue
+          }
+          foreach ($path in @($env:CYLUNE_SIGNING_PFX, $env:CYLUNE_SIGNING_CONFIG)) {
+            if (-not [string]::IsNullOrWhiteSpace($path)) {
+              Remove-Item $path -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+      - name: Upload Windows gate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CYLUNE-Windows-logs-${{ github.run_id }}
+          path: .ci-logs/
+          if-no-files-found: error
+          retention-days: 14

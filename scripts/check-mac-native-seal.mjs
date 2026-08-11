@@ -36,10 +36,15 @@ export async function checkMacNativeSeal({
     ["rev-parse", `${reference}:${MAC_NATIVE_PATH}`],
     `Cannot resolve Mac native reference ${reference}`,
   );
+  const committed = await git(
+    cwd,
+    ["diff", "--name-status", reference, "HEAD", "--", MAC_NATIVE_PATH],
+    `Cannot compare HEAD for ${MAC_NATIVE_PATH} with ${reference}`,
+  );
   const indexed = await git(
     cwd,
-    ["diff", "--cached", "--name-status", reference, "--", MAC_NATIVE_PATH],
-    `Cannot compare the index for ${MAC_NATIVE_PATH} with ${reference}`,
+    ["diff", "--cached", "--name-status", "HEAD", "--", MAC_NATIVE_PATH],
+    `Cannot compare the index for ${MAC_NATIVE_PATH} with HEAD`,
   );
   const unstaged = await git(
     cwd,
@@ -48,12 +53,19 @@ export async function checkMacNativeSeal({
   );
   const untracked = await git(
     cwd,
-    ["ls-files", "--others", "--", MAC_NATIVE_PATH],
+    ["ls-files", "--others", "--exclude-standard", "--", MAC_NATIVE_PATH],
     `Cannot enumerate untracked paths under ${MAC_NATIVE_PATH}`,
   );
+  const ignored = await git(
+    cwd,
+    ["ls-files", "--others", "--ignored", "--exclude-standard", "--", MAC_NATIVE_PATH],
+    `Cannot enumerate ignored paths under ${MAC_NATIVE_PATH}`,
+  );
 
-  if (indexed || unstaged || untracked) {
-    const paths = [indexed, unstaged, untracked].filter(Boolean).join("\n");
+  if (committed || indexed || unstaged || untracked || ignored) {
+    const paths = [committed, indexed, unstaged, untracked, ignored]
+      .filter(Boolean)
+      .join("\n");
     throw new Error(
       `${MAC_NATIVE_PATH} differs from ${reference}${paths ? `:\n${paths}` : ""}`,
     );

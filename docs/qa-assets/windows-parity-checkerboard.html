@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CYLUNE deterministic parity checkerboard</title>
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #101828;
+    }
+
+    #board {
+      position: fixed;
+      inset: -128px;
+      background:
+        linear-gradient(45deg, #f8fafc 25%, transparent 25%) 0 0 / 128px 128px,
+        linear-gradient(45deg, transparent 75%, #f8fafc 75%) 0 0 / 128px 128px,
+        linear-gradient(45deg, transparent 75%, #f8fafc 75%) 64px 64px / 128px 128px,
+        linear-gradient(45deg, #f8fafc 25%, #1e293b 25%) 64px 64px / 128px 128px;
+      will-change: transform;
+    }
+  </style>
+  <div id="board"></div>
+  <script>
+    const board = document.querySelector("#board");
+    const started = performance.now();
+
+    function frame(now) {
+      const seconds = (now - started) / 1000;
+      const x = (seconds * 96) % 128;
+      const y = (seconds * 48) % 128;
+      board.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+      requestAnimationFrame(frame);
+    }
+
+    requestAnimationFrame(frame);
+  </script>
+</html>

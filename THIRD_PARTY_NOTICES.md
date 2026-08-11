@@ -7,6 +7,22 @@ safe print-file import target. The other entries document earlier renderer and
 import-animation work that remains in the application. No unrelated timer,
 terminal, trash, settings, or packaging behavior was copied.
 
+## Windows Direct3D/HLSL port
+
+`src-tauri/native/windows/BlackHole.hlsl` is a direct numerical HLSL port of
+the sealed CYLUNE Metal black-hole shader and therefore carries forward the
+same upstream-derived optics, presets, material parameters, flow, animation,
+and attribution described in every existing entry below. The Windows adapter
+changes the shader language and uniform/capture coordinates, samples a live
+DXGI Desktop Duplication texture, and presents through Direct3D 11 and
+DirectComposition; it does not replace, narrow, or remove any upstream MIT
+notice or license grant.
+
+Direct3D, DXGI, DirectComposition, DWM, OLE, Win32, and the WebView2
+bootstrapper are consumed as Microsoft platform/runtime interfaces rather
+than copied source from the cited black-hole projects. The complete notice
+file is bundled into the Windows application as `THIRD_PARTY_NOTICES.md`.
+
 ## tiyda/blackhole-desktop
 
 Pinned source:
