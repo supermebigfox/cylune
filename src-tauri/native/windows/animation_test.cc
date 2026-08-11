@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -13,6 +14,31 @@ bool Near(double actual, double expected) {
 }  // namespace
 
 int main() {
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  const double infinity = std::numeric_limits<double>::infinity();
+  assert(ClampUnit(nan) == 0.0);
+  assert(ClampUnit(infinity) == 1.0);
+  assert(ClampUnit(-infinity) == 0.0);
+  assert(SwallowProgress(nan) == 0.0);
+  assert(EjectProgress(nan) == 0.0);
+  assert(SuccessJetProgress(nan) == 0.0);
+  assert(SmoothstepEase(nan) == 0.0);
+  assert(OrbitScale(nan) == 1.0);
+  assert(SwallowProgress(infinity) == 1.0);
+  assert(EjectProgress(infinity) == 1.0);
+  assert(SuccessJetProgress(infinity) == 1.0);
+  assert(SmoothstepEase(infinity) == 1.0);
+  assert(OrbitScale(infinity) == 0.0);
+  assert(SwallowProgress(-infinity) == 0.0);
+  assert(EjectProgress(-infinity) == 0.0);
+  assert(SuccessJetProgress(-infinity) == 0.0);
+  assert(SmoothstepEase(-infinity) == 0.0);
+  assert(OrbitScale(-infinity) == 1.0);
+
+  const HoverUniforms invalidHover = HoverEffect(nan);
+  assert(invalidHover.rotationRate == 1.0f);
+  assert(invalidHover.pullGain == 1.0f);
+
   assert(SwallowProgress(0.74) == 1.0);
   assert(EjectProgress(0.74) == 0.0);
   assert(EjectProgress(1.36) == 1.0);
@@ -46,6 +72,24 @@ int main() {
   assert(Near(jet.ingestProgress, 1.0));
   assert(Near(jet.ejectProgress, 0.0));
   assert(Near(jet.successJetProgress, 0.5));
+
+  RenderState invalidEject;
+  invalidEject.apply({0, true, 600.0, 0, 0});
+  invalidEject.setVisualState(RenderVisualState::WaitingForAck);
+  invalidEject.advance(nan);
+  invalidEject.setVisualState(RenderVisualState::SwallowAndEject);
+  assert(std::isfinite(invalidEject.frame().ingestProgress));
+  assert(std::isfinite(invalidEject.frame().ejectProgress));
+  assert(std::isfinite(invalidEject.frame().successJetProgress));
+
+  RenderState invalidJet;
+  invalidJet.apply({0, true, 600.0, 0, 0});
+  invalidJet.setVisualState(RenderVisualState::WaitingForAck);
+  invalidJet.advance(nan);
+  invalidJet.setVisualState(RenderVisualState::SwallowAndSuccessJet);
+  assert(std::isfinite(invalidJet.frame().ingestProgress));
+  assert(std::isfinite(invalidJet.frame().ejectProgress));
+  assert(std::isfinite(invalidJet.frame().successJetProgress));
 
   RenderState thirtyFps;
   thirtyFps.apply({30, true, 600.0, 0, 0});

@@ -9,7 +9,7 @@ constexpr double kEjectDurationSeconds = 0.62;
 constexpr double kSuccessJetDurationSeconds = 0.50;
 
 inline double ClampUnit(double value) {
-  return std::clamp(value, 0.0, 1.0);
+  return std::min(1.0, std::max(0.0, value));
 }
 
 inline double SwallowProgress(double elapsedSeconds) {
