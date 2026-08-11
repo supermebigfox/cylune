@@ -1,18 +1,76 @@
+import { spawnSync } from "node:child_process";
 import {
   access,
+  chmod,
+  copyFile,
   mkdtemp,
   mkdir,
   readFile,
   readdir,
+  realpath,
   rename,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
 import { releaseWindowsBundle } from "./release-windows.mjs";
+
+test("CLI publishes an existing NSIS setup without invoking a build", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cylune-win-release-cli-")));
+  const scriptsRoot = join(root, "scripts");
+  const targetRoot = join(root, "target");
+  const setup = join(
+    targetRoot,
+    "release",
+    "bundle",
+    "nsis",
+    "CYLUNE_0.1.0_x64-setup.exe",
+  );
+  const fakeBin = join(root, "fake-bin");
+  const buildMarker = join(root, "npm-was-invoked");
+  await mkdir(scriptsRoot, { recursive: true });
+  await mkdir(join(targetRoot, "release", "bundle", "nsis"), { recursive: true });
+  await mkdir(fakeBin);
+  await copyFile(
+    join(process.cwd(), "scripts", "release-windows.mjs"),
+    join(scriptsRoot, "release-windows.mjs"),
+  );
+  await copyFile(join(process.cwd(), "scripts", "rust.mjs"), join(scriptsRoot, "rust.mjs"));
+  await writeFile(setup, "fixture");
+
+  const fakeNpm = join(fakeBin, "npm");
+  await writeFile(fakeNpm, '#!/bin/sh\nprintf invoked > "$FAKE_NPM_MARKER"\nexit 86\n');
+  await chmod(fakeNpm, 0o755);
+  await writeFile(
+    join(fakeBin, "npm.cmd"),
+    '@echo off\r\necho invoked>"%FAKE_NPM_MARKER%"\r\nexit /b 86\r\n',
+  );
+
+  try {
+    const pathKey = Object.keys(process.env).find((name) => name.toLowerCase() === "path");
+    const result = spawnSync(process.execPath, [join(scriptsRoot, "release-windows.mjs")], {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        CARGO_TARGET_DIR: targetRoot,
+        FAKE_NPM_MARKER: buildMarker,
+        [pathKey ?? "PATH"]: `${fakeBin}${delimiter}${process.env[pathKey ?? "PATH"] ?? ""}`,
+      },
+    });
+
+    await expect(access(buildMarker)).rejects.toThrow();
+    expect(result.status, result.stderr).toBe(0);
+    expect(await readFile(join(root, "发布-Windows", "CYLUNE-Setup.exe"), "utf8")).toBe(
+      "fixture",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("publishes the one NSIS setup without leaving target artifacts", async () => {
   const root = await mkdtemp(join(tmpdir(), "cylune-win-release-"));

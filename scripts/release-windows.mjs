@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { constants } from "node:fs";
 import {
   lstat,
@@ -347,15 +346,6 @@ export async function releaseWindowsBundle({
 async function main() {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const target = rustTargetDir();
-  const build = spawnSync("npm", ["run", "tauri", "build", "--", "--bundles", "nsis"], {
-    cwd: root,
-    env: { ...process.env, CARGO_TARGET_DIR: target },
-    shell: process.platform === "win32",
-    stdio: "inherit",
-  });
-  if (build.error) throw build.error;
-  if (build.status !== 0) process.exit(build.status ?? 1);
-
   const run = createWindowsReleaseRun();
   await releaseWindowsBundle({
     bundleRoot: join(target, "release", "bundle"),

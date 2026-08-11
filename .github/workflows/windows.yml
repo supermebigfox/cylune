@@ -30,6 +30,11 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Prepare logs
         shell: pwsh
         run: New-Item -ItemType Directory -Force .ci-logs | Out-Null
@@ -46,11 +51,15 @@ jobs:
           npm test -- --run 2>&1 | Tee-Object -FilePath .ci-logs/vitest.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Run Rust and native tests
+      - name: Run Rust tests
         shell: pwsh
         run: |
           npm run test:rust 2>&1 | Tee-Object -FilePath .ci-logs/rust.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile and run Windows native and HLSL tests
+        shell: pwsh
+        run: ./scripts/win-native.ps1
 
       - name: Verify the sealed Mac tree
         shell: pwsh
@@ -59,6 +68,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build unsigned preview NSIS bundle
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         shell: pwsh
         run: |
           npm run tauri build -- --bundles nsis 2>&1 | Tee-Object -FilePath .ci-logs/nsis-preview-build.log
