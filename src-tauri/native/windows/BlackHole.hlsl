@@ -200,10 +200,12 @@ float3 blackbody(float temperature) {
   float t = clamp(temperature, 1500.0, 40000.0) / 100.0;
   float r = t <= 66.0
                 ? 1.0
-                : clamp(1.292936 * pow(t - 60.0, -0.1332047), 0.0, 1.0);
+                : clamp(1.292936 * pow(max(t - 60.0, 0.001), -0.1332047),
+                         0.0, 1.0);
   float g = t <= 66.0
                 ? clamp(0.3900816 * log(t) - 0.6318414, 0.0, 1.0)
-                : clamp(1.1298909 * pow(t - 60.0, -0.0755148), 0.0, 1.0);
+                : clamp(1.1298909 * pow(max(t - 60.0, 0.001), -0.0755148),
+                         0.0, 1.0);
   float b = t >= 66.0
                 ? 1.0
                 : (t <= 19.0
@@ -326,7 +328,7 @@ float4 ps_main(VertexOutput input) : SV_TARGET {
         float contrastMix = clamp(S.diskContrast * 0.5, 0.0, 1.0);
         float streak = lerp(1.0,
                             0.25 + 1.9 *
-                                       pow(grain, 1.0 + S.diskContrast),
+                                       pow(max(grain, 0.0), 1.0 + S.diskContrast),
                             contrastMix);
         float band =
             smoothstep(S.diskInner, S.diskInner + 0.45, rc) *
