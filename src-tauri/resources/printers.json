@@ -1,0 +1,16 @@
+[
+  {"model_key":"Bambu Lab X1 Carbon","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Cool Plate","Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab X1","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Cool Plate","Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab X1E","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Cool Plate","Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab P1P","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Cool Plate","Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab P1S","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Cool Plate","Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab A1 mini","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab A1","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Cool Plate","Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab H2D","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab H2D Pro","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab H2S","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab P2S","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab H2C","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Engineering Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab X2D","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]},
+  {"model_key":"Bambu Lab A2L","nozzle_diameters":[0.2,0.4,0.6,0.8],"plate_keys":["Engineering Plate","Smooth PEI Plate / High Temp Plate","Supertack Plate","Textured PEI Plate"]}
+]

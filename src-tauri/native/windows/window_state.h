@@ -70,6 +70,22 @@ struct PixelRegionBounds {
   int bottom;
 };
 
+inline PixelRegionBounds VisualEffectBounds(PixelRegionBounds monitor,
+                                            int centerX, int centerY,
+                                            int visualDiameter) {
+  const int monitorWidth = std::max(1, monitor.right - monitor.left);
+  const int monitorHeight = std::max(1, monitor.bottom - monitor.top);
+  const int requestedSide = std::max(
+      1, static_cast<int>(std::ceil(std::max(1, visualDiameter) * 1.5)));
+  const int width = std::min(requestedSide, monitorWidth);
+  const int height = std::min(requestedSide, monitorHeight);
+  const int maximumLeft = monitor.right - width;
+  const int maximumTop = monitor.bottom - height;
+  const int left = std::clamp(centerX - width / 2, monitor.left, maximumLeft);
+  const int top = std::clamp(centerY - height / 2, monitor.top, maximumTop);
+  return {left, top, left + width, top + height};
+}
+
 enum class OwnerDestroyAction {
   Complete,
   RetryAfterDelay,

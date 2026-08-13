@@ -14,6 +14,8 @@ struct Params {
   float successJetProgress;
   uint desktopRotation;
   float padding1;
+  float2 captureOrigin;
+  float2 captureScale;
 };
 
 struct VertexOutput {
@@ -133,6 +135,10 @@ float2 desktopUV(float2 u) {
   if (P.desktopRotation == 180u) return float2(1.0 - u.x, 1.0 - u.y);
   if (P.desktopRotation == 270u) return float2(1.0 - u.y, u.x);
   return u;
+}
+
+float2 captureUV(float2 localUv) {
+  return P.captureOrigin + localUv * P.captureScale;
 }
 
 float2 rot(float2 p, float a) {
@@ -280,10 +286,9 @@ float4 ps_main(VertexOutput input) : SV_TARGET {
     float deflection = (2.0 / (W * W)) / max(plen, 0.0001) *
                        (13.0 / window * window) * window;
     float2 sampleUv = mirrorUV(
-        center + (p + spacetimeFlow - normalize(p) * deflection) /
-                     float2(aspect, 1.0));
-    return float4(desktop.Sample(linearSampler,
-                                 desktopUV(wallpaperUV(sampleUv, res))).rgb +
+        captureUV(center + (p + spacetimeFlow - normalize(p) * deflection) /
+                               float2(aspect, 1.0)));
+    return float4(desktop.Sample(linearSampler, desktopUV(sampleUv)).rgb +
                       jet.rgb,
                   max(mask, jet.a));
   }
@@ -362,9 +367,9 @@ float4 ps_main(VertexOutput input) : SV_TARGET {
   }
 
   float2 flowingUv =
-      center + (p + spacetimeFlow) / float2(aspect, 1.0);
+      captureUV(center + (p + spacetimeFlow) / float2(aspect, 1.0));
   float3 background =
-      desktop.Sample(linearSampler, desktopUV(wallpaperUV(flowingUv, res))).rgb;
+      desktop.Sample(linearSampler, desktopUV(flowingUv)).rgb;
   bool shadow = captured && plen < rh * 1.06;
   float2 starUv = uv;
   if (!shadow && !captured) {
@@ -372,13 +377,13 @@ float4 ps_main(VertexOutput input) : SV_TARGET {
     if (direction.z < -0.05) {
       float q = (-13.0 - x.z) / direction.z;
       float2 sky = rot((x + direction * q).xy, -S.diskRoll) / W;
-      float2 sampleUv = mirrorUV(
+      float2 sampleUv = mirrorUV(captureUV(
           center +
           (p + spacetimeFlow + (float2(sky.x, -sky.y) - p) * window) /
-              float2(aspect, 1.0));
+              float2(aspect, 1.0)));
       starUv = sampleUv;
       background =
-          desktop.Sample(linearSampler, desktopUV(wallpaperUV(sampleUv, res))).rgb;
+          desktop.Sample(linearSampler, desktopUV(sampleUv)).rgb;
     }
   }
   if (S.starGain > 0.0) {

@@ -106,4 +106,15 @@ describe("Windows release CI policy", () => {
       displayLanguageSelector: true,
     });
   });
+
+  test("the release executable uses the Windows GUI subsystem", async () => {
+    const main = await readFile(
+      join(root, "src-tauri", "src", "main.rs"),
+      "utf8",
+    );
+
+    expect(main).toContain(
+      '#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]',
+    );
+  });
 });

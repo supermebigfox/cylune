@@ -207,9 +207,7 @@ class CaptureMachine {
         phase_ = CapturePhase::Running;
         return invalidate(CaptureAction::CreateDuplication);
       case CaptureEvent::Timeout:
-        if (phase_ != CapturePhase::Running || !hasCurrentFrame_) return decision();
-        hasCurrentFrame_ = false;
-        return decision(CaptureAction::ClearFrame);
+        return decision();
       case CaptureEvent::AccessLost:
         return recover(CaptureAction::RecreateDuplication, true);
       case CaptureEvent::DeviceRemoved:

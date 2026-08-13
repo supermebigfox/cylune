@@ -1,6 +1,17 @@
 #include "render_state.h"
 
 #include <cassert>
+
+void dxgi_enumeration_failures_are_distinct_from_the_end_of_the_list() {
+  constexpr int32_t kNotFound = static_cast<int32_t>(0x887A0002u);
+  constexpr int32_t kDeviceRemoved = static_cast<int32_t>(0x887A0005u);
+  assert(ClassifyDxgiEnumerationResult(0, kNotFound) ==
+         DxgiEnumerationResult::Item);
+  assert(ClassifyDxgiEnumerationResult(kNotFound, kNotFound) ==
+         DxgiEnumerationResult::End);
+  assert(ClassifyDxgiEnumerationResult(kDeviceRemoved, kNotFound) ==
+         DxgiEnumerationResult::Failure);
+}
 #include <chrono>
 #include <cmath>
 #include <vector>
@@ -25,6 +36,7 @@ RenderConfig Config(uint32_t fps, bool visible, double size = 600.0,
 }  // namespace
 
 int main() {
+  dxgi_enumeration_failures_are_distinct_from_the_end_of_the_list();
   {
     using Clock = std::chrono::steady_clock;
     const Clock::time_point hiddenAt(std::chrono::milliseconds(250));

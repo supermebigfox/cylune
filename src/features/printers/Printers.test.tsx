@@ -98,7 +98,8 @@ it("adds My P2S with an official nozzle, plate, AMS and default selection", asyn
   expect(client.listSavedPrinters).toHaveBeenCalledTimes(2);
 });
 
-it("keeps unavailable saved printers visible and prevents starting a slice", async () => {
+it("keeps unavailable saved printers manageable while preventing a slice", async () => {
+  const user = userEvent.setup();
   const unavailable: SavedPrinter = {
     printer_id: "missing-model",
     display_name: "工作室旧机器",
@@ -114,7 +115,26 @@ it("keeps unavailable saved printers visible and prevents starting a slice", asy
 
   expect(await screen.findByRole("heading", { name: "工作室旧机器" })).toBeVisible();
   expect(screen.getByText("当前 Bambu Studio 中找不到这套官方配置")).toBeVisible();
+  expect(screen.getByRole("button", { name: "设为默认" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "使用此打印机切片" })).toBeDisabled();
+
+  await user.click(screen.getByRole("button", { name: "编辑打印机" }));
+  const name = screen.getByLabelText("打印机名称");
+  await user.clear(name);
+  await user.type(name, "工作室旧机器（改名）");
+  expect(screen.getByLabelText("喷嘴直径")).toBeEnabled();
+  expect(screen.getByLabelText("打印板")).toBeEnabled();
+  await user.click(screen.getByRole("button", { name: "保存打印机" }));
+
+  await waitFor(() => expect(client.savePrinter).toHaveBeenCalledWith({
+    printer_id: "missing-model",
+    display_name: "工作室旧机器（改名）",
+    model_key: "Bambu Lab Missing",
+    nozzle_diameter: 0.4,
+    default_plate: "Cool Plate",
+    ams_kind: "none",
+    is_default: false,
+  }));
 });
 
 it("traps focus, closes with Escape, and restores focus to the add button", async () => {

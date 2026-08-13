@@ -14,6 +14,23 @@ bool close_to(double lhs, double rhs) {
 } // namespace
 
 int main() {
+  {
+    const PixelRegionBounds monitor{0, 0, 1920, 1080};
+    const PixelRegionBounds centered = VisualEffectBounds(monitor, 760, 540, 600);
+    assert(centered.left > monitor.left);
+    assert(centered.top > monitor.top);
+    assert(centered.right < monitor.right);
+    assert(centered.bottom < monitor.bottom);
+    assert(centered.right - centered.left == 900);
+    assert(centered.bottom - centered.top == 900);
+
+    const PixelRegionBounds edge = VisualEffectBounds(monitor, 0, 0, 600);
+    assert(edge.left == monitor.left);
+    assert(edge.top == monitor.top);
+    assert(edge.right < monitor.right);
+    assert(edge.bottom < monitor.bottom);
+  }
+
   const OwnerResourceStopDecision captureStopBlocked =
       NextOwnerResourceStopDecision(false, 1000);
   assert(captureStopBlocked.action ==

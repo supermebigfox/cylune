@@ -112,6 +112,7 @@ struct VisualPane {
   HWND window = nullptr;
   HMONITOR monitor = nullptr;
   RECT physical{};
+  RECT effectBounds{};
   bool protectedFromCapture = false;
   std::unique_ptr<BlackHoleRenderer> renderer;
   std::unique_ptr<DesktopCapture> capture;
@@ -220,7 +221,6 @@ struct PetWindow::Impl {
   VisualPane *activePane = nullptr;
   HWND activeVisual = nullptr;
   HMONITOR activeVisualMonitor = nullptr;
-  bool allWindowsProtected = true;
   DesktopCapture *capture = nullptr;
   std::atomic<uint32_t> nativeCaptureState{PET_CAPTURE_UNAVAILABLE};
   std::atomic<DWORD> ownerThreadId{0};
@@ -431,17 +431,13 @@ struct PetWindow::Impl {
 
   bool createVisualPanes() {
     destroyVisualPanes();
-    const bool inputProtected = allWindowsProtected;
-    bool panesProtected = true;
     const DWORD exStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE |
                           WS_EX_NOREDIRECTIONBITMAP | WS_EX_TRANSPARENT;
     for (const MonitorSnapshot &monitor : monitors) {
-      const int width = monitor.physical.right - monitor.physical.left;
-      const int height = monitor.physical.bottom - monitor.physical.top;
       HWND pane = CreateWindowExW(exStyle, kWindowClassName,
                                   L"CYLUNE Desktop Pet Visual", WS_POPUP,
                                   monitor.physical.left, monitor.physical.top,
-                                  width, height, nullptr, nullptr,
+                                  1, 1, nullptr, nullptr,
                                   GetModuleHandleW(nullptr),
                                   reinterpret_cast<void *>(
                                       reinterpret_cast<LONG_PTR>(this) | 1));
@@ -450,24 +446,10 @@ struct PetWindow::Impl {
         return false;
       }
       const bool protectedPane = ConfigureWindowProtection(pane);
-      panesProtected = panesProtected && protectedPane;
-      visualPanes.push_back({pane, monitor.monitor, monitor.physical,
+      visualPanes.push_back({pane, monitor.monitor, monitor.physical, {},
                              protectedPane, nullptr, nullptr});
-      VisualPane &createdPane = visualPanes.back();
-      createdPane.renderer = BlackHoleRenderer::create(
-          createdPane.window, shaderSource.c_str(), createdPane.monitor);
-      if (createdPane.renderer == nullptr ||
-          !createdPane.renderer->available() ||
-          !createdPane.renderer->resize(static_cast<uint32_t>(width),
-                                        static_cast<uint32_t>(height))) {
-        destroyVisualPanes();
-        return false;
-      }
-      // Every monitor owns a live DComp target and swap chain. Inactive panes
-      // remain transparent and hidden until an atomic pane activation.
-      createdPane.renderer->setVisible(false);
+      (void)ShowWindow(pane, SW_HIDE);
     }
-    allWindowsProtected = inputProtected && panesProtected;
     return !visualPanes.empty();
   }
 
@@ -514,7 +496,7 @@ struct PetWindow::Impl {
     const ULONGLONG now = GetTickCount64();
     if (!presentation.requestedVisible() || sleeping || renderer == nullptr ||
         !renderer->available() || activePane == nullptr ||
-        activeVisualMonitor == nullptr || !allWindowsProtected) {
+        activeVisualMonitor == nullptr || !activePane->protectedFromCapture) {
       captureRetry.cancel();
       return false;
     }
@@ -598,23 +580,17 @@ struct PetWindow::Impl {
     activePane = &*found;
     rendererPixelWidth = 0;
     rendererPixelHeight = 0;
+    if (activePane->renderer == nullptr) {
+      activePane->renderer = BlackHoleRenderer::create(
+          activePane->window, shaderSource.c_str(), activePane->monitor);
+    }
     renderer = activePane->renderer.get();
     if (renderer == nullptr || !renderer->available()) {
       updateRendererAvailability();
       return false;
     }
-    const uint32_t width = static_cast<uint32_t>(
-        std::max(1L, monitor->physical.right - monitor->physical.left));
-    const uint32_t height = static_cast<uint32_t>(
-        std::max(1L, monitor->physical.bottom - monitor->physical.top));
-    if (!renderer->resize(width, height)) {
-      updateRendererAvailability();
-      return false;
-    }
-    rendererPixelWidth = width;
-    rendererPixelHeight = height;
     renderer->setVisible(false);
-    if (!allWindowsProtected) {
+    if (!activePane->protectedFromCapture) {
       updateCaptureAvailability(PET_CAPTURE_FAILED);
     }
     updateRendererAvailability();
@@ -817,10 +793,22 @@ struct PetWindow::Impl {
           std::max(1L, monitor->physical.right - monitor->physical.left);
       const double monitorHeight =
           std::max(1L, monitor->physical.bottom - monitor->physical.top);
-      frame.centerX = static_cast<float>((globalCenter.x - monitor->physical.left) /
-                                         monitorWidth);
-      frame.centerY = static_cast<float>((globalCenter.y - monitor->physical.top) /
-                                         monitorHeight);
+      const RECT effect = activePane == nullptr ? monitor->physical
+                                                 : activePane->effectBounds;
+      const double effectWidth = std::max(1L, effect.right - effect.left);
+      const double effectHeight = std::max(1L, effect.bottom - effect.top);
+      frame.centerX =
+          static_cast<float>((globalCenter.x - effect.left) / effectWidth);
+      frame.centerY =
+          static_cast<float>((globalCenter.y - effect.top) / effectHeight);
+      frame.captureOriginX =
+          static_cast<float>((effect.left - monitor->physical.left) /
+                             monitorWidth);
+      frame.captureOriginY =
+          static_cast<float>((effect.top - monitor->physical.top) /
+                             monitorHeight);
+      frame.captureScaleX = static_cast<float>(effectWidth / monitorWidth);
+      frame.captureScaleY = static_cast<float>(effectHeight / monitorHeight);
     }
     if (capture != nullptr) {
       DesktopCaptureFrame captured{};
@@ -1076,9 +1064,8 @@ struct PetWindow::Impl {
     monitors = MonitorSnapshots(dpiProbe);
     const bool stopRequested =
         WaitForSingleObject(stopEvent, 0) == WAIT_OBJECT_0;
-    // WDA failure only disables desktop sampling; it must not prevent the
-    // procedural pet from opening. Every top-level window is still attempted.
-    allWindowsProtected = ConfigureWindowProtection(window);
+    // Only the bounded visual is excluded from capture. Excluding this input
+    // window would make some screen-sharing tools paint its hit-test box black.
     const bool windowInitialized =
         !stopRequested && dpiProbe != nullptr && !monitors.empty() &&
         createVisualPanes() && resetPosition();
@@ -1214,6 +1201,30 @@ struct PetWindow::Impl {
         LogicalToPhysical({placement.x, placement.y}, monitor->logical);
     const int side =
         std::max(1, Rounded(placement.size * monitor->logical.scale));
+    const LogicalPoint center = LogicalToPhysical(
+        {placement.x + placement.size * 0.5,
+         placement.y + placement.size * 0.5},
+        monitor->logical);
+    const PixelRegionBounds effect = VisualEffectBounds(
+        {monitor->physical.left, monitor->physical.top, monitor->physical.right,
+         monitor->physical.bottom},
+        Rounded(center.x), Rounded(center.y), side);
+    const auto positionVisualPane = [this, effect]() {
+      if (activeVisual == nullptr || renderer == nullptr) return false;
+      const uint32_t width =
+          static_cast<uint32_t>(std::max(1, effect.right - effect.left));
+      const uint32_t height =
+          static_cast<uint32_t>(std::max(1, effect.bottom - effect.top));
+      if (!resizeRenderer(width, height) ||
+          !SetWindowPos(activeVisual, HWND_TOPMOST, effect.left, effect.top,
+                        static_cast<int>(width), static_cast<int>(height),
+                        SWP_NOACTIVATE | SWP_NOOWNERZORDER)) {
+        return false;
+      }
+      activePane->effectBounds =
+          {effect.left, effect.top, effect.right, effect.bottom};
+      return true;
+    };
     const bool resizeRequired = false;  // only the input target is resized here.
     inputRegionValid = TryPositionResizeAndRegion(
         resizeRequired,
@@ -1227,6 +1238,7 @@ struct PetWindow::Impl {
                                    static_cast<uint32_t>(side), false);
         },
         [window, side]() { return ApplyInputRegion(window, side); });
+    if (inputRegionValid && !positionVisualPane()) inputRegionValid = false;
     if (!inputRegionValid) invalidateInputRegion();
     return inputRegionValid;
   }
@@ -1378,8 +1390,6 @@ struct PetWindow::Impl {
     }
     displayRecoveryPending = false;
     displayRecoveryEmitChange = false;
-    allWindowsProtected = ConfigureWindowProtection(
-        hwnd.load(std::memory_order_relaxed));
     if (!createVisualPanes()) {
       updateCaptureAvailability(PET_CAPTURE_FAILED);
       return;

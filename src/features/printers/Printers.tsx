@@ -125,18 +125,22 @@ function PrinterDialog({
   onCloseRef.current = onClose;
   const [draft, setDraft] = useState(() => initialDraft(profiles, printer));
 
-  const selectedProfile = useMemo(
+  const catalogProfile = useMemo(
     () => profiles.find((profile) => profile.model_key === draft.model_key),
     [draft.model_key, profiles],
   );
-  const modelOptions = selectedProfile || !printer
-    ? profiles
-    : [{
+  const savedProfile = printer && printer.model_key === draft.model_key
+    ? {
       model_key: printer.model_key,
       display_name: printer.model_key,
       nozzle_diameters: [printer.nozzle_diameter],
       plate_keys: [printer.default_plate],
-    }, ...profiles];
+    }
+    : undefined;
+  const selectedProfile = catalogProfile ?? savedProfile;
+  const modelOptions = catalogProfile || !printer
+    ? profiles
+    : [savedProfile!, ...profiles];
   const valid = Boolean(
     draft.display_name.trim()
       && selectedProfile
@@ -229,7 +233,7 @@ function PrinterDialog({
         </label>
         <label className="printer-field printer-field-wide">
           <span>{copy("printers.model")}</span>
-          <select value={draft.model_key} disabled={busy || !profiles.length} onChange={(event) => chooseModel(event.target.value)}>
+          <select value={draft.model_key} disabled={busy || !modelOptions.length} onChange={(event) => chooseModel(event.target.value)}>
             {modelOptions.map((profile) => <option key={profile.model_key} value={profile.model_key}>{profile.display_name}</option>)}
           </select>
         </label>
@@ -384,7 +388,7 @@ export function Printers({
             <button className="icon-button" type="button" aria-label={copy("printers.edit")} disabled={busy} onClick={() => openDialog(printer)}><PencilSimple size={18} /></button>
             <button className="icon-button danger" type="button" aria-label={copy("printers.delete")} disabled={busy} onClick={() => remove(printer)}><Trash size={18} /></button>
           </div>
-          {!printer.is_default ? <button className="ghost small" type="button" disabled={busy || !printer.is_available} onClick={() => void makeDefault(printer.printer_id)}><Star size={15} />{copy("printers.setDefault")}</button> : null}
+          {!printer.is_default ? <button className="ghost small" type="button" disabled={busy} onClick={() => void makeDefault(printer.printer_id)}><Star size={15} />{copy("printers.setDefault")}</button> : null}
           <button className="secondary small" type="button" disabled={busy || !printer.is_available} onClick={() => onStartSlice?.(printer)}>{copy("printers.startSlice")}<ArrowRight size={15} /></button>
         </footer>
       </article>)}

@@ -169,7 +169,6 @@ struct DesktopCapture::Impl {
         std::lock_guard<std::mutex> lock(stateMutex);
         if (generation != generationToken) break;
         (void)machine.reduce(CaptureEvent::Timeout);
-        clearFrameLocked();
         continue;
       }
       if (acquired == DXGI_ERROR_ACCESS_LOST ||

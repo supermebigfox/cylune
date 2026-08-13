@@ -51,6 +51,18 @@ pub struct PrinterService {
     database: AppDatabase,
 }
 
+#[derive(Deserialize)]
+struct BuiltInPrinterProfile {
+    model_key: String,
+    nozzle_diameters: Vec<f64>,
+    plate_keys: Vec<String>,
+}
+
+struct PrinterCatalogs {
+    management: Vec<PrinterProfile>,
+    slicing: Vec<PrinterProfile>,
+}
+
 pub type PrinterState = Mutex<PrinterService>;
 
 impl PrinterService {
@@ -335,6 +347,60 @@ pub fn load_printer_profiles(profiles_root: &Path) -> Result<Vec<PrinterProfile>
         .collect())
 }
 
+pub fn built_in_printer_profiles() -> Result<Vec<PrinterProfile>> {
+    let profiles: Vec<BuiltInPrinterProfile> =
+        serde_json::from_str(include_str!("../resources/printers.json"))
+            .map_err(|_| AppError::SlicerIncompatible)?;
+    if profiles.is_empty() {
+        return Err(AppError::SlicerIncompatible);
+    }
+    profiles
+        .into_iter()
+        .map(|profile| {
+            if !profile.model_key.starts_with("Bambu Lab ")
+                || profile.nozzle_diameters.is_empty()
+                || profile.plate_keys.is_empty()
+                || profile
+                    .nozzle_diameters
+                    .iter()
+                    .any(|diameter| !diameter.is_finite() || *diameter <= 0.0)
+            {
+                return Err(AppError::SlicerIncompatible);
+            }
+            Ok(PrinterProfile {
+                display_name: profile.model_key.clone(),
+                model_key: profile.model_key,
+                nozzle_diameters: profile.nozzle_diameters,
+                plate_keys: profile.plate_keys,
+            })
+        })
+        .collect()
+}
+
+pub fn merge_printer_profiles(
+    built_in: Vec<PrinterProfile>,
+    installed: Vec<PrinterProfile>,
+) -> Vec<PrinterProfile> {
+    let mut profiles: BTreeMap<String, PrinterProfile> = built_in
+        .into_iter()
+        .map(|profile| (profile.model_key.clone(), profile))
+        .collect();
+    for profile in installed {
+        profiles.insert(profile.model_key.clone(), profile);
+    }
+    profiles.into_values().collect()
+}
+
+fn catalogs_from_sources(
+    built_in: Vec<PrinterProfile>,
+    installed: Vec<PrinterProfile>,
+) -> PrinterCatalogs {
+    PrinterCatalogs {
+        management: merge_printer_profiles(built_in, installed.clone()),
+        slicing: installed,
+    }
+}
+
 fn read_machine_documents(root: &Path) -> Result<HashMap<String, Map<String, Value>>> {
     if !regular_directory(root) {
         return Err(AppError::SlicerProfilesMissing);
@@ -469,15 +535,19 @@ fn regular_file(path: &PathBuf) -> bool {
         .is_ok_and(|metadata| metadata.file_type().is_file() && !metadata.file_type().is_symlink())
 }
 
-fn discover_catalog(app_path: Option<String>) -> Result<Vec<PrinterProfile>> {
+fn discover_catalogs(app_path: Option<String>) -> Result<PrinterCatalogs> {
+    let built_in = built_in_printer_profiles()?;
     let explicit = app_path.map(PathBuf::from);
-    let installation = InstallationDiscovery::new(explicit).discover()?;
-    load_printer_profiles(&installation.profiles_root)
+    let installed = InstallationDiscovery::new(explicit)
+        .discover()
+        .and_then(|installation| load_printer_profiles(&installation.profiles_root))
+        .unwrap_or_default();
+    Ok(catalogs_from_sources(built_in, installed))
 }
 
 #[tauri::command]
 pub fn list_available_printers(app_path: Option<String>) -> Result<Vec<PrinterProfile>> {
-    discover_catalog(app_path)
+    Ok(discover_catalogs(app_path)?.management)
 }
 
 #[tauri::command]
@@ -485,7 +555,9 @@ pub fn list_saved_printers(
     app_path: Option<String>,
     state: tauri::State<'_, PrinterState>,
 ) -> Result<Vec<SavedPrinter>> {
-    let catalog = discover_catalog(app_path).unwrap_or_default();
+    let catalog = discover_catalogs(app_path)
+        .map(|catalogs| catalogs.slicing)
+        .unwrap_or_default();
     state
         .lock()
         .map_err(|_| AppError::Database("printer lock poisoned".into()))?
@@ -526,7 +598,10 @@ pub fn set_default_printer(
 
 #[cfg(test)]
 mod tests {
-    use super::{load_printer_profiles, PrinterProfile, PrinterService, SavePrinter};
+    use super::{
+        built_in_printer_profiles, catalogs_from_sources, load_printer_profiles,
+        merge_printer_profiles, PrinterProfile, PrinterService, SavePrinter,
+    };
     use crate::db::AppDatabase;
     use std::{fs, path::PathBuf};
     use uuid::Uuid;
@@ -565,6 +640,62 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[test]
+    fn built_in_catalog_allows_printer_management_without_bambu_studio() {
+        let catalog = built_in_printer_profiles().unwrap();
+
+        let p2s = catalog
+            .iter()
+            .find(|profile| profile.model_key == "Bambu Lab P2S")
+            .expect("built-in catalog must include P2S");
+        assert!(p2s.nozzle_diameters.contains(&0.4));
+        assert!(p2s.plate_keys.contains(&"Supertack Plate".to_owned()));
+        assert!(catalog
+            .iter()
+            .any(|profile| profile.model_key == "Bambu Lab A1"));
+    }
+
+    #[test]
+    fn installed_profiles_replace_built_in_metadata_for_the_same_model() {
+        let built_in = vec![PrinterProfile {
+            model_key: "Bambu Lab P2S".to_owned(),
+            display_name: "Bambu Lab P2S".to_owned(),
+            nozzle_diameters: vec![0.4],
+            plate_keys: vec!["Supertack Plate".to_owned()],
+        }];
+        let installed = vec![PrinterProfile {
+            model_key: "Bambu Lab P2S".to_owned(),
+            display_name: "Bambu Lab P2S".to_owned(),
+            nozzle_diameters: vec![0.2, 0.4, 0.6],
+            plate_keys: vec!["Textured PEI Plate".to_owned()],
+        }];
+
+        let merged = merge_printer_profiles(built_in, installed);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].nozzle_diameters, vec![0.2, 0.4, 0.6]);
+        assert_eq!(merged[0].plate_keys, vec!["Textured PEI Plate"]);
+    }
+
+    #[test]
+    fn built_in_profiles_allow_management_without_claiming_slice_availability() {
+        let built_in = vec![PrinterProfile {
+            model_key: "Bambu Lab P2S".to_owned(),
+            display_name: "Bambu Lab P2S".to_owned(),
+            nozzle_diameters: vec![0.4],
+            plate_keys: vec!["Supertack Plate".to_owned()],
+        }];
+        let catalogs = catalogs_from_sources(built_in, Vec::new());
+        let mut service = PrinterService::new(AppDatabase::open_in_memory().unwrap());
+        service
+            .save(saved_input("未安装 Studio 的 P2S", "Bambu Lab P2S", true))
+            .unwrap();
+
+        assert_eq!(catalogs.management.len(), 1);
+        assert!(catalogs.slicing.is_empty());
+        assert!(!service.list_saved(&catalogs.slicing).unwrap()[0].is_available);
     }
 
     #[test]

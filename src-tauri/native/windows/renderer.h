@@ -30,6 +30,10 @@ struct RendererFrame {
   uint32_t pendingCount = 0;
   ID3D11ShaderResourceView *desktop = nullptr;
   uint32_t desktopRotation = 0;
+  float captureOriginX = 0.0f;
+  float captureOriginY = 0.0f;
+  float captureScaleX = 1.0f;
+  float captureScaleY = 1.0f;
 };
 
 class BlackHoleRenderer {

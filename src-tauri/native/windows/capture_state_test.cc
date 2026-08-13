@@ -2,13 +2,13 @@
 
 #include <cassert>
 
-void frame_generation_and_timeout() {
+void frame_generation_and_timeout_preserves_last_desktop_frame() {
   CaptureMachine machine;
   assert(machine.reduce(CaptureEvent::Start).action == CaptureAction::CreateDuplication);
   const uint64_t first = machine.generation();
   assert(machine.reduceFrameReady(first).action == CaptureAction::PublishFrame);
-  assert(machine.reduce(CaptureEvent::Timeout).action == CaptureAction::ClearFrame);
-  assert(!machine.hasCurrentFrame());
+  assert(machine.reduce(CaptureEvent::Timeout).action == CaptureAction::None);
+  assert(machine.hasCurrentFrame());
   assert(machine.reduce(CaptureEvent::AccessLost).action == CaptureAction::RecreateDuplication);
   assert(machine.phase() == CapturePhase::Recovering);
   assert(machine.reduce(CaptureEvent::AccessLost).action == CaptureAction::None);
@@ -193,7 +193,7 @@ void rotation_maps_all_corners() {
 }
 
 int main() {
-  frame_generation_and_timeout();
+  frame_generation_and_timeout_preserves_last_desktop_frame();
   lifecycle_is_terminal_and_idempotent();
   deadline_is_terminal_even_before_stop();
   failure_invalidates_the_published_generation();

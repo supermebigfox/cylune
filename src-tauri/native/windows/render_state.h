@@ -60,6 +60,15 @@ inline PresentDisposition ClassifyPresentResult(int32_t result,
                      : PresentDisposition::DeviceFailure;
 }
 
+enum class DxgiEnumerationResult : uint32_t { Item, End, Failure };
+
+inline DxgiEnumerationResult ClassifyDxgiEnumerationResult(
+    int32_t result, int32_t notFoundResult) {
+  if (result == notFoundResult) return DxgiEnumerationResult::End;
+  return result >= 0 ? DxgiEnumerationResult::Item
+                     : DxgiEnumerationResult::Failure;
+}
+
 class SurfacePrimeState {
  public:
   void conceal() { visible_ = false; }

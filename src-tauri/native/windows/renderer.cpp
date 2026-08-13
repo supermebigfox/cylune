@@ -39,9 +39,11 @@ struct alignas(16) ShaderParams {
   float successJetProgress;
   uint32_t desktopRotation;
   float padding1;
+  float captureOrigin[2];
+  float captureScale[2];
 };
 
-static_assert(sizeof(ShaderParams) == 64, "HLSL constant layout changed");
+static_assert(sizeof(ShaderParams) == 80, "HLSL constant layout changed");
 
 void LogRendererError(const char *message) noexcept {
   OutputDebugStringA("CYLUNE black-hole renderer: ");
@@ -142,29 +144,47 @@ struct BlackHoleRenderer::Impl {
     return disposition;
   }
 
-  bool initialize(HWND targetWindow, const char *source,
-                  HMONITOR monitor) noexcept {
+  bool initialize(HWND targetWindow, const char *source, HMONITOR monitor,
+                  bool forceWarp) noexcept {
     window = targetWindow;
     if (window == nullptr || source == nullptr) return false;
 
     ComPtr<IDXGIAdapter1> selectedAdapter;
-    if (monitor != nullptr) {
+    if (monitor != nullptr && !forceWarp) {
       ComPtr<IDXGIFactory1> enumerationFactory;
       if (SUCCEEDED(CreateDXGIFactory1(
               IID_PPV_ARGS(enumerationFactory.ReleaseAndGetAddressOf())))) {
         for (UINT adapterIndex = 0; selectedAdapter == nullptr; ++adapterIndex) {
           ComPtr<IDXGIAdapter1> candidate;
-          if (enumerationFactory->EnumAdapters1(
-                  adapterIndex, candidate.ReleaseAndGetAddressOf()) ==
-              DXGI_ERROR_NOT_FOUND) {
+          const HRESULT adapterResult = enumerationFactory->EnumAdapters1(
+              adapterIndex, candidate.ReleaseAndGetAddressOf());
+          const DxgiEnumerationResult adapterDisposition =
+              ClassifyDxgiEnumerationResult(
+                  static_cast<int32_t>(adapterResult),
+                  static_cast<int32_t>(DXGI_ERROR_NOT_FOUND));
+          if (adapterDisposition == DxgiEnumerationResult::End) {
             break;
+          }
+          if (adapterDisposition == DxgiEnumerationResult::Failure ||
+              candidate == nullptr) {
+            LogRendererError("DXGI adapter enumeration failed");
+            return false;
           }
           for (UINT outputIndex = 0;; ++outputIndex) {
             ComPtr<IDXGIOutput> output;
-            if (candidate->EnumOutputs(outputIndex,
-                                       output.ReleaseAndGetAddressOf()) ==
-                DXGI_ERROR_NOT_FOUND) {
+            const HRESULT outputResult = candidate->EnumOutputs(
+                outputIndex, output.ReleaseAndGetAddressOf());
+            const DxgiEnumerationResult outputDisposition =
+                ClassifyDxgiEnumerationResult(
+                    static_cast<int32_t>(outputResult),
+                    static_cast<int32_t>(DXGI_ERROR_NOT_FOUND));
+            if (outputDisposition == DxgiEnumerationResult::End) {
               break;
+            }
+            if (outputDisposition == DxgiEnumerationResult::Failure ||
+                output == nullptr) {
+              LogRendererError("DXGI output enumeration failed");
+              return false;
             }
             DXGI_OUTPUT_DESC desc{};
             if (SUCCEEDED(output->GetDesc(&desc)) && desc.Monitor == monitor) {
@@ -180,14 +200,17 @@ struct BlackHoleRenderer::Impl {
       }
     }
     UINT deviceFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+    const D3D_DRIVER_TYPE driverType =
+        forceWarp ? D3D_DRIVER_TYPE_WARP
+                  : (selectedAdapter == nullptr ? D3D_DRIVER_TYPE_HARDWARE
+                                                : D3D_DRIVER_TYPE_UNKNOWN);
     if (FAILED(D3D11CreateDevice(
-            selectedAdapter.Get(),
-            selectedAdapter == nullptr ? D3D_DRIVER_TYPE_HARDWARE
-                                       : D3D_DRIVER_TYPE_UNKNOWN,
-            nullptr, deviceFlags, nullptr, 0,
-            D3D11_SDK_VERSION, device.ReleaseAndGetAddressOf(), nullptr,
-            context.ReleaseAndGetAddressOf()))) {
-      LogRendererError("D3D11 device creation failed");
+          forceWarp ? nullptr : selectedAdapter.Get(), driverType, nullptr,
+          deviceFlags, nullptr, 0,
+          D3D11_SDK_VERSION, device.ReleaseAndGetAddressOf(), nullptr,
+          context.ReleaseAndGetAddressOf()))) {
+      LogRendererError(forceWarp ? "D3D11 WARP device creation failed"
+                                 : "D3D11 hardware device creation failed");
       return false;
     }
 
@@ -386,8 +409,11 @@ std::unique_ptr<BlackHoleRenderer> BlackHoleRenderer::create(
   std::unique_ptr<BlackHoleRenderer> renderer(
       new (std::nothrow) BlackHoleRenderer());
   if (renderer == nullptr || renderer->impl_ == nullptr) return nullptr;
-  if (!renderer->impl_->initialize(window, hlslSource, monitor)) {
+  if (!renderer->impl_->initialize(window, hlslSource, monitor, false)) {
     renderer->impl_->releaseAll();
+    if (!renderer->impl_->initialize(window, hlslSource, monitor, true)) {
+      renderer->impl_->releaseAll();
+    }
   }
   return renderer;
 }
@@ -463,6 +489,10 @@ bool BlackHoleRenderer::render(const RendererFrame &frame) noexcept {
   params.pullGain = frame.pullGain;
   params.successJetProgress = frame.successJetProgress;
   params.desktopRotation = frame.desktopRotation;
+  params.captureOrigin[0] = frame.captureOriginX;
+  params.captureOrigin[1] = frame.captureOriginY;
+  params.captureScale[0] = frame.captureScaleX;
+  params.captureScale[1] = frame.captureScaleY;
   impl_->context->UpdateSubresource(impl_->constantBuffer.Get(), 0, nullptr,
                                     &params, 0, 0);
 

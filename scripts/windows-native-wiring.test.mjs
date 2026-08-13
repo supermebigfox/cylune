@@ -10,6 +10,14 @@ const captureSource = readFileSync(
   resolve("src-tauri/native/windows/capture.cpp"),
   "utf8",
 );
+const rendererSource = readFileSync(
+  resolve("src-tauri/native/windows/renderer.cpp"),
+  "utf8",
+);
+const shaderSource = readFileSync(
+  resolve("src-tauri/native/windows/BlackHole.hlsl"),
+  "utf8",
+);
 const buildScript = readFileSync(resolve("src-tauri/build.rs"), "utf8");
 
 function section(start, end) {
@@ -40,22 +48,46 @@ describe("Windows desktop capture wiring", () => {
     expect(buildScript).toContain("processorArchitecture='amd64'");
   });
 
-  it("creates and sizes an independent renderer for every visual pane", () => {
+  it("creates visual panes lazily instead of requiring every monitor renderer", () => {
     const createPanes = section(
       "bool createVisualPanes()",
       "bool retireCapture()",
     );
-    expect(createPanes).toContain("visualPanes.back()");
-    expect(createPanes).toContain("BlackHoleRenderer::create(");
-    expect(createPanes).toContain("createdPane.renderer->resize(");
-    expect(createPanes).toContain("createdPane.renderer->setVisible(false)");
+    expect(createPanes).not.toContain("BlackHoleRenderer::create(");
 
     const activatePane = section(
       "bool activateVisualPane(",
       "void initializeRenderer(",
     );
     expect(activatePane).toContain("renderer = activePane->renderer.get()");
-    expect(activatePane).not.toContain("BlackHoleRenderer::create(");
+    expect(activatePane).toContain("BlackHoleRenderer::create(");
+  });
+
+  it("limits the protected visual window to the effect bounds", () => {
+    const createPanes = section(
+      "bool createVisualPanes()",
+      "bool retireCapture()",
+    );
+    expect(createPanes).not.toContain("monitor.physical.left, monitor.physical.top,\n                                  width, height");
+
+    const position = section("bool positionWindow()", "bool resetPosition()");
+    expect(position).toContain("VisualEffectBounds(");
+    expect(position).toContain("positionVisualPane(");
+  });
+
+  it("maps the cropped effect surface back into the live desktop texture", () => {
+    expect(shaderSource).toContain("float2 captureOrigin");
+    expect(shaderSource).toContain("float2 captureScale");
+    expect(shaderSource).toContain("captureUV(");
+    expect(rendererSource).toContain("params.captureOrigin[0]");
+    expect(rendererSource).toContain("params.captureScale[0]");
+  });
+
+  it("retries the complete render pipeline with the system WARP renderer", () => {
+    expect(rendererSource).toContain("D3D_DRIVER_TYPE_WARP");
+    expect(rendererSource).toContain(
+      "initialize(window, hlslSource, monitor, true)",
+    );
   });
 
   it("joins capture before OLE revoke and DComp/window destruction", () => {
@@ -83,6 +115,21 @@ describe("Windows desktop capture wiring", () => {
   it("rejects frame identity mismatches and classifies DEVICE_RESET as device loss", () => {
     expect(windowSource).toContain("CaptureFrameMatchesOwner(ownerIdentity, frameIdentity)");
     expect(captureSource).toContain("CaptureEvent::DeviceReset");
+  });
+
+  it("keeps the last desktop texture when duplication reports no new frame", () => {
+    const timeoutStart = captureSource.indexOf(
+      "if (acquired == DXGI_ERROR_WAIT_TIMEOUT)",
+    );
+    const accessLostStart = captureSource.indexOf(
+      "if (acquired == DXGI_ERROR_ACCESS_LOST",
+      timeoutStart,
+    );
+    expect(timeoutStart).toBeGreaterThanOrEqual(0);
+    expect(accessLostStart).toBeGreaterThan(timeoutStart);
+    const timeoutBranch = captureSource.slice(timeoutStart, accessLostStart);
+    expect(timeoutBranch).toContain("CaptureEvent::Timeout");
+    expect(timeoutBranch).not.toContain("clearFrameLocked()");
   });
 
   it("keeps unexpected NCDESTROY on the owner stop path", () => {
