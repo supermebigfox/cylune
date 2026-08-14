@@ -65,7 +65,7 @@ curl -L --fail --silent --show-error --output /dev/null --write-out '%{http_code
 
 Expected: each command prints `200`.
 
-- [ ] **Step 5: Commit and publish**
+- [x] **Step 5: Commit and publish**
 
 Run:
 
@@ -77,7 +77,7 @@ git push origin HEAD:codex/windows-port HEAD:main
 
 Expected: the commit succeeds and both remote branches point to the new commit.
 
-- [ ] **Step 6: Verify the GitHub-rendered README**
+- [x] **Step 6: Verify the GitHub-rendered README**
 
 Run:
 
